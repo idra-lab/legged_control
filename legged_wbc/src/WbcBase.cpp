@@ -230,7 +230,7 @@ Task WbcBase::formulateSwingLegTask() {
 
 Task WbcBase::formulateContactForceTask(const vector_t& inputDesired) const {
   matrix_t a(3 * info_.numThreeDofContacts, numDecisionVars_);
-  vector_t b(a.rows())300.0;
+  vector_t b(a.rows());
   a.setZero();
 
   for (size_t i = 0; i < info_.numThreeDofContacts; ++i) {
