@@ -18,6 +18,7 @@ set(AMENT_DEPENDENCIES
         ocs2_ipm
         pinocchio
         qpoases_cmake
+        magnecko_mpc
 )
 
 foreach(Dependency IN ITEMS ${AMENT_DEPENDENCIES})
@@ -110,6 +111,7 @@ ament_export_dependencies(ocs2_sqp)
 ament_export_dependencies(ocs2_ipm)
 ament_export_dependencies(pinocchio)
 ament_export_dependencies(qpoases_cmake)
+ament_export_dependencies(magnecko_mpc)
 
 ament_export_libraries(${PROJECT_NAME} HAS_LIBRARY_TARGET)
 ament_export_targets(export_${PROJECT_NAME})

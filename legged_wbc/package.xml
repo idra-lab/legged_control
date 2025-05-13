@@ -18,6 +18,7 @@
     <depend>ocs2_legged_robot</depend>
     <depend>qpoases_cmake</depend>
     <depend>pinocchio</depend>
+    <depend>magnecko_mpc</depend>
 
     <export>
         <build_type>ament_cmake</build_type>

@@ -55,7 +55,7 @@ class WbcBase {
 
   // Task Parameters:
   vector_t torqueLimits_;
-  scalar_t frictionCoeff_{}, swingKp_{}, swingKd_{};
+  scalar_t frictionCoeff_{}, swingKp_{}, swingKd_{}, maxMagnetForce_{};
 };
 
 }  // namespace legged

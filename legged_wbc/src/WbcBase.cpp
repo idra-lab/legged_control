@@ -12,6 +12,7 @@
 #include <pinocchio/algorithm/frames.hpp>
 #include <pinocchio/algorithm/rnea.hpp>
 #include <utility>
+#include "magnecko_mpc/gait/MotionPhaseDefinition.h"
 
 namespace legged {
 WbcBase::WbcBase(const PinocchioInterface& pinocchioInterface, CentroidalModelInfo info, const PinocchioEndEffectorKinematics& eeKinematics)
@@ -28,7 +29,7 @@ WbcBase::WbcBase(const PinocchioInterface& pinocchioInterface, CentroidalModelIn
 
 vector_t WbcBase::update(const vector_t& stateDesired, const vector_t& inputDesired, const vector_t& rbdStateMeasured, size_t mode,
                          scalar_t /*period*/) {
-  contactFlag_ = modeNumber2StanceLeg(mode);
+  contactFlag_ = ocs2::magnecko::modeNumber2StanceLeg(mode);
   numContacts_ = 0;
   for (bool flag : contactFlag_) {
     if (flag) {
@@ -160,13 +161,16 @@ Task WbcBase::formulateFrictionConeTask() {
 
   matrix_t d(5 * numContacts_ + 3 * (info_.numThreeDofContacts - numContacts_), numDecisionVars_);
   d.setZero();
+  vector_t f = Eigen::VectorXd::Zero(d.rows());
   j = 0;
   for (size_t i = 0; i < info_.numThreeDofContacts; ++i) {
     if (contactFlag_[i]) {
+      double maxMagnetForce = maxMagnetForce_;
+      f(5 * j) = maxMagnetForce;
+      f.segment(5 * j + 1, 4) = frictionCoeff_ * maxMagnetForce * vector_t::Ones(4);
       d.block(5 * j++, info_.generalizedCoordinatesNum + 3 * i, 5, 3) = frictionPyramic;
     }
   }
-  vector_t f = Eigen::VectorXd::Zero(d.rows());
 
   return {a, b, d, f};
 }
@@ -226,7 +230,7 @@ Task WbcBase::formulateSwingLegTask() {
 
 Task WbcBase::formulateContactForceTask(const vector_t& inputDesired) const {
   matrix_t a(3 * info_.numThreeDofContacts, numDecisionVars_);
-  vector_t b(a.rows());
+  vector_t b(a.rows())300.0;
   a.setZero();
 
   for (size_t i = 0; i < info_.numThreeDofContacts; ++i) {
@@ -255,6 +259,8 @@ void WbcBase::loadTasksSetting(const std::string& taskFile, bool verbose) {
     std::cerr << "\n #### =============================================================================\n";
   }
   loadData::loadPtreeValue(pt, frictionCoeff_, prefix + "frictionCoefficient", verbose);
+  prefix = "frictionConeSettings.";
+  loadData::loadPtreeValue(pt, maxMagnetForce_, prefix + "maxMagnetForce", verbose);
   if (verbose) {
     std::cerr << " #### =============================================================================\n";
   }
