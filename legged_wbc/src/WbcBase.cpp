@@ -5,8 +5,8 @@
 
 #include "legged_wbc/WbcBase.h"
 
-#include <ocs2_centroidal_model/AccessHelperFunctions.h>
-#include <ocs2_centroidal_model/ModelHelperFunctions.h>
+#include <magnecko_centroidal_model/AccessHelperFunctions.h>
+#include <magnecko_centroidal_model/ModelHelperFunctions.h>
 #include <pinocchio/algorithm/centroidal.hpp>
 #include <pinocchio/algorithm/crba.hpp>
 #include <pinocchio/algorithm/frames.hpp>
