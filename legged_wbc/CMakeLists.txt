@@ -13,7 +13,7 @@ find_package(pinocchio REQUIRED)
 set(AMENT_DEPENDENCIES
         tf2
         tf2_geometry_msgs
-        magnecko_centroidal_model
+        wbc_centroidal_model
         ocs2_legged_robot
         ocs2_sqp
         ocs2_ipm
@@ -107,7 +107,7 @@ install(DIRECTORY include/${PROJECT_NAME}/
 ament_export_include_directories(include)
 ament_export_dependencies(tf2)
 ament_export_dependencies(tf2_geometry_msgs)
-ament_export_dependencies(magnecko_centroidal_model)
+ament_export_dependencies(wbc_centroidal_model)
 ament_export_dependencies(ocs2_legged_robot)
 ament_export_dependencies(ocs2_sqp)
 ament_export_dependencies(ocs2_ipm)

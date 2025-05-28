@@ -5,8 +5,8 @@
 
 #include "legged_wbc/WbcBase.h"
 
-#include <magnecko_centroidal_model/AccessHelperFunctions.h>
-#include <magnecko_centroidal_model/ModelHelperFunctions.h>
+#include <wbc_centroidal_model/AccessHelperFunctions.h>
+#include <wbc_centroidal_model/ModelHelperFunctions.h>
 #include <pinocchio/algorithm/centroidal.hpp>
 #include <pinocchio/algorithm/crba.hpp>
 #include <pinocchio/algorithm/frames.hpp>
@@ -15,6 +15,7 @@
 #include "magnecko_mpc/gait/MotionPhaseDefinition.h"
 
 namespace legged {
+using namespace wbc;
 WbcBase::WbcBase(const PinocchioInterface& pinocchioInterface, CentroidalModelInfo info, const PinocchioEndEffectorKinematics& eeKinematics)
     : pinocchioInterfaceMeasured_(pinocchioInterface),
       pinocchioInterfaceDesired_(pinocchioInterface),

@@ -6,12 +6,13 @@
 
 #include "legged_wbc/Task.h"
 
-#include <magnecko_centroidal_model/PinocchioCentroidalDynamics.h>
+#include <wbc_centroidal_model/PinocchioCentroidalDynamics.h>
 #include <ocs2_legged_robot/gait/MotionPhaseDefinition.h>
-#include <ocs2_pinocchio_interface/PinocchioEndEffectorKinematics.h>
+#include <wbc_pinocchio_interface/PinocchioEndEffectorKinematics.h>
 
 namespace legged {
 using namespace ocs2;
+using namespace wbc;
 using namespace legged_robot;
 
 // Decision Variables: x = [\dot u^T, F^T, \tau^T]^T
@@ -20,7 +21,7 @@ class WbcBase {
   using Matrix6 = Eigen::Matrix<scalar_t, 6, 6>;
 
  public:
-  WbcBase(const PinocchioInterface& pinocchioInterface, CentroidalModelInfo info, const PinocchioEndEffectorKinematics& eeKinematics);
+  WbcBase(const ocs2::wbc::PinocchioInterface& pinocchioInterface, ocs2::wbc::CentroidalModelInfo info, const wbc::PinocchioEndEffectorKinematics& eeKinematics);
 
   virtual void loadTasksSetting(const std::string& taskFile, bool verbose);
 
@@ -42,11 +43,11 @@ class WbcBase {
   Task formulateContactForceTask(const vector_t& inputDesired) const;
 
   size_t numDecisionVars_;
-  PinocchioInterface pinocchioInterfaceMeasured_, pinocchioInterfaceDesired_;
-  CentroidalModelInfo info_;
+  ocs2::wbc::PinocchioInterface pinocchioInterfaceMeasured_, pinocchioInterfaceDesired_;
+  ocs2::wbc::CentroidalModelInfo info_;
 
-  std::unique_ptr<PinocchioEndEffectorKinematics> eeKinematics_;
-  CentroidalModelPinocchioMapping mapping_;
+  std::unique_ptr<wbc::PinocchioEndEffectorKinematics> eeKinematics_;
+  wbc::CentroidalModelPinocchioMapping mapping_;
 
   vector_t qMeasured_, vMeasured_, inputLast_;
   matrix_t j_, dj_;
