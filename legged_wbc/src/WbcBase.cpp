@@ -16,7 +16,7 @@
 
 namespace legged {
 using namespace wbc;
-WbcBase::WbcBase(const PinocchioInterface& pinocchioInterface, CentroidalModelInfo info, const PinocchioEndEffectorKinematics& eeKinematics)
+WbcBase::WbcBase(const wbc::PinocchioInterface& pinocchioInterface, wbc::CentroidalModelInfo info, const wbc::PinocchioEndEffectorKinematics& eeKinematics)
     : pinocchioInterfaceMeasured_(pinocchioInterface),
       pinocchioInterfaceDesired_(pinocchioInterface),
       info_(std::move(info)),
