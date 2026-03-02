@@ -24,21 +24,28 @@
 #include <legged_wbc/WeightedWbc.h>
 #include <pluginlib/class_list_macros.hpp>
 
+using namespace std;
+
 namespace legged {
 bool LeggedController::init(hardware_interface::RobotHW* robot_hw, ros::NodeHandle& controller_nh) {
   // Initialize OCS2
-  std::string urdfFile;
+    std::cerr << "DEBUG 0 " << endl;
+    std::string urdfFile;
   std::string taskFile;
   std::string referenceFile;
   controller_nh.getParam("/urdfFile", urdfFile);
   controller_nh.getParam("/taskFile", taskFile);
   controller_nh.getParam("/referenceFile", referenceFile);
-  bool verbose = false;
+  bool verbose = true;
+  std::cerr << "DEBUG 1 " << urdfFile << endl;
   loadData::loadCppDataType(taskFile, "legged_robot_interface.verbose", verbose);
-
+std::cerr << "DEBUG 2 " << taskFile << endl;
   setupLeggedInterface(taskFile, urdfFile, referenceFile, verbose);
+std::cerr << "DEBUG 3 " << referenceFile << endl;
   setupMpc();
+std::cerr << "DEBUG 4 " << urdfFile << endl;
   setupMrt();
+std::cerr << "DEBUG 5 " << urdfFile << endl;
   // Visualization
   ros::NodeHandle nh;
   CentroidalModelPinocchioMapping pinocchioMapping(leggedInterface_->getCentroidalModelInfo());
@@ -46,8 +53,8 @@ bool LeggedController::init(hardware_interface::RobotHW* robot_hw, ros::NodeHand
                                                                       leggedInterface_->modelSettings().contactNames3DoF);
   robotVisualizer_ = std::make_shared<LeggedRobotVisualizer>(leggedInterface_->getPinocchioInterface(),
                                                              leggedInterface_->getCentroidalModelInfo(), *eeKinematicsPtr_, nh);
-  selfCollisionVisualization_.reset(new LeggedSelfCollisionVisualization(leggedInterface_->getPinocchioInterface(),
-                                                                         leggedInterface_->getGeometryInterface(), pinocchioMapping, nh));
+  selfCollisionVisualization_ = std::make_shared<LeggedSelfCollisionVisualization>(leggedInterface_->getPinocchioInterface(),
+                                                                         leggedInterface_->getGeometryInterface(), pinocchioMapping, nh);
 
   // Hardware interface
   auto* hybridJointInterface = robot_hw->get<HybridJointInterface>();
@@ -199,8 +206,11 @@ LeggedController::~LeggedController() {
 
 void LeggedController::setupLeggedInterface(const std::string& taskFile, const std::string& urdfFile, const std::string& referenceFile,
                                             bool verbose) {
+    std::cerr << "DEBUG 2.1 " << urdfFile << endl;
   leggedInterface_ = std::make_shared<LeggedInterface>(taskFile, urdfFile, referenceFile);
+    std::cerr << "DEBUG 2.2 " << leggedInterface_.get() << endl;
   leggedInterface_->setupOptimalControlProblem(taskFile, urdfFile, referenceFile, verbose);
+    std::cerr << "DEBUG 2.3 " << urdfFile << endl;
 }
 
 void LeggedController::setupMpc() {
