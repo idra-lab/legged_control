@@ -6,11 +6,55 @@ teleop:
     deadman_buttons: [ 4 ]
     axis_mappings:
       - axis: 0
-        target: angular.z
-        scale: 3.1415
+        target: linear.y
+        scale: 0.5
       - axis: 1
         target: linear.x
-        scale: 1.0
-      - axis: 2
-        target: linear.y
-        scale: 0.8
+        scale: 0.5
+      - axis: 3
+        target: angular.z
+        scale: 1.5
+  standup:
+    type: topic
+    message_type: geometry_msgs/Twist
+    topic_name: cmd_vel
+    deadman_buttons: [ 0 ]
+    message_value:
+    - 
+      target: linear.z
+      value: 0.2
+    - 
+      target: linear.x
+      value: 0.0
+    -
+      target: linear.y
+      value: 0.0
+      
+  trot:
+    type: topic
+    message_type: ocs2_msgs/mode_schedule
+    topic_name: legged_robot_mpc_mode_schedule
+    deadman_buttons: [ 3 ]
+    message_value:
+    - 
+      target: eventTimes
+      value: [0.0, 0.35, 0.7]
+    - 
+      target: modeSequence
+      value: [9, 6]
+    
+  stance:
+    type: topic
+    message_type: ocs2_msgs/mode_schedule
+    topic_name: legged_robot_mpc_mode_schedule
+    deadman_buttons: [ 2 ]
+    message_value:
+    - 
+      target: eventTimes
+      value: [0.0, 0.5]
+    - 
+      target: modeSequence
+      value: [15]
+    
+    
+    
