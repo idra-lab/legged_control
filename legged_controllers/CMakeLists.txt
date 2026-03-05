@@ -20,28 +20,39 @@ find_package(catkin REQUIRED
         ocs2_legged_robot_ros
         ocs2_self_collision_visualization
         angles
+	std_msgs
+message_generation
+rospy
         )
 
 #find_package(PkgConfig REQUIRED)
 #pkg_check_modules(pinocchio REQUIRED pinocchio)
 find_package(pinocchio REQUIRED)
 
-catkin_package(
-        INCLUDE_DIRS
-        include
-        LIBRARIES
-        ${PROJECT_NAME}
-        CATKIN_DEPENDS
-        roscpp
-        legged_common
-        legged_interface
-        legged_wbc
-        legged_estimation
-        controller_interface
-        ocs2_legged_robot_ros
-        ocs2_self_collision_visualization
-        angles
+add_service_files(
+	FILES
+	KillNode.srv
 )
+
+generate_messages(
+  DEPENDENCIES
+  std_msgs
+)
+
+catkin_package(INCLUDE_DIRS include
+        LIBRARIES ${PROJECT_NAME}
+        CATKIN_DEPENDS roscpp
+        		legged_common
+        		legged_interface
+        		legged_wbc
+        		legged_estimation
+        		controller_interface
+        		ocs2_legged_robot_ros
+        		ocs2_self_collision_visualization
+        		angles	
+        		message_runtime
+        		rospy
+        		std_msgs)
 
 ###########
 ## Build ##
@@ -119,3 +130,8 @@ install(DIRECTORY include/${PROJECT_NAME}/
 install(FILES legged_controllers_plugins.xml
         DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
         )
+        
+catkin_install_python(PROGRAMS
+  scripts/kill_node_sigint_service.py
+  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
