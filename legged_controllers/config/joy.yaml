@@ -55,6 +55,13 @@ teleop:
     - 
       target: modeSequence
       value: [15]
-    
+  
+  shutdown: 
+      type: service
+      interface_type: legged_controllers/srv/KillNode
+      service_name: /kill_node_sigint
+      service_request:
+        node_name: /legged_unitree_hw
+      buttons: [1]  
     
     

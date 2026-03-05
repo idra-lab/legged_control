@@ -8,6 +8,10 @@
 
     <arg name="cheater" default="false"/>
 
+    <arg name="joy_dev" default="/dev/input/js0"/>
+    <arg name="teleop_config" default="$(find legged_controllers)/config/joy.yaml"/>
+
+
     <!-- make the files into global parameters -->
     <param name="urdfFile" value="/tmp/legged_control/$(arg robot_type).urdf"/>
     <param name="taskFile" value="$(find legged_controllers)/config/$(arg robot_type)/task.info"/>
@@ -21,7 +25,12 @@
           controllers/joint_state_controller
           controllers/legged_controller
           controllers/legged_cheater_controller
-"/>
+	    "/>
+
+    <rosparam command="load" file="$(find imu_sensor_controller)/imu_sensor_controller.yaml" />
+
+  <!-- spawn controller -->
+  <node name="imu_sensor_controller_spawner" pkg="controller_manager" type="spawner" output="screen" args="imu_sensor_controller" />
 
     <node unless="$(arg cheater)" name="controller_loader" pkg="controller_manager" type="controller_manager"
           output="screen" args="load
@@ -33,15 +42,32 @@
           output="screen"/>
 
     <node pkg="legged_controllers" type="legged_target_trajectories_publisher" name="legged_robot_target"
-          output="screen"/>
+	    output="screen"/>
+
+    <node pkg="legged_controllers" type="kill_node_sigint_service.py" name="kill_node_sigint" output="screen">
+	    <param name="allow_kill" value="true"/>
+    </node>
+
+    <node pkg="joy" type="joy_node" name="joy_node">
+        <param name="dev" value="$(arg joy_dev)"/>
+        <param name="deadzone" value="1e-3"/>
+        <param name="autorepeat_rate" value="10"/>
+        <param name="coalesce_interval" value="0.05"/>
+    </node>
+
+    <rosparam file="$(arg teleop_config)" command="load"/>
+    <node pkg="joy_teleop" type="joy_teleop.py" name="joy_teleop">
+    </node>
+
               <!-- rviz -->
     <group if="$(arg rviz)">
       <arg name="rvizconfig" default="$(find legged_controllers)/config/config.rviz" />
       <node pkg="rviz" type="rviz" name="rviz" args="-d $(arg rvizconfig)" output="screen" />
     </group>
-    <node pkg="rosservice" type="rosservice" name="chg_ctrl" args="call /controller_manager/switch_controller &quot;{start_controllers: ['controllers/legged_controller'], 
+    <node pkg="rosservice" type="rosservice" name="chg_ctrl" args="call /controller_manager/switch_controller &quot;{start_controllers: ['controllers/legged_controller', 'controllers/joint_state_controller'], 
     stop_controllers: [''], strictness: 0, start_asap: false,
-	    timeout: 0.0}&quot;" />    
+	    timeout: 0.0}&quot;" />   
+	
 
     <!-- multiplot -->
     <group if="$(arg multiplot)">
