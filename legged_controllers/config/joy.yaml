@@ -14,6 +14,7 @@ teleop:
       - axis: 3
         target: angular.z
         scale: 1.5
+        
   standup:
     type: topic
     message_type: geometry_msgs/Twist
@@ -29,32 +30,6 @@ teleop:
     -
       target: linear.y
       value: 0.0
-      
-  trot:
-    type: topic
-    message_type: ocs2_msgs/mode_schedule
-    topic_name: legged_robot_mpc_mode_schedule
-    deadman_buttons: [ 3 ]
-    message_value:
-    - 
-      target: eventTimes
-      value: [0.0, 0.35, 0.7]
-    - 
-      target: modeSequence
-      value: [9, 6]
-    
-  stance:
-    type: topic
-    message_type: ocs2_msgs/mode_schedule
-    topic_name: legged_robot_mpc_mode_schedule
-    deadman_buttons: [ 2 ]
-    message_value:
-    - 
-      target: eventTimes
-      value: [0.0, 0.5]
-    - 
-      target: modeSequence
-      value: [15]
   
   shutdown: 
       type: service
