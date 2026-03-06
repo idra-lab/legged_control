@@ -29,7 +29,6 @@ using namespace std;
 namespace legged {
 bool LeggedController::init(hardware_interface::RobotHW* robot_hw, ros::NodeHandle& controller_nh) {
   // Initialize OCS2
-    std::cerr << "DEBUG 0 " << endl;
     std::string urdfFile;
   std::string taskFile;
   std::string referenceFile;
@@ -37,15 +36,10 @@ bool LeggedController::init(hardware_interface::RobotHW* robot_hw, ros::NodeHand
   controller_nh.getParam("/taskFile", taskFile);
   controller_nh.getParam("/referenceFile", referenceFile);
   bool verbose = true;
-  std::cerr << "DEBUG 1 " << urdfFile << endl;
   loadData::loadCppDataType(taskFile, "legged_robot_interface.verbose", verbose);
-std::cerr << "DEBUG 2 " << taskFile << endl;
   setupLeggedInterface(taskFile, urdfFile, referenceFile, verbose);
-std::cerr << "DEBUG 3 " << referenceFile << endl;
   setupMpc();
-std::cerr << "DEBUG 4 " << urdfFile << endl;
   setupMrt();
-std::cerr << "DEBUG 5 " << urdfFile << endl;
   // Visualization
   ros::NodeHandle nh;
   CentroidalModelPinocchioMapping pinocchioMapping(leggedInterface_->getCentroidalModelInfo());
@@ -206,11 +200,8 @@ LeggedController::~LeggedController() {
 
 void LeggedController::setupLeggedInterface(const std::string& taskFile, const std::string& urdfFile, const std::string& referenceFile,
                                             bool verbose) {
-    std::cerr << "DEBUG 2.1 " << urdfFile << endl;
   leggedInterface_ = std::make_shared<LeggedInterface>(taskFile, urdfFile, referenceFile);
-    std::cerr << "DEBUG 2.2 " << leggedInterface_.get() << endl;
   leggedInterface_->setupOptimalControlProblem(taskFile, urdfFile, referenceFile, verbose);
-    std::cerr << "DEBUG 2.3 " << urdfFile << endl;
 }
 
 void LeggedController::setupMpc() {

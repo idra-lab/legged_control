@@ -41,7 +41,7 @@ LeggedInterface::LeggedInterface(const std::string& taskFile, const std::string&
   // check that task file exists
   boost::filesystem::path taskFilePath(taskFile);
   if (boost::filesystem::exists(taskFilePath)) {
-    std::cerr << "[LeggedInterface] Loading task fileeeeeeeeh: " << taskFilePath << std::endl;
+    std::cerr << "[LeggedInterface] Loading task file: " << taskFilePath << std::endl;
   } else {
     throw std::invalid_argument("[LeggedInterface] Task file not found: " + taskFilePath.string());
   }
@@ -49,37 +49,27 @@ LeggedInterface::LeggedInterface(const std::string& taskFile, const std::string&
   // check that urdf file exists
   boost::filesystem::path urdfFilePath(urdfFile);
   if (boost::filesystem::exists(urdfFilePath)) {
-    std::cerr << "[LeggedInterface] Loading Pinocchio model frommmmmmmmmmmmmmmm: " << urdfFilePath << std::endl;
+    std::cerr << "[LeggedInterface] Loading Pinocchio model from: " << urdfFilePath << std::endl;
   } else {
     throw std::invalid_argument("[LeggedInterface] URDF file not found: " + urdfFilePath.string());
   }
-std::cerr << "DEBUG 2.2.0.0 " << urdfFile << std::endl;
   // check that targetCommand file exists
   boost::filesystem::path referenceFilePath(referenceFile);
   if (boost::filesystem::exists(referenceFilePath)) {
-    std::cerr << "[LeggedInterface] Loading target command settings frommmmmmmmmmmmmmmmmmmm: " << referenceFilePath << std::endl;
+    std::cerr << "[LeggedInterface] Loading target command settings from: " << referenceFilePath << std::endl;
   } else {
     throw std::invalid_argument("[LeggedInterface] targetCommand file not found: " + referenceFilePath.string());
   }
 
-  std::cerr << "DEBUG 2.2.0.1 " << urdfFile << std::endl;
   bool verbose = true;
-  std::cerr << "DEBUG 2.2.0.2 " << urdfFile << std::endl;
   loadData::loadCppDataType(taskFile, "legged_robot_interface.verbose", verbose);
-std::cerr << "DEBUG 2.2.0.3 " << urdfFile << std::endl;
   // load setting from loading file
   modelSettings_ = loadModelSettings(taskFile, "model_settings", verbose);
-std::cerr << "DEBUG 2.2.0.4 " << urdfFile << std::endl;
   mpcSettings_ = mpc::loadSettings(taskFile, "mpc", verbose);
-std::cerr << "DEBUG 2.2.0.5 " << urdfFile << std::endl;
   ddpSettings_ = ddp::loadSettings(taskFile, "ddp", verbose);
-std::cerr << "DEBUG 2.2.0.6 " << urdfFile << std::endl;
   sqpSettings_ = sqp::loadSettings(taskFile, "sqp", verbose);
-std::cerr << "DEBUG 2.2.0.7 " << urdfFile << std::endl;
   ipmSettings_ = ipm::loadSettings(taskFile, "ipm", verbose);
-std::cerr << "DEBUG 2.2.0.8 " << urdfFile << std::endl;
   rolloutSettings_ = rollout::loadSettings(taskFile, "rollout", verbose);
-std::cerr << "DEBUG 2.2.0.9 " << urdfFile << std::endl;
 }
 
 /******************************************************************************************************/
@@ -87,42 +77,30 @@ std::cerr << "DEBUG 2.2.0.9 " << urdfFile << std::endl;
 /******************************************************************************************************/
 void LeggedInterface::setupOptimalControlProblem(const std::string& taskFile, const std::string& urdfFile, const std::string& referenceFile,
                                                  bool verbose) {
-    std::cerr << "DEBUG 2.2.1 " << urdfFile << std::endl;
   setupModel(taskFile, urdfFile, referenceFile, verbose);
-  std::cerr << "DEBUG 2.2.2 " << urdfFile << std::endl;
 
   // Initial state
   initialState_.setZero(centroidalModelInfo_.stateDim);
-  std::cerr << "DEBUG 2.2.3 " << urdfFile << std::endl;
   loadData::loadEigenMatrix(taskFile, "initialState", initialState_);
-  std::cerr << "DEBUG 2.2.4 " << urdfFile << std::endl;
 
   setupReferenceManager(taskFile, urdfFile, referenceFile, verbose);
-  std::cerr << "DEBUG 2.2.5 " << urdfFile << std::endl;
 
   // Optimal control problem
   problemPtr_ = std::make_unique<OptimalControlProblem>();
-  std::cerr << "DEBUG 2.2.6 " << urdfFile << std::endl;
 
   // Dynamics
   std::unique_ptr<SystemDynamicsBase> dynamicsPtr;
-  std::cerr << "DEBUG 2.2.7 " << urdfFile << std::endl;
   dynamicsPtr = std::make_unique<LeggedRobotDynamicsAD>(*pinocchioInterfacePtr_, centroidalModelInfo_, "dynamics", modelSettings_);
-  std::cerr << "DEBUG 2.2.8 " << urdfFile << std::endl;
   problemPtr_->dynamicsPtr = std::move(dynamicsPtr);
-  std::cerr << "DEBUG 2.2.9 " << urdfFile << std::endl;
 
   // Cost terms
   problemPtr_->costPtr->add("baseTrackingCost", getBaseTrackingCost(taskFile, centroidalModelInfo_, verbose));
-std::cerr << "DEBUG 2.2.10 " << urdfFile << std::endl;
   // Constraint terms
   // friction cone settings
   scalar_t frictionCoefficient = 0.7;
   RelaxedBarrierPenalty::Config barrierPenaltyConfig;
   std::tie(frictionCoefficient, barrierPenaltyConfig) = loadFrictionConeSettings(taskFile, verbose);
-std::cerr << "DEBUG 2.2.11 " << urdfFile << std::endl;
   for (size_t i = 0; i < centroidalModelInfo_.numThreeDofContacts; i++) {
-    std::cerr << "DEBUG 2.2.11. " << i << std::endl;
     const std::string& footName = modelSettings_.contactNames3DoF[i];
     std::unique_ptr<EndEffectorKinematics<scalar_t>> eeKinematicsPtr = getEeKinematicsPtr({footName}, footName);
 
@@ -139,21 +117,16 @@ std::cerr << "DEBUG 2.2.11 " << urdfFile << std::endl;
         footName + "_normalVelocity",
         std::unique_ptr<StateInputConstraint> (new NormalVelocityConstraintCppAd(*referenceManagerPtr_, *eeKinematicsPtr, i)));
   }
-  std::cerr << "DEBUG 2.2.12 " << problemPtr_.get() << "  " << problemPtr_->stateSoftConstraintPtr.get()  << std::endl;
   // Self-collision avoidance constraint
 
   problemPtr_->stateSoftConstraintPtr->add("selfCollision",
                                            getSelfCollisionConstraint(*pinocchioInterfacePtr_, taskFile, urdfFile, "selfCollision", true));
-std::cerr << "DEBUG 2.2.13 " << urdfFile << std::endl;
   setupPreComputation(taskFile, urdfFile, referenceFile, verbose);
-std::cerr << "DEBUG 2.2.14 " << urdfFile << std::endl;
   // Rollout
   rolloutPtr_ = std::make_unique<TimeTriggeredRollout>(*problemPtr_->dynamicsPtr, rolloutSettings_);
-std::cerr << "DEBUG 2.2.15 " << urdfFile << std::endl;
   // Initialization
   constexpr bool extendNormalizedNomentum = true;
   initializerPtr_ = std::make_unique<LeggedRobotInitializer>(centroidalModelInfo_, *referenceManagerPtr_, extendNormalizedNomentum);
-  std::cerr << "DEBUG 2.2.16 " << urdfFile << std::endl;
 }
 
 /******************************************************************************************************/
@@ -386,11 +359,9 @@ std::unique_ptr<StateCost> LeggedInterface::getSelfCollisionConstraint(
                                   prefix + ".collisionLinkPairs",
                                   collisionLinkPairs,
                                   verbose);
-    std::cerr << "DEBUG getSelfCollisionConstraint 1 " << std::endl;
     geometryInterfacePtr_ = std::make_unique<PinocchioGeometryInterface>(pinocchioInterface,
                                                                          collisionLinkPairs,
                                                                          collisionObjectPairs);
-    std::cerr << "DEBUG getSelfCollisionConstraint 2 " << std::endl;
     if (verbose) {
         std::cerr
             << " #### "
@@ -398,15 +369,12 @@ std::unique_ptr<StateCost> LeggedInterface::getSelfCollisionConstraint(
         const size_t numCollisionPairs = geometryInterfacePtr_->getNumCollisionPairs();
         std::cerr << "SelfCollision: Testing for " << numCollisionPairs << " collision pairs\n";
     }
-    std::cerr << "DEBUG getSelfCollisionConstraint 3 " << std::endl;
     std::unique_ptr<StateConstraint> constraint
         = std::make_unique<LeggedSelfCollisionConstraint>(CentroidalModelPinocchioMapping(
                                                               centroidalModelInfo_),
                                                           *geometryInterfacePtr_,
                                                           minimumDistance);
-    std::cerr << "DEBUG getSelfCollisionConstraint 4 " << std::endl;
     auto penalty = std::make_unique<RelaxedBarrierPenalty>(RelaxedBarrierPenalty::Config{mu, delta});
-    std::cerr << "DEBUG getSelfCollisionConstraint 5 " << std::endl;
     return std::make_unique<StateSoftConstraint>(std::move(constraint), std::move(penalty));
 }
 
@@ -442,12 +410,10 @@ std::unique_ptr<StateCost> LeggedInterface::getSelfCollisionConstraint(
                                   prefix + ".collisionLinkPairs",
                                   collisionLinkPairs,
                                   verbose);
-    std::cerr << "DEBUG getSelfCollisionConstraint 1 " << std::endl;
     geometryInterfacePtr_ = std::make_unique<PinocchioGeometryInterface>(pinocchioInterface,
                                                                          urdfFile,
                                                                          collisionLinkPairs,
                                                                          collisionObjectPairs);
-    std::cerr << "DEBUG getSelfCollisionConstraint 2 " << std::endl;
     if (verbose) {
         std::cerr
             << " #### "
@@ -455,15 +421,12 @@ std::unique_ptr<StateCost> LeggedInterface::getSelfCollisionConstraint(
         const size_t numCollisionPairs = geometryInterfacePtr_->getNumCollisionPairs();
         std::cerr << "SelfCollision: Testing for " << numCollisionPairs << " collision pairs\n";
     }
-    std::cerr << "DEBUG getSelfCollisionConstraint 3 " << std::endl;
     std::unique_ptr<StateConstraint> constraint
         = std::make_unique<LeggedSelfCollisionConstraint>(CentroidalModelPinocchioMapping(
                                                               centroidalModelInfo_),
                                                           *geometryInterfacePtr_,
                                                           minimumDistance);
-    std::cerr << "DEBUG getSelfCollisionConstraint 4 " << std::endl;
     auto penalty = std::make_unique<RelaxedBarrierPenalty>(RelaxedBarrierPenalty::Config{mu, delta});
-    std::cerr << "DEBUG getSelfCollisionConstraint 5 " << std::endl;
     return std::make_unique<StateSoftConstraint>(std::move(constraint), std::move(penalty));
 }
 
