@@ -1,9 +1,6 @@
 # legged_control
 
 > [!NOTE]
-> **This software is not supported anymore! The authors of this software are developing a completely new framework and are not working on this project anymore. Please excuse any inconvenience this might cause.**
-
-> [!NOTE]
 > You might be interested in this pipeline with perception, check [legged_perceptive](https://github.com/qiayuanl/legged_perceptive).
 
 ## Publications
@@ -122,21 +119,34 @@ Or on the robot hardware:
 roslaunch legged_unitree_hw legged_unitree_hw.launch
 ```
 
+> [!TIP]
+> To let the system choose its own thread priority, add a file named `30-leggedctrl.conf` to `/etc/security/limits.d` with the following content:
+> ```
+> @leggedctrl - rtprio 99
+> ```
+> then create a group called `leggedctrl` and add your user to it:
+> ```
+> sudo addgroup leggedctrl
+> sudo usermod -a -G leggedctrl username
+> ```
+> where `username` is your user name. Then log on and off for the changes to take effect.
+> If you want to revert this, you can simply remove yourself from the group or erase the file.
+
+
 3. Load the controller:
 
 ```
 roslaunch legged_controllers load_controller.launch cheater:=false
 ```
 
-4. Start the `legged_controller` or `legged_cheater_controller`, **NOTE that you are not allowed to start
-   the `legged_cheater_controller` in real hardware!**
+4. Start the `legged_controller`, `joint_state_controller` and `imu_sensor_controller`
 
 ```
-rosservice call /controller_manager/switch_controller "start_controllers: ['controllers/legged_controller']                   
+rosservice call /controller_manager/switch_controller "start_controllers: ['controllers/legged_controller', 'controllers/]
 stop_controllers: ['']
 strictness: 0
 start_asap: false
-timeout: 0.0" 
+timeout: 0.0"
 ```
 
 Or, you can start the controller using `rqt_controller_manager` GUI:
@@ -145,6 +155,7 @@ Or, you can start the controller using `rqt_controller_manager` GUI:
 sudo apt install ros-noetic-rqt-controller-manager
 rosrun rqt_controller_manager rqt_controller_manager
 ```
+
 
 5. Set the gait in the terminal of `load_controller.launch`, then use RViz (you need to add what you want to display by
    yourself) and control the robot by `cmd_vel` and `move_base_simple/goal`:
