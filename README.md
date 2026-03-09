@@ -52,7 +52,7 @@ git clone git@github.com:qiayuanliao/legged_control.git
 
 ### OCS2
 
-OCS2 is a huge monorepo; **DO NOT** try to compile the whole repo. You only need to compile `ocs2_legged_robot_ros` and
+OCS2 is a large monorepo; **DO NOT** try to compile the whole repo. You only need to compile `ocs2_legged_robot_ros` and
 its dependencies following the step below.
 
 1. You are supposed to clone the OCS2, pinocchio, and hpp-fcl as described in the documentation of OCS2.
@@ -133,32 +133,22 @@ roslaunch legged_unitree_hw legged_unitree_hw.launch
 > If you want to revert this, you can simply remove yourself from the group or erase the file.
 
 
-3. Load the controller:
+3. Load the controller with the joypad:
 
 ```
-roslaunch legged_controllers load_controller.launch cheater:=false
+roslaunch legged_controllers load_controller.launch joy:=true
 ```
+tested with an Xbox like joypad in which:
+- Green makes the robot standup
+- Red makes the robot collapse (via a SIGINT sent by a program running in the background)
+- Blue makes the robot go into stance mode
+- Yellow button makes the robot go into trot mode
+- Left joystick vertical axis makes the robot go forward / backward
+- Left joystick horizontal axis makes the robot strafe left / right
+- Right joystick horizontal axis makes the robot turn left / right
+- **For safety, all motion commands require the LB button to be pressed at all times**
 
-4. Start the `legged_controller`, `joint_state_controller` and `imu_sensor_controller`
-
-```
-rosservice call /controller_manager/switch_controller "start_controllers: ['controllers/legged_controller', 'controllers/]
-stop_controllers: ['']
-strictness: 0
-start_asap: false
-timeout: 0.0"
-```
-
-Or, you can start the controller using `rqt_controller_manager` GUI:
-
-```
-sudo apt install ros-noetic-rqt-controller-manager
-rosrun rqt_controller_manager rqt_controller_manager
-```
-
-
-5. Set the gait in the terminal of `load_controller.launch`, then use RViz (you need to add what you want to display by
-   yourself) and control the robot by `cmd_vel` and `move_base_simple/goal`:
+4. If `joy:=false`, set the gait in the terminal of `load_controller.launch`, then use RViz (you need to add what you want to display by yourself) and control the robot by `cmd_vel` and `move_base_simple/goal`:
 
 ![ezgif-5-684a1e1e23.gif](https://s2.loli.net/2022/07/27/lBzdeRa1gmvwx9C.gif)
 
