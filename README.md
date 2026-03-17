@@ -60,6 +60,7 @@ its dependencies following the step below.
 sudo apt install robotpkg-pinocchio robotpkg-coal
 ```
 The tested Pinocchio version is 3.9, which comes as default for Ubuntu 24.04
+
 2. Install extra dependencies:
    ```
    sudo apt install liburdfdom-dev liboctomap-dev libassimp-dev
