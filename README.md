@@ -55,20 +55,24 @@ git clone git@github.com:qiayuanliao/legged_control.git
 OCS2 is a large monorepo; **DO NOT** try to compile the whole repo. You only need to compile `ocs2_legged_robot_ros` and
 its dependencies following the step below.
 
-1. You are supposed to clone the OCS2, pinocchio, and hpp-fcl as described in the documentation of OCS2.
+1. Install `pinocchio` and `coal` (formerly known as `hpp-fcl`) from robotpkg, following [these instructions to add the robotpkg PPA](https://stack-of-tasks.github.io/pinocchio/download.html)
+```
+sudo apt install robotpkg-pinocchio robotpkg-coal
+```
+The tested Pinocchio version is 3.9, which comes as default for Ubuntu 24.04
+2. Install extra dependencies:
    ```
-   # Clone OCS2
-   git clone git@github.com:leggedrobotics/ocs2.git
-   # Clone pinocchio
-   git clone --recurse-submodules https://github.com/leggedrobotics/pinocchio.git
-   # Clone hpp-fcl
-   git clone --recurse-submodules https://github.com/leggedrobotics/hpp-fcl.git
-   # Clone ocs2_robotic_assets
-   git clone https://github.com/leggedrobotics/ocs2_robotic_assets.git
-   # Install dependencies
    sudo apt install liburdfdom-dev liboctomap-dev libassimp-dev
    ```
-2. Compile the `ocs2_legged_robot_ros` package with [catkin tools](https://catkin-tools.readthedocs.io/en/latest/)
+3. Clone OCS2 and the robotic assets.
+   ```
+   # Clone OCS2
+   git clone git@github.com:idra-lab/ocs2.git
+   
+   # Clone ocs2_robotic_assets
+   git clone https://github.com/leggedrobotics/ocs2_robotic_assets.git   
+   ```
+4. Compile the `ocs2_legged_robot_ros` package with [catkin tools](https://catkin-tools.readthedocs.io/en/latest/)
    instead of `catkin_make`. It will take you about ten minutes.
    ```
    catkin config -DCMAKE_BUILD_TYPE=RelWithDebInfo
@@ -104,10 +108,10 @@ catkin build legged_unitree_hw
 1. Set your robot type as an environment variable: ROBOT_TYPE
 
 ```
-export ROBOT_TYPE=a1
+export ROBOT_TYPE=aliengo
 ```
 
-2. Run the simulation:
+2. Run the simulation with joystick support (if you have it):
 
 ```
 roslaunch legged_unitree_description empty_world.launch
@@ -139,13 +143,13 @@ roslaunch legged_unitree_hw legged_unitree_hw.launch
 roslaunch legged_controllers load_controller.launch joy:=true
 ```
 tested with an Xbox like joypad in which:
-- Green makes the robot standup
-- Red makes the robot collapse (via a SIGINT sent by a program running in the background)
-- Blue makes the robot go into stance mode
-- Yellow button makes the robot go into trot mode
-- Left joystick vertical axis makes the robot go forward / backward
-- Left joystick horizontal axis makes the robot strafe left / right
-- Right joystick horizontal axis makes the robot turn left / right
+- 🟢 Green makes the robot standup
+- 🔴 Red makes the robot collapse (via a SIGINT sent by a program running in the background)
+- 🔵 Blue makes the robot go into stance mode
+- 🟡 Yellow button makes the robot go into trot mode
+- 🫲🕹️↕️ Left joystick vertical axis makes the robot go forward / backward
+- 🫲🕹️↔️ Left joystick horizontal axis makes the robot strafe left / right
+- 🫱🕹️↔️ Right joystick horizontal axis makes the robot turn left / right
 - **For safety, all motion commands require the LB button to be pressed at all times**
 
 4. If `joy:=false`, set the gait in the terminal of `load_controller.launch`, then use RViz (you need to add what you want to display by yourself) and control the robot by `cmd_vel` and `move_base_simple/goal`:
