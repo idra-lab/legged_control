@@ -2,7 +2,7 @@ name: Build and Test legged control
 
 on:
   push:
-    branches: [ ubuntu24-ci ]
+    branches: [ ros-one-devel ]
   pull_request:
     branches: [ ros-one-devel ]
 
