@@ -1,0 +1,75 @@
+name: Build and Test legged control
+
+on:
+  push:
+    branches: [ ubuntu24-ci ]
+  pull_request:
+    branches: [ ros-one-devel ]
+
+jobs:
+  build:
+
+    strategy:
+      fail-fast: false
+
+    runs-on: ubuntu-24.04
+    container:
+      image: ubuntu:24.04
+
+    steps:
+    - name: Environment Info
+      run: |
+        apt-get update 
+        apt-get install -y lsb-release
+        pwd
+        uname -r
+        lsb_release -a
+
+    - name: System deps
+      run: |
+        apt-get update
+        apt-get install -y git ninja-build liburdfdom-dev liboctomap-dev libassimp-dev checkinstall wget rsync curl
+
+    - name: ROS One installation
+      run: |
+        curl -sSL https://ros.packages.techfak.net/gpg.key -o /etc/apt/keyrings/ros-one-keyring.gpg
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/ros-one-keyring.gpg] https://ros.packages.techfak.net $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/ros1.list
+        apt-get update
+        apt-get install -y python3-rosdep python3-catkin-tools
+        rosdep init
+        echo "yaml https://ros.packages.techfak.net/ros-one.yaml one" | tee /etc/ros/rosdep/sources.list.d/1-ros-one.list
+        rosdep update
+        apt-get install -y ros-one-desktop
+        apt-get install -y ros-one-controller-interface ros-one-realtime-tools ros-one-joint-state-controller ros-one-imu-sensor-controller
+
+    - name: Pinocchio from robotpkg
+      run: |
+        curl http://robotpkg.openrobots.org/packages/debian/robotpkg.asc | tee /etc/apt/keyrings/robotpkg.asc
+        echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/robotpkg.asc] http://robotpkg.openrobots.org/packages/debian/pub $(lsb_release -cs) robotpkg" | tee /etc/apt/sources.list.d/robotpkg.list
+        apt-get update
+        apt-get install -y robotpkg-coal robotpkg-pinocchio
+        echo "CMAKE_PREFIX_PATH=/opt/openrobots:${CMAKE_PREFIX_PATH}" >> $GITHUB_ENV
+        echo "LD_LIBRARY_PATH=/opt/openrobots/lib:${LD_LIBRARY_PATH}" >> $GITHUB_ENV
+
+    - name: Checkout dependencies
+      run: |
+        git clone git@github.com:idra-lab/ocs2.git src/ocs2
+        git clone https://github.com/leggedrobotics/ocs2_robotic_assets.git src/ocs2_robotic_assets
+
+    - uses: actions/checkout@v4
+      with: 
+        ref: ros-one-devel
+        path: src/legged_control 
+
+    - name: Rosdep
+      run: |
+        rosdep update
+        rosdep install --from-paths src --ignore-src -r -y
+
+    - name: Build Release
+      shell: bash
+      run: |
+        source /opt/ros/one/setup.bash
+        catkin init
+        catkin config --cmake-args -DCMAKE_BUILD_TYPE=Release
+        catkin build legged_controllers legged_unitree_description legged_gazebo legged_unitree_hw  
