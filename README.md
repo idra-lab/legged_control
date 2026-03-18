@@ -68,7 +68,7 @@ its dependencies following the step below.
 
 2. Install extra dependencies:
    ```
-   sudo apt install liburdfdom-dev liboctomap-dev libassimp-dev liblcm-dev checkinstall wget rsync curl
+   sudo apt install liburdfdom-dev liboctomap-dev libassimp-dev wget rsync curl ros-one-controller-interface ros-one-realtime-tools ros-one-joint-state-controller ros-one-imu-sensor-controller
    ```
 3. Clone OCS2 and the robotic assets.
    ```
