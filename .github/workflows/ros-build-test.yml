@@ -28,7 +28,7 @@ jobs:
     - name: System deps
       run: |
         apt-get update
-        apt-get install -y git ninja-build liburdfdom-dev liboctomap-dev libassimp-dev checkinstall wget rsync curl
+        apt-get install -y git ninja-build liburdfdom-dev liboctomap-dev libassimp-dev liblcm-dev checkinstall wget rsync curl
 
     - name: ROS One installation
       run: |
