@@ -53,7 +53,7 @@ jobs:
 
     - name: Checkout dependencies
       run: |
-        git clone git@github.com:idra-lab/ocs2.git src/ocs2
+        git clone -b ros-one-devel https://github.com/idra-lab/ocs2.git
         git clone https://github.com/leggedrobotics/ocs2_robotic_assets.git src/ocs2_robotic_assets
 
     - uses: actions/checkout@v4
