@@ -63,7 +63,7 @@ The tested Pinocchio version is 3.9, which comes as default for Ubuntu 24.04
 
 2. Install extra dependencies:
    ```
-   sudo apt install liburdfdom-dev liboctomap-dev libassimp-dev
+   sudo apt install liburdfdom-dev liboctomap-dev libassimp-dev ros-one-controller-interface ros-one-realtime-tools ros-one-joint-state-controller ros-one-imu-sensor-controller
    ```
 3. Clone OCS2 and the robotic assets.
    ```
