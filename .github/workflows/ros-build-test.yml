@@ -51,23 +51,27 @@ jobs:
         echo "CMAKE_PREFIX_PATH=/opt/openrobots:${CMAKE_PREFIX_PATH}" >> $GITHUB_ENV
         echo "LD_LIBRARY_PATH=/opt/openrobots/lib:${LD_LIBRARY_PATH}" >> $GITHUB_ENV
 
+    - name: Create workspace
+      run: mkdir -p legged_ws/src
+
     - name: Checkout dependencies
       run: |
-        git clone -b ros-one-devel https://github.com/idra-lab/ocs2.git
-        git clone https://github.com/leggedrobotics/ocs2_robotic_assets.git src/ocs2_robotic_assets
+        git clone -b ros-one-devel https://github.com/idra-lab/ocs2.git legged_ws/src/ocs2
+        git clone https://github.com/leggedrobotics/ocs2_robotic_assets.git legged_ws/src/ocs2_robotic_assets
 
     - uses: actions/checkout@v4
       with: 
         ref: ros-one-devel
-        path: src/legged_control 
+        path: legged_ws/src/legged_control 
 
     - name: Rosdep
       run: |
         rosdep update
-        rosdep install --from-paths src --ignore-src -r -y
+        rosdep install --from-paths legged_ws/src --ignore-src -r -y
 
     - name: Build Release
       shell: bash
+      working-directory: legged_ws
       run: |
         source /opt/ros/one/setup.bash
         catkin init
