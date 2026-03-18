@@ -40,7 +40,7 @@ jobs:
         echo "yaml https://ros.packages.techfak.net/ros-one.yaml one" | tee /etc/ros/rosdep/sources.list.d/1-ros-one.list
         rosdep update
         apt-get install -y ros-one-desktop
-        apt-get install -y ros-one-controller-interface ros-one-realtime-tools ros-one-joint-state-controller ros-one-imu-sensor-controller ros-one-gazebo-ros
+        apt-get install -y ros-one-controller-interface ros-one-realtime-tools ros-one-joint-state-controller ros-one-imu-sensor-controller ros-one-gazebo-ros ros-one-gazebo-ros-control
 
     - name: Pinocchio from robotpkg
       run: |
