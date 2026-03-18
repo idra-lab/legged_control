@@ -1,5 +1,3 @@
-[![Build legged_control](https://github.com/idra-lab/legged_control/actions/workflows/ros-build-test.yml/badge.svg)](https://github.com/idra-lab/legged_control/actions/workflows/ros-build-test.yml)
-
 # legged_control
 
 Code targeting [ROS One](https://ros.packages.techfak.net/) on Ubuntu 24.04 
@@ -70,7 +68,7 @@ its dependencies following the step below.
 
 2. Install extra dependencies:
    ```
-   sudo apt install liburdfdom-dev liboctomap-dev libassimp-dev wget rsync curl liblcm-dev
+   sudo apt install liburdfdom-dev liboctomap-dev libassimp-dev wget rsync curl ros-one-controller-interface ros-one-realtime-tools ros-one-joint-state-controller ros-one-imu-sensor-controller
    ```
 3. Clone OCS2 and the robotic assets.
    ```
