@@ -1,7 +1,6 @@
 # legged_control
 
-> [!NOTE]
-> You might be interested in this pipeline with perception, check [legged_perceptive](https://github.com/qiayuanl/legged_perceptive).
+Code targeting [ROS One](https://ros.packages.techfak.net/) on Ubuntu 24.04 
 
 ## Publications
 
@@ -41,13 +40,19 @@ https://user-images.githubusercontent.com/21256355/192135828-8fa7d9bb-9b4d-41f9-
 
 ## Installation
 
+### ROS One
+Follow the instructions on the [link](https://ros.packages.techfak.net/) to install `ros-one-desktop`, then add the following additional packages:
+```
+sudo apt install ros-one-controller-interface ros-one-realtime-tools ros-one-joint-state-controller ros-one-imu-sensor-controller ros-one-gazebo-ros ros-one-gazebo-ros-control
+```
+
 ### Source code
 
-The source code is hosted on GitHub: [qiayuanliao/legged_control](https://github.com/qiayuanliao/legged_control).
+The source code is hosted on GitHub: 
 
 ```
-# Clone legged_control
-git clone git@github.com:qiayuanliao/legged_control.git
+# Clone legged_control on your ros_ws folder
+git clone https://github.com/idra-lab/legged_control.git
 ```
 
 ### OCS2
@@ -56,19 +61,19 @@ OCS2 is a large monorepo; **DO NOT** try to compile the whole repo. You only nee
 its dependencies following the step below.
 
 1. Install `pinocchio` and `coal` (formerly known as `hpp-fcl`) from robotpkg, following [these instructions to add the robotpkg PPA](https://stack-of-tasks.github.io/pinocchio/download.html)
-```
-sudo apt install robotpkg-pinocchio robotpkg-coal
-```
-The tested Pinocchio version is 3.9, which comes as default for Ubuntu 24.04
+   ```
+   sudo apt install robotpkg-pinocchio robotpkg-coal
+   ```
+   The tested Pinocchio version is 3.9, which comes as default for Ubuntu 24.04
 
 2. Install extra dependencies:
    ```
-   sudo apt install liburdfdom-dev liboctomap-dev libassimp-dev ros-one-controller-interface ros-one-realtime-tools ros-one-joint-state-controller ros-one-imu-sensor-controller
+   sudo apt install liburdfdom-dev liboctomap-dev libassimp-dev wget rsync curl ros-one-controller-interface ros-one-realtime-tools ros-one-joint-state-controller ros-one-imu-sensor-controller
    ```
 3. Clone OCS2 and the robotic assets.
    ```
    # Clone OCS2
-   git clone git@github.com:idra-lab/ocs2.git
+   git clone https://github.com/idra-lab/ocs2.git
    
    # Clone ocs2_robotic_assets
    git clone https://github.com/leggedrobotics/ocs2_robotic_assets.git   
