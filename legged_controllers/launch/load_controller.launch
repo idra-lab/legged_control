@@ -10,19 +10,33 @@
     <arg name="joy_dev" default="/dev/input/js0"/>
     <arg name="teleop_config" default="$(find legged_controllers)/config/joy.yaml"/>
 
+    <arg name="nn" default="false"/>
+    <arg name="mps" default="false"/>
+    
+
 
     <!-- make the files into global parameters -->
     <param name="urdfFile" value="/tmp/legged_control/$(arg robot_type).urdf"/>
     <param name="taskFile" value="$(find legged_controllers)/config/$(arg robot_type)/task.info"/>
     <param name="referenceFile" value="$(find legged_controllers)/config/$(arg robot_type)/reference.info"/>
     <param name="gaitCommandFile" value="$(find legged_controllers)/config/$(arg robot_type)/gait.info"/>
+    <param name="useNN" value="$(arg nn)"/>
 
     <rosparam file="$(find legged_controllers)/config/controllers.yaml" command="load"/>
 
-    <node name="controller_loader" pkg="controller_manager" type="spawner"
+    <group unless="$(arg mps)">
+      <node name="controller_loader" pkg="controller_manager" type="spawner"
           output="screen" args="controllers/joint_state_controller
 	    controllers/legged_controller
 	    controllers/imu_sensor_controller"/>
+    </group>
+    <group if="$(arg mps)">
+      <node name="controller_loader" pkg="controller_manager" type="spawner"
+          output="screen" args="controllers/joint_state_controller
+	    controllers/mps_controller
+	    controllers/imu_sensor_controller"/>
+    </group>
+    
 
     <!-- If not using the joypad, keep using the old keyboard based program to select the gaits -->
     <node unless="$(arg joy)" pkg="ocs2_legged_robot_ros" type="legged_robot_gait_command" name="legged_robot_gait_command"

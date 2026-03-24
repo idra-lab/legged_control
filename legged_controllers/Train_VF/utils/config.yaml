@@ -1,0 +1,40 @@
+simulation:
+  timestep_simulation: 0.002
+  timestep_mps: 0.01
+  duration: 7
+  framerate: 60
+
+robot:
+  default_joint_angles: [0.0, 0.9, -1.7, 0.0, 0.9, -1.7, 0.0, 0.9, -1.7, 0.0, 0.9, -1.7]
+  kp: 70
+  kd: 3
+  cmd_backup_B: [-0., 0, 0]
+  cmd_backup: [-0.45, 0, 0]
+  cmd_nominal: [0.25, 0, 0]
+
+env_nominal:
+  action_scale: 0.5
+  decimation: 5
+  dt: 0.002
+  desired_clip_actions: 3.0
+  order: [3, 0, 9, 6, 4, 1, 10, 7, 5, 2, 11, 8]
+
+actions:
+  bounds:
+    low: -35.0
+    high: 35.0
+    special_high: 45.0
+
+scaling:
+  body_ang_vel: 0.25
+  commands: 2.0
+  gravity_body: 1.0
+  joint_angles: 1.0
+  joint_velocities: 0.05
+  actions: 1.0
+  q_des: 0.5
+
+networks:
+  paths:
+    backup: nn/SoloTerrain.pth
+  device: cpu

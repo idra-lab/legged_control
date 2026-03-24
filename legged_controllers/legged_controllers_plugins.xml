@@ -13,4 +13,11 @@
             The basic legged controller with cheat state estimator
         </description>
     </class>
+
+    <class name="legged/MPSController" type="legged::MPSController"
+           base_class_type="controller_interface::ControllerBase">
+        <description>
+            The MPS controller.
+        </description>
+    </class>
 </library>

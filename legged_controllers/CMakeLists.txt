@@ -71,6 +71,9 @@ link_directories(
 ## Declare a cpp library
 add_library(${PROJECT_NAME}
         src/LeggedController.cpp
+        src/MPSController.cpp
+        src/IsRecReceiver.cpp
+        src/JointReceiver.cpp
         )
 
 target_link_libraries(${PROJECT_NAME}

@@ -164,6 +164,10 @@ tested with an Xbox like joypad in which:
 
 ![ezgif-5-684a1e1e23.gif](https://s2.loli.net/2022/07/27/lBzdeRa1gmvwx9C.gif)
 
+5. Use `mps:=true` to load the MPS controller instead of the Legged controller and `nn:=true` for the backup to be a NN.
+
+6. `mps_simulation.py` in `legged_controllers/Train_VF` computes the value function and switches between policies.
+
 ### Note
 
 - **THE GAIT AND THE GOAL ARE COMPLETELY DIFFERENT AND SEPARATED!**  You don't need to type stance while the robot is
