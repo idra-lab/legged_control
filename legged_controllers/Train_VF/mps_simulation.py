@@ -44,19 +44,21 @@ if __name__ == '__main__':
 
     grav_tens = torch.tensor([[0., 0., -1.]], device='cuda:0', dtype=torch.double)
 
-    sim = True
-    sim_push = True
-    use_backup = True
     sim_time = 0
     time_rec = 0
     counter = 0
+    manual_count = 0
+    stop_count = 0
+
+    sim = True
+    sim_push = True
+    use_backup = False
+    use_joy = True
     prev_rec = True
     manual_switch = False
-    manual_count = 0
     isrec = True
     use_nn = False
     stop = False
-    stop_count = 0
 
     # Load value function
     vf = ValueFunctionManager(use_nn)
@@ -115,10 +117,10 @@ if __name__ == '__main__':
             
         if not use_backup and not isrec:
             isrec = True
-        elif use_backup and not isrec and not use_nn and not stop:
-            pubSub.publish_button([4,5])
-        elif sim and not stop:
-            pubSub.publish_button([4])
+        elif use_backup and not isrec and not use_nn and not stop and not use_joy:
+            pubSub.publish_button_no_joy([4,5])
+        elif sim and not stop and not use_joy:
+            pubSub.publish_button_no_joy([4])
         if not prev_rec and isrec and use_backup and use_nn:
             time_rec = sim_time
             backup_policy.actor_network.running_mean_std.running_mean = running_mean_backup

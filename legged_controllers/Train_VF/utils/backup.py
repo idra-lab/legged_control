@@ -60,7 +60,7 @@ class BackupPolicy:
                             if k.startswith('a2c_network.actor_mlp') or k.startswith('a2c_network.mu') or k.startswith('running_mean_std.running_mean') or k.startswith('running_mean_std.running_var') or k.startswith('running_mean_std.count')}
         self.actor_network.load_state_dict(actor_state_dict)
         self.commands = np.zeros(3)
-        self.actor_network.eval()
+        #self.actor_network.eval()
 
     def compute_actions(self, imu_quat, imu_gyro, qpos, qvel):
         """

@@ -185,6 +185,17 @@ class PubSub():
             buttons = [0,0,0,0,0,0,0,0,0,0,0]
             for i in mode:
                 buttons[i] = 1
+            self.button.buttons = buttons
+            self.button_pub.publish(self.button)
+            
+        except rospy.ROSInterruptException:
+            pass
+
+    def publish_button_no_joy(self, mode):
+        try:
+            buttons = [0,0,0,0,0,0,0,0,0,0,0]
+            for i in mode:
+                buttons[i] = 1
             if 4 in mode and 5 in mode:
                 self.button.axes = [0,0,0,0,0,0,0,0]
             elif 4 in mode:
