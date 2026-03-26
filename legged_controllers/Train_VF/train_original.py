@@ -28,8 +28,8 @@ os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "True"
 # ====================================
 full_path = os.path.realpath(__file__)
 folder_path = os.path.dirname(full_path)
-data_path = folder_path + '/observation_datasets/observations_test.npy'
-model_path = folder_path + '/models/VF_test.pkl'
+data_path = folder_path + '/observation_datasets/observations_nn_ffw_torques.npy'
+model_path = folder_path + '/models/VF_nn_ffw_torques_.pkl'
 
 data = np.load(data_path)
 
@@ -175,6 +175,7 @@ state = TrainState.create(apply_fn=model.apply, params=params, tx=optimizer)
 def loss_fn(params, batch_states, batch_next_states, batch_dones, batch_cp, target_params):
     V_s = model.apply(params, batch_states)
     V_next = jax.lax.stop_gradient(model.apply(target_params, batch_next_states))
+    #V_next = jax.numpy.clip(V_next,0,1)
     indicators = 1.0 - batch_dones
     target = indicators * ((1-batch_cp)*V_next + batch_cp)
     # jax.debug.print("target: {x}", x=target)
@@ -220,7 +221,7 @@ def get_batches(states, next_states, dones, capt_p, batch_size, rng):
 # ====================================
 #           Training Loop
 # ====================================
-epochs = 2500
+epochs = 2000
 batch_size = 512
 rng = jax.random.PRNGKey(int(time.time()))
 losses, min_losses, max_losses = [], [], []

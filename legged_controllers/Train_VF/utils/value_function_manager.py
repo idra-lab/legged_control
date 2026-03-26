@@ -30,6 +30,7 @@ class CriticNetwork(nn_flax.Module):
         # Output initialized to 1 (probability of survival)
         x = nn_flax.Dense(1, kernel_init=nn_flax.initializers.zeros, bias_init=nn_flax.initializers.ones)(x)
         # x = nn.Dense(1)(x)
+        x = nn_flax.sigmoid(x)
         return x.squeeze(-1)
 
 
@@ -55,9 +56,9 @@ class ValueFunctionManager:
         full_path = os.path.realpath(__file__)
 
         if use_nn:
-            model_path = os.path.dirname(full_path) + '/../models/VF_imu_nn_kp70_100episodes_inclination.pkl'
-            self.min_switch = 10
-            self.min_back = 200
+            model_path = os.path.dirname(full_path) + '/../models/VF_nn_ffw_torques_kd5sigmoid.pkl'
+            self.min_switch = 20
+            self.min_back = 50#200
         else:
             model_path = os.path.dirname(full_path) + '/../models/VF_L_mpc.pkl'
             self.min_switch = 20

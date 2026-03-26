@@ -110,8 +110,10 @@ class PubSub():
             order = [6, 7, 8, 0, 1, 2, 9, 10, 11, 3, 4, 5]
         
             for i in range(12):
-                self.joint_pos[order[i]] = data.position[i]
-                self.joint_vel[order[i]] = data.velocity[i]
+                #self.joint_pos[order[i]] = data.position[i]
+                #self.joint_vel[order[i]] = data.velocity[i]
+                self.joint_pos[i] = data.position[i]
+                self.joint_vel[i] = data.velocity[i]
 
     def init_subscribers(self):
         self.joint_state_sub = rospy.Subscriber('/joint_states', JointState, self.callback_joint)
@@ -141,11 +143,16 @@ class PubSub():
         #  11 RH_KFE
 
         order = [6, 7, 8, 0, 1, 2, 9, 10, 11, 3, 4, 5]
+        names = ["LF_HAA", "LF_HFE", "LF_KFE", "LH_HAA", "LH_HFE", "LH_KFE",
+                 "RF_HAA", "RF_HFE", "RF_KFE", "RH_HAA", "RH_HFE", "RH_KFE", "Gains"]
         try:
             for i in range(12):
-                self.joint_pos_backup[i] = pos[order[i]]
+                '''self.joint_pos_backup[i] = pos[order[i]]
                 self.joint_vel_backup[i] = vel[order[i]]
-                self.joint_eff_backup[i] = eff[order[i]]
+                self.joint_eff_backup[i] = eff[order[i]]'''
+                self.joint_pos_backup[i] = pos[i]
+                self.joint_vel_backup[i] = vel[i]
+                self.joint_eff_backup[i] = eff[i]
             
             self.joint_pos_backup[12] = kp
             self.joint_vel_backup[12] = kd
@@ -154,6 +161,7 @@ class PubSub():
             self.joints_backup.position = self.joint_pos_backup
             self.joints_backup.velocity = self.joint_vel_backup
             self.joints_backup.effort = self.joint_eff_backup
+            self.joints_backup.name = names
             self.joints_backup_pub.publish(self.joints_backup)
             
         except rospy.ROSInterruptException:

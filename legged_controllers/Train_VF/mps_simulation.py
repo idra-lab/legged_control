@@ -27,6 +27,7 @@ if __name__ == '__main__':
     kp_backup = config['robot']['kp']
     kd_backup = config['robot']['kd']
     backup_policy.commands = np.array(config['robot']['cmd_backup'])
+    #backup_policy.commands = np.array([-0.25, 0.2, 0])
     
     dt = config['simulation']['timestep_mps']
 
@@ -52,20 +53,28 @@ if __name__ == '__main__':
 
     sim = True
     sim_push = True
-    use_backup = False
-    use_joy = True
+    use_backup = True
+    use_joy = False
     prev_rec = True
     manual_switch = False
     isrec = True
-    use_nn = False
+    use_nn = True
     stop = False
+
+    ffw_torques = np.array([1.6, 0.0, 0.0,      # LF 
+                            1.6, 0.0, 0.0,     # LH 
+                            -1.6, 0.0, 0.0,      # RF
+                            -1.6, 0.0, 0.0])*1  # RH
 
     # Load value function
     vf = ValueFunctionManager(use_nn)
     if use_nn:
-        threshold = 0.7
+        threshold = 0.5#7
     else:
         threshold = 0.5
+    # Run value function to compile it
+    vf.computeValueFnc(body_ang_vel=np.zeros(3), proj_gravity=np.zeros(3), joint_pos=np.zeros(12), joint_vel=np.zeros(12), threshold=threshold, vf_additional_term = 0.0)
+
     pubSub.publish_is_rec(isrec)
     if sim:
         pubSub.publish_button([0])
@@ -119,7 +128,7 @@ if __name__ == '__main__':
             isrec = True
         elif use_backup and not isrec and not use_nn and not stop and not use_joy:
             pubSub.publish_button_no_joy([4,5])
-        elif sim and not stop and not use_joy:
+        if sim and not stop and not use_joy and isrec:
             pubSub.publish_button_no_joy([4])
         if not prev_rec and isrec and use_backup and use_nn:
             time_rec = sim_time
@@ -131,11 +140,12 @@ if __name__ == '__main__':
             backup_policy.qDes = backup_policy.q_def
             pubSub.publish_is_rec(isrec)
         
+        
         if not isrec and use_backup and use_nn:
             qDes = backup_policy.compute_actions(data_new[4], data_new[5], data_new[2], data_new[3])
             #qDes = backup_policy.compute_actions(data_new[0][3:], data_new[1][3:], data_new[2], data_new[3])
             pubSub.publish_is_rec(isrec)
-            pubSub.publish_backup(qDes,np.zeros(12),np.zeros(12), kp_backup, kd_backup)
+            pubSub.publish_backup(qDes,np.zeros(12),ffw_torques, kp_backup, kd_backup)
             
         #pubSub.publish_is_rec(False)
         if stop_count == 1000:

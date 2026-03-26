@@ -25,7 +25,7 @@ class DatasetManager():
         # -------------------------------
         self.INCLINATION_THRESHOLD = 30.0  # degrees - max allowed inclination before considering robot as fallen
         self.FALL_HEIGHT_THRESHOLD = 0.3   # meters - min allowed height before considering robot as fallen
-        self.CP_SAFE_RADIUS = 0.01         # meters - acceptable radius to consider CP successful
+        self.CP_SAFE_RADIUS = 0.02         # meters - acceptable radius to consider CP successful
         self.G = 9.81                      # gravitational constant
         self.policy_frequency = 50 #Hz
         self.dt = 0.002
@@ -42,8 +42,11 @@ class DatasetManager():
         self.joint_positions = [-0.1, 0.62, -1.24,
                                 -0.1, 0.62, -1.24,
                                  0.1, 0.62, -1.24,
-
                                  0.1, 0.62, -1.24]
+        self.ffw_torques = np.array([ 1.6, 0.0, 0.0,      # LF 
+                                      1.6, 0.0, 0.0,      # LH 
+                                     -1.6, 0.0, 0.0,      # RF
+                                     -1.6, 0.0, 0.0])*1   # RH
         
         self.use_nn = use_nn
         self.init_ros()
@@ -227,7 +230,7 @@ class DatasetManager():
             print('quat', data_new[4])
             print('xyz', data_new[0][:3])'''
 
-        return self.capture_flag #or self.fallen_flag
+        return self.capture_flag or self.fallen_flag
 
     def store_observations(self, data_new):
         # -------------------------------
@@ -346,7 +349,7 @@ class DatasetManager():
                 else:
                     qDes = self.backup_policy.compute_actions(data_new[4], data_new[5], data_new[2], data_new[3])
                     self.pubSub.publish_is_rec(False)
-                    self.pubSub.publish_backup(qDes,np.zeros(12),np.zeros(12), self.kp_backup, self.kd_backup)
+                    self.pubSub.publish_backup(qDes,np.zeros(12),self.ffw_torques, self.kp_backup, self.kd_backup)
                 #self.pubSub.publish_button(2) # Stance
 
             # Add noise to simulate real-world actuation
@@ -388,7 +391,7 @@ class DatasetManager():
             # -------------------------------
             self.reset()
 
-            obs, fallen, captured = self.run_single_simulation(noise_std=noise_std,max_steps=2000, warmup_time=2.0)
+            obs, fallen, captured = self.run_single_simulation(noise_std=noise_std,max_steps=2500, warmup_time=2.0)
             print(colored(f"Fallen {fallen}, Captured {captured}", "green"))
             #print('obs', obs)
             for j in obs:
@@ -421,7 +424,7 @@ class DatasetManager():
 
         stats = np.array(stats, dtype=int)
 
-        np.save(os.path.join(save_path, "observations_test.npy"), padded_obs)
+        np.save(os.path.join(save_path, "observations_nn_ffw_torques_kd5_both_terminations.npy"), padded_obs)
 
         print(f"Episodi completati: {n_episodes}")
         print(f"Caduti: {np.sum(stats[:, 0])}, CP raggiunto: {np.sum(stats[:, 1])}")

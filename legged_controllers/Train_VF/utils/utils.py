@@ -19,11 +19,17 @@ def swap_legs(array):
     """
     array_copy = array.copy()  # Make a copy to avoid modifying the original array
     
-    array_copy[0:3] = array[6:9]
-    array_copy[3:6] = array[9:12]
-    array_copy[6:9] = array[0:3]
-    array_copy[9:12] = array[3:6] 
+    #array_copy[0:3] = array[6:9]
+    #array_copy[3:6] = array[9:12]
+    #array_copy[6:9] = array[0:3]
+    #array_copy[9:12] = array[3:6] 
+
+    #[FL, RL, FR, RR] to [FL, FR, RL, RR]
     
+    array_copy[0:3] = array[0:3]
+    array_copy[3:6] = array[6:9]
+    array_copy[6:9] = array[3:6]
+    array_copy[9:12] = array[9:12] 
     return array_copy
 
 # Quaternion rotation helper
