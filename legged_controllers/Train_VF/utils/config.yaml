@@ -6,11 +6,11 @@ simulation:
 
 robot:
   default_joint_angles: [0.0, 0.9, -1.7, 0.0, 0.9, -1.7, 0.0, 0.9, -1.7, 0.0, 0.9, -1.7]
-  kp: 100
-  kd: 5
+  kp: 70 #100
+  kd: 3 #5
   cmd_backup_B: [-0., 0, 0]
-  cmd_backup_A: [-0.45, 0, 0]
-  cmd_backup: [-0.25, 0.2, 0]
+  cmd_backup: [-0.45, 0, 0]
+  cmd_backup_C: [-0.25, 0.2, 0]
   cmd_nominal: [0.25, 0, 0]
 
 env_nominal:

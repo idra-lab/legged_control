@@ -25,7 +25,7 @@ class DatasetManager():
         # -------------------------------
         self.INCLINATION_THRESHOLD = 30.0  # degrees - max allowed inclination before considering robot as fallen
         self.FALL_HEIGHT_THRESHOLD = 0.3   # meters - min allowed height before considering robot as fallen
-        self.CP_SAFE_RADIUS = 0.02         # meters - acceptable radius to consider CP successful
+        self.CP_SAFE_RADIUS = 0.05         # meters - acceptable radius to consider CP successful
         self.G = 9.81                      # gravitational constant
         self.policy_frequency = 50 #Hz
         self.dt = 0.002
@@ -46,7 +46,7 @@ class DatasetManager():
         self.ffw_torques = np.array([ 1.6, 0.0, 0.0,      # LF 
                                       1.6, 0.0, 0.0,      # LH 
                                      -1.6, 0.0, 0.0,      # RF
-                                     -1.6, 0.0, 0.0])*1   # RH
+                                     -1.6, 0.0, 0.0])*0   # RH
         
         self.use_nn = use_nn
         self.init_ros()
@@ -230,7 +230,7 @@ class DatasetManager():
             print('quat', data_new[4])
             print('xyz', data_new[0][:3])'''
 
-        return self.capture_flag or self.fallen_flag
+        return self.capture_flag #self.fallen_flag#or 
 
     def store_observations(self, data_new):
         # -------------------------------
@@ -318,6 +318,11 @@ class DatasetManager():
 
             # Inference (get new action)
             # Generate random initial command (velocity and yaw) to explore nominal policy states
+            if self.step >= self.warmup_steps - 1:
+                torque_noise = np.random.normal(0, noise_std, size=12)
+            else:
+                torque_noise = np.zeros(12)
+  
             if self.step <= self.warmup_steps: #nominal policy
                 if np.mod(self.sim_time, 0.5) == 0:
                     print(colored(f"TIME: {self.sim_time}", "blue"))
@@ -326,8 +331,8 @@ class DatasetManager():
                 if self.step == push_instant:
                     #[self.pubSub.pose, self.pubSub.twist, self.pubSub.joint_pos, self.pubSub.joint_vel]
                     #apply as a twisch change
-                    vx = np.random.uniform(-2.0, 2.0)#(-1.5, 1.5) #+ self.quadruped.baseTwistW[0]
-                    vy = np.random.uniform(-2.0, 2.0) #+ self.quadruped.baseTwistW[1]
+                    vx = np.random.uniform(-1.5, 1.5) #(-2.0, 2.0)#+ self.quadruped.baseTwistW[0]
+                    vy = np.random.uniform(-1.5, 1.5) #(-2.0, 2.0) #+ self.quadruped.baseTwistW[1]
                     #debug makes it fall
                     # vx = -1.645
                     # vy = -1.239
@@ -339,6 +344,7 @@ class DatasetManager():
                     self.pubSub.publish_state(data_new[0], push_vel)
                 cmd_vel = np.array([random_cmd[0], random_cmd[1], 0, 0, 0, 0, random_cmd[2]])
                 self.pubSub.publish_vel(cmd_vel)
+                self.pubSub.publish_backup(np.zeros(12),np.zeros(12),torque_noise, 0, 0)
     
             else:#switch to backup policy
                 if np.mod(self.sim_time, 0.5) == 0:
@@ -349,7 +355,7 @@ class DatasetManager():
                 else:
                     qDes = self.backup_policy.compute_actions(data_new[4], data_new[5], data_new[2], data_new[3])
                     self.pubSub.publish_is_rec(False)
-                    self.pubSub.publish_backup(qDes,np.zeros(12),self.ffw_torques, self.kp_backup, self.kd_backup)
+                    self.pubSub.publish_backup(qDes,np.zeros(12),self.ffw_torques+torque_noise, self.kp_backup, self.kd_backup)
                 #self.pubSub.publish_button(2) # Stance
 
             # Add noise to simulate real-world actuation
@@ -413,6 +419,7 @@ class DatasetManager():
                 self.backup_policy.prev_actions = np.zeros(12)
                 self.backup_policy.qDes = self.backup_policy.q_def
                 self.pubSub.publish_is_rec(True)
+                self.pubSub.publish_backup(np.zeros(12),np.zeros(12),np.zeros(12), 0, 0)
             time.sleep(2)
 
         # Pad observation arrays to same length in case of early termination (com comverget to cop)
@@ -424,7 +431,7 @@ class DatasetManager():
 
         stats = np.array(stats, dtype=int)
 
-        np.save(os.path.join(save_path, "observations_nn_ffw_torques_kd5_both_terminations.npy"), padded_obs)
+        np.save(os.path.join(save_path, "observations_nn_no_ffw_torques_kp70_cp_termination_noise_lower_pushes_original_radius.npy"), padded_obs)
 
         print(f"Episodi completati: {n_episodes}")
         print(f"Caduti: {np.sum(stats[:, 0])}, CP raggiunto: {np.sum(stats[:, 1])}")

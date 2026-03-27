@@ -146,11 +146,11 @@ void MPSController::update(const ros::Time& time, const ros::Duration& period) {
 
   
   if (!useNN_ || (useNN_ && isRecReceiverPtr->getIsRec())){
-
+    auto eff_noise = jointReceiverPtr->getJointEfforts();
     for (size_t j = 0; j < leggedInterface_->getCentroidalModelInfo().actuatedDofNum; ++j) {
       //double number = distribution(generator);
       //std::cout << j << " " << posDes(j) << " " << velDes(j) << " " << torque(j) << std::endl;
-      hybridJointHandles_[j].setCommand(posDes(j), velDes(j), 0, 3, torque(j));//+number);
+      hybridJointHandles_[j].setCommand(posDes(j), velDes(j), 0, 3, torque(j)+eff_noise[j]);//+number);
     }
   }
   else{

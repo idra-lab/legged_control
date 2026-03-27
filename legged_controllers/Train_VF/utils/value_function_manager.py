@@ -30,7 +30,7 @@ class CriticNetwork(nn_flax.Module):
         # Output initialized to 1 (probability of survival)
         x = nn_flax.Dense(1, kernel_init=nn_flax.initializers.zeros, bias_init=nn_flax.initializers.ones)(x)
         # x = nn.Dense(1)(x)
-        x = nn_flax.sigmoid(x)
+        #x = nn_flax.sigmoid(x)
         return x.squeeze(-1)
 
 
@@ -56,9 +56,9 @@ class ValueFunctionManager:
         full_path = os.path.realpath(__file__)
 
         if use_nn:
-            model_path = os.path.dirname(full_path) + '/../models/VF_nn_ffw_torques_kd5sigmoid.pkl'
-            self.min_switch = 20
-            self.min_back = 50#200
+            model_path = os.path.dirname(full_path) + '/../models/VF_nn_ffw_torques_kp70_cp_termination_noise_lower_pushes_original_radiusB.pkl'
+            self.min_switch = 10#2#10#2#0
+            self.min_back = 200
         else:
             model_path = os.path.dirname(full_path) + '/../models/VF_L_mpc.pkl'
             self.min_switch = 20
@@ -71,6 +71,8 @@ class ValueFunctionManager:
         self.VF = True
         self.count_back = 0
         self.backup_trigger_counter = 0
+
+        self.computeValueFnc(body_ang_vel=np.zeros(3), proj_gravity=np.zeros(3), joint_pos=np.zeros(12), joint_vel=np.zeros(12), threshold=-1000, vf_additional_term = 0.0)
 
     # Function to load value function
     def load_value(self, file_path):

@@ -28,8 +28,8 @@ os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "True"
 # ====================================
 full_path = os.path.realpath(__file__)
 folder_path = os.path.dirname(full_path)
-data_path = folder_path + '/observation_datasets/observations_nn_ffw_torques.npy'
-model_path = folder_path + '/models/VF_nn_ffw_torques_.pkl'
+data_path = folder_path + '/observation_datasets/observations_nn_ffw_torques_kp70_cp_termination_noise_lower_pushes_original_radius.npy'
+model_path = folder_path + '/models/VF_nn_ffw_torques_kp70_cp_termination_noise_lower_pushes_original_radiusB.pkl'
 
 data = np.load(data_path)
 
@@ -119,6 +119,7 @@ class ValueNetwork(nn.Module):
         x = nn.elu(x)
         # Output initialized to 1 (probability of survival)
         x = nn.Dense(1, kernel_init=nn.initializers.zeros, bias_init=nn.initializers.ones)(x)
+        #x = nn_flax.sigmoid(x)
         # x = nn.Dense(1)(x)
         return x.squeeze(-1)
     
@@ -221,7 +222,7 @@ def get_batches(states, next_states, dones, capt_p, batch_size, rng):
 # ====================================
 #           Training Loop
 # ====================================
-epochs = 2000
+epochs = 1000
 batch_size = 512
 rng = jax.random.PRNGKey(int(time.time()))
 losses, min_losses, max_losses = [], [], []

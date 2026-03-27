@@ -27,7 +27,7 @@ if __name__ == '__main__':
     kp_backup = config['robot']['kp']
     kd_backup = config['robot']['kd']
     backup_policy.commands = np.array(config['robot']['cmd_backup'])
-    #backup_policy.commands = np.array([-0.25, 0.2, 0])
+    #backup_policy.commands = np.array([-0.25, 0., 0.])
     
     dt = config['simulation']['timestep_mps']
 
@@ -54,31 +54,32 @@ if __name__ == '__main__':
     sim = True
     sim_push = True
     use_backup = True
-    use_joy = False
+    use_joy = True
     prev_rec = True
     manual_switch = False
     isrec = True
     use_nn = True
     stop = False
+    only_backup = False
 
     ffw_torques = np.array([1.6, 0.0, 0.0,      # LF 
                             1.6, 0.0, 0.0,     # LH 
                             -1.6, 0.0, 0.0,      # RF
                             -1.6, 0.0, 0.0])*1  # RH
-
+    pubSub.publish_backup(np.zeros(12),np.zeros(12),np.zeros(12), 0, 0)
     # Load value function
     vf = ValueFunctionManager(use_nn)
     if use_nn:
-        threshold = 0.5#7
+        threshold = 0.4#5#7
     else:
         threshold = 0.5
     # Run value function to compile it
-    vf.computeValueFnc(body_ang_vel=np.zeros(3), proj_gravity=np.zeros(3), joint_pos=np.zeros(12), joint_vel=np.zeros(12), threshold=threshold, vf_additional_term = 0.0)
+    
 
     pubSub.publish_is_rec(isrec)
     if sim:
         pubSub.publish_button([0])
-        time.sleep(2)
+        #time.sleep(2)
         pubSub.publish_button([3])
         time.sleep(2)
 
@@ -89,7 +90,7 @@ if __name__ == '__main__':
     
     while not rospy.is_shutdown():
         prev_rec = isrec
-        if (sim_time > 0.5) and (sim_time - time_rec) % 2. == 0 and isrec and sim_push and sim and not stop:
+        if (sim_time > 0.5) and (sim_time - time_rec) % 3. == 0 and isrec and sim_push and sim and not stop:
             applyForce(0, 50*counter, 0, 0, 0, 0, 0.25)
             print(50*counter)
             counter += 1
@@ -115,7 +116,8 @@ if __name__ == '__main__':
             isrec, V_safe = vf.computeValueFnc(body_ang_vel, proj_gravity, joint_pos=data_new[2], joint_vel=data_new[3], threshold=threshold, vf_additional_term = 0.0)
             #print(V_safe)
         
-        #isrec = False
+        if only_backup:
+            isrec = False
         if not prev_rec and isrec and use_backup and not use_nn:
             print('STOP')
             stop = True
@@ -131,6 +133,7 @@ if __name__ == '__main__':
         if sim and not stop and not use_joy and isrec:
             pubSub.publish_button_no_joy([4])
         if not prev_rec and isrec and use_backup and use_nn:
+            pubSub.publish_backup(np.zeros(12),np.zeros(12),np.zeros(12), 0, 0)
             time_rec = sim_time
             backup_policy.actor_network.running_mean_std.running_mean = running_mean_backup
             backup_policy.actor_network.running_mean_std.running_var = running_var_backup
