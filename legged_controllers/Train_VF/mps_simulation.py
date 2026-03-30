@@ -91,8 +91,10 @@ if __name__ == '__main__':
     while not rospy.is_shutdown():
         prev_rec = isrec
         if (sim_time > 0.5) and (sim_time - time_rec) % 3. == 0 and isrec and sim_push and sim and not stop:
-            applyForce(0, 50*counter, 0, 0, 0, 0, 0.25)
-            print(50*counter)
+           # applyForce(0, 50*counter, 0, 0, 0, 0, 0.25)
+           # print(50*counter)
+            applyForce(0, 100, 0, 0, 0, 0, 0.25)
+            print(100)
             counter += 1
             if manual_switch and counter > 1:
                 isrec = False

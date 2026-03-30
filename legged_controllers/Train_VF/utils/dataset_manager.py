@@ -25,7 +25,7 @@ class DatasetManager():
         # -------------------------------
         self.INCLINATION_THRESHOLD = 30.0  # degrees - max allowed inclination before considering robot as fallen
         self.FALL_HEIGHT_THRESHOLD = 0.3   # meters - min allowed height before considering robot as fallen
-        self.CP_SAFE_RADIUS = 0.05         # meters - acceptable radius to consider CP successful
+        self.CP_SAFE_RADIUS = 0.02         # meters - acceptable radius to consider CP successful
         self.G = 9.81                      # gravitational constant
         self.policy_frequency = 50 #Hz
         self.dt = 0.002
@@ -276,9 +276,9 @@ class DatasetManager():
         #reset robot
         self.warmup_time = warmup_time
         random_cmd = np.array([ 
-            np.random.uniform(-0.5, 0.5),  # (-0.5, 1.0),#vx
-            np.random.uniform(-0.5, 0.5),  # vy
-            np.random.uniform(-0.5, 0.5) #(-0.4, 0.4)  # yaw_rate
+            np.random.uniform(-0.2, 0.2),  # (-0.5, 1.0),#vx
+            np.random.uniform(-0.2, 0.2),  # vy
+            np.random.uniform(-0.2, 0.2) #(-0.4, 0.4)  # yaw_rate
         ])
         #debug
         #actor_network.velocity_cmd = np.array([0.5, 0.0, 0.0])
@@ -431,7 +431,7 @@ class DatasetManager():
 
         stats = np.array(stats, dtype=int)
 
-        np.save(os.path.join(save_path, "observations_nn_ffw_torques_kp70_cp_termination_noise_lower_pushes_original_radius_100_new_yaw.npy"), padded_obs)
+        np.save(os.path.join(save_path, "observations_nn_ffw_torques_kp70_cp_termination_noise_lower_pushes_locosim_radius_100_new_cmd.npy"), padded_obs)
 
         print(f"Episodi completati: {n_episodes}")
         print(f"Caduti: {np.sum(stats[:, 0])}, CP raggiunto: {np.sum(stats[:, 1])}")
