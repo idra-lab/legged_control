@@ -54,7 +54,7 @@ if __name__ == '__main__':
     sim = True
     sim_push = True
     use_backup = True
-    use_joy = True
+    use_joy = False
     prev_rec = True
     manual_switch = False
     isrec = True

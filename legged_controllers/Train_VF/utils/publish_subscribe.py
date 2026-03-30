@@ -207,7 +207,7 @@ class PubSub():
             if 4 in mode and 5 in mode:
                 self.button.axes = [0,0,0,0,0,0,0,0]
             elif 4 in mode:
-                self.button.axes = [0,0.5,0,0,0,0,0,0]
+                self.button.axes = [0,1,0,0,0,0,0,0]
             self.button.buttons = buttons
             self.button_pub.publish(self.button)
             

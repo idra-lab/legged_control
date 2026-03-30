@@ -13,7 +13,7 @@ teleop:
         scale: 0.5
       - axis: 3
         target: angular.z
-        scale: 1.5
+        scale: 0.5
         
   standup:
     type: topic

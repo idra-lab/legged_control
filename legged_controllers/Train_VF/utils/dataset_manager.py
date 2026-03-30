@@ -46,7 +46,7 @@ class DatasetManager():
         self.ffw_torques = np.array([ 1.6, 0.0, 0.0,      # LF 
                                       1.6, 0.0, 0.0,      # LH 
                                      -1.6, 0.0, 0.0,      # RF
-                                     -1.6, 0.0, 0.0])*0   # RH
+                                     -1.6, 0.0, 0.0])*1   # RH
         
         self.use_nn = use_nn
         self.init_ros()
@@ -278,7 +278,7 @@ class DatasetManager():
         random_cmd = np.array([ 
             np.random.uniform(-0.5, 0.5),  # (-0.5, 1.0),#vx
             np.random.uniform(-0.5, 0.5),  # vy
-            np.random.uniform(-1.5, 1.5) #(-0.4, 0.4)  # yaw_rate
+            np.random.uniform(-0.5, 0.5) #(-0.4, 0.4)  # yaw_rate
         ])
         #debug
         #actor_network.velocity_cmd = np.array([0.5, 0.0, 0.0])
@@ -431,7 +431,7 @@ class DatasetManager():
 
         stats = np.array(stats, dtype=int)
 
-        np.save(os.path.join(save_path, "observations_nn_no_ffw_torques_kp70_cp_termination_noise_lower_pushes_original_radius.npy"), padded_obs)
+        np.save(os.path.join(save_path, "observations_nn_ffw_torques_kp70_cp_termination_noise_lower_pushes_original_radius_100_new_yaw.npy"), padded_obs)
 
         print(f"Episodi completati: {n_episodes}")
         print(f"Caduti: {np.sum(stats[:, 0])}, CP raggiunto: {np.sum(stats[:, 1])}")

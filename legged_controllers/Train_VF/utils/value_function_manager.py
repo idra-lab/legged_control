@@ -56,8 +56,8 @@ class ValueFunctionManager:
         full_path = os.path.realpath(__file__)
 
         if use_nn:
-            model_path = os.path.dirname(full_path) + '/../models/VF_nn_ffw_torques_kp70_cp_termination_noise_lower_pushes_original_radiusB.pkl'
-            self.min_switch = 10#2#10#2#0
+            model_path = os.path.dirname(full_path) + '/../models/VF_nn_ffw_torques_kp70_cp_termination_noise_lower_pushes_original_radius_100_new_yaw.pkl'#'VF_nn_ffw_torques_kp70_cp_termination_noise_lower_pushes_original_radiusB.pkl'
+            self.min_switch = 2#3#10#2#10#2#0
             self.min_back = 200
         else:
             model_path = os.path.dirname(full_path) + '/../models/VF_L_mpc.pkl'
