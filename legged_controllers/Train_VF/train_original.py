@@ -28,8 +28,8 @@ os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "True"
 # ====================================
 full_path = os.path.realpath(__file__)
 folder_path = os.path.dirname(full_path)
-data_path = folder_path + '/observation_datasets/observations_nn_ffw_torques_kp70_cp_termination_noise_lower_pushes_locosim_radius_100_new_cmd.npy'
-model_path = folder_path + '/models/VF_nn_ffw_torques_kp70_cp_termination_noise_lower_pushes_locosim_radius_100_new_cmd.pkl'
+data_path = folder_path + '/observation_datasets/observations_rl_controller_200.npy'
+model_path = folder_path + '/models/VF_rl_controller_200.pkl'
 
 data = np.load(data_path)
 

@@ -14,17 +14,18 @@ from std_srvs.srv import Empty
 import roslaunch
 import rospkg
 from utils.backup import BackupPolicy
+from utils.rl_controller import RlVelocityController
 from utils.utils import *
 
 
 
 class DatasetManager():
-    def __init__(self, use_nn=False):
+    def __init__(self, use_nn=False, backup_trot=True):
         # -------------------------------
         # Simulation Thresholds and Constants
         # -------------------------------
         self.INCLINATION_THRESHOLD = 30.0  # degrees - max allowed inclination before considering robot as fallen
-        self.FALL_HEIGHT_THRESHOLD = 0.3   # meters - min allowed height before considering robot as fallen
+        self.FALL_HEIGHT_THRESHOLD = 0.2   # meters - min allowed height before considering robot as fallen
         self.CP_SAFE_RADIUS = 0.02         # meters - acceptable radius to consider CP successful
         self.G = 9.81                      # gravitational constant
         self.policy_frequency = 50 #Hz
@@ -49,20 +50,27 @@ class DatasetManager():
                                      -1.6, 0.0, 0.0])*1   # RH
         
         self.use_nn = use_nn
+        self.backup_trot = backup_trot
         self.init_ros()
 
         full_path = os.path.realpath(__file__)
         config_path = os.path.dirname(full_path) + '/config.yaml'
         self.config = load_config(config_path)
-        self.backup_policy = BackupPolicy(self.config)
-        self.running_mean_backup = copy.copy(self.backup_policy.actor_network.running_mean_std.running_mean)
-        self.running_var_backup = copy.copy(self.backup_policy.actor_network.running_mean_std.running_var)
-        self.count_backup = copy.copy(self.backup_policy.actor_network.running_mean_std.count)
-        self.backup_policy.decimation = self.decimation
-        self.kp_backup = np.array(self.config['robot']['kp'])
-        self.kd_backup = np.array(self.config['robot']['kd'])
-        self.backup_policy.commands = np.array(self.config['robot']['cmd_backup'])
-        
+        if self.backup_trot:
+            self.backup_policy = BackupPolicy(self.config)
+            self.running_mean_backup = copy.copy(self.backup_policy.actor_network.running_mean_std.running_mean)
+            self.running_var_backup = copy.copy(self.backup_policy.actor_network.running_mean_std.running_var)
+            self.count_backup = copy.copy(self.backup_policy.actor_network.running_mean_std.count)
+            self.backup_policy.decimation = self.decimation
+            self.kp_backup = np.array(self.config['robot']['kp'])
+            self.kd_backup = np.array(self.config['robot']['kd'])
+            self.backup_policy.commands = np.array(self.config['robot']['cmd_backup'])
+        else:
+            self.backup_policy = RlVelocityController('aliengo', self.dt, use_nn_se=True)
+            self.kp_backup = self.backup_policy.kp[0]
+            self.kd_backup = self.backup_policy.kd[0]
+            self.backup_policy.velocity_cmd = np.zeros(3)
+
     def init_ros(self):
         # ROS
         rospy.init_node('communicate_aliengo')
@@ -98,7 +106,7 @@ class DatasetManager():
             
         print('resquat', data_new[4])
         print('resxyz', data_new[0][:3])'''
-        while(np.linalg.norm(self.pubSub.pose - self.initial_pose) > 0.05*2 or np.linalg.norm(self.pubSub.twist) > 0.05*2):
+        while(np.linalg.norm(self.pubSub.pose - self.initial_pose) > 0.05*4 or np.linalg.norm(self.pubSub.twist) > 0.05*4):
             if reset_iter > 30:
                 self.deregister_node()
                 self.init_ros()
@@ -276,9 +284,9 @@ class DatasetManager():
         #reset robot
         self.warmup_time = warmup_time
         random_cmd = np.array([ 
-            np.random.uniform(-0.2, 0.2),  # (-0.5, 1.0),#vx
-            np.random.uniform(-0.2, 0.2),  # vy
-            np.random.uniform(-0.2, 0.2) #(-0.4, 0.4)  # yaw_rate
+            np.random.uniform(-0.5, 0.5),  # (-0.5, 1.0),#vx
+            np.random.uniform(-0.5, 0.5),  # vy
+            np.random.uniform(-0.5, 0.5) #(-0.4, 0.4)  # yaw_rate
         ])
         #debug
         #actor_network.velocity_cmd = np.array([0.5, 0.0, 0.0])
@@ -331,8 +339,8 @@ class DatasetManager():
                 if self.step == push_instant:
                     #[self.pubSub.pose, self.pubSub.twist, self.pubSub.joint_pos, self.pubSub.joint_vel]
                     #apply as a twisch change
-                    vx = np.random.uniform(-1.5, 1.5) #(-2.0, 2.0)#+ self.quadruped.baseTwistW[0]
-                    vy = np.random.uniform(-1.5, 1.5) #(-2.0, 2.0) #+ self.quadruped.baseTwistW[1]
+                    vx = np.random.uniform(-3, 3) #(-2.0, 2.0)#+ self.quadruped.baseTwistW[0]
+                    vy = np.random.uniform(-3, 3) #(-2.0, 2.0) #+ self.quadruped.baseTwistW[1]
                     #debug makes it fall
                     # vx = -1.645
                     # vy = -1.239
@@ -345,6 +353,15 @@ class DatasetManager():
                 cmd_vel = np.array([random_cmd[0], random_cmd[1], 0, 0, 0, 0, random_cmd[2]])
                 self.pubSub.publish_vel(cmd_vel)
                 self.pubSub.publish_backup(np.zeros(12),np.zeros(12),torque_noise, 0, 0)
+
+                if not self.backup_trot and self.use_nn:
+                    body_ang_vel = copy.copy(data_new[5])
+                    proj_gravity = quat_rotate_inverse(
+                        torch.tensor(data_new[4], device='cuda:0', dtype=torch.double).unsqueeze(0),
+                        #torch.tensor(data_new[0][3:], device='cuda:0', dtype=torch.double).unsqueeze(0),
+                        self.grav_tens
+                    )[0].cpu().numpy()
+                    qDes_no = self.backup_policy.action(data_new[6], None, body_ang_vel, proj_gravity, data_new[2], data_new[3], policy_type="safe")
     
             else:#switch to backup policy
                 if np.mod(self.sim_time, 0.5) == 0:
@@ -353,7 +370,16 @@ class DatasetManager():
                     cmd_vel = np.array([0, 0, 0, 0, 0, 0, 0.])
                     self.pubSub.publish_vel(cmd_vel)
                 else:
-                    qDes = self.backup_policy.compute_actions(data_new[4], data_new[5], data_new[2], data_new[3])
+                    if self.backup_trot:
+                        qDes = self.backup_policy.compute_actions(data_new[4], data_new[5], data_new[2], data_new[3])
+                    else:
+                        body_ang_vel = copy.copy(data_new[5])
+                        proj_gravity = quat_rotate_inverse(
+                            torch.tensor(data_new[4], device='cuda:0', dtype=torch.double).unsqueeze(0),
+                            #torch.tensor(data_new[0][3:], device='cuda:0', dtype=torch.double).unsqueeze(0),
+                            self.grav_tens
+                        )[0].cpu().numpy()
+                        qDes = self.backup_policy.action(data_new[6], None, body_ang_vel, proj_gravity, data_new[2], data_new[3], policy_type="safe")
                     self.pubSub.publish_is_rec(False)
                     self.pubSub.publish_backup(qDes,np.zeros(12),self.ffw_torques+torque_noise, self.kp_backup, self.kd_backup)
                 #self.pubSub.publish_button(2) # Stance
@@ -412,12 +438,17 @@ class DatasetManager():
             max_len = max(max_len, len(obs))
 
             if self.use_nn:
-                self.backup_policy.actor_network.running_mean_std.running_mean = self.running_mean_backup
-                self.backup_policy.actor_network.running_mean_std.running_var = self.running_var_backup
-                self.backup_policy.actor_network.running_mean_std.count = self.count_backup
-                self.backup_policy.decimation_counter = 0
-                self.backup_policy.prev_actions = np.zeros(12)
-                self.backup_policy.qDes = self.backup_policy.q_def
+                if self.backup_trot:
+                    self.backup_policy.actor_network.running_mean_std.running_mean = self.running_mean_backup
+                    self.backup_policy.actor_network.running_mean_std.running_var = self.running_var_backup
+                    self.backup_policy.actor_network.running_mean_std.count = self.count_backup
+                    self.backup_policy.decimation_counter = 0
+                    self.backup_policy.prev_actions = np.zeros(12)
+                    self.backup_policy.qDes = self.backup_policy.q_def
+                else:
+                    self.backup_policy.prev_action = np.zeros(12)
+                    self.backup_policy.decimation_counter = 0
+                    self.backup_policy.history_buffer = np.zeros((1, 3, 48))
                 self.pubSub.publish_is_rec(True)
                 self.pubSub.publish_backup(np.zeros(12),np.zeros(12),np.zeros(12), 0, 0)
             time.sleep(2)
@@ -431,7 +462,7 @@ class DatasetManager():
 
         stats = np.array(stats, dtype=int)
 
-        np.save(os.path.join(save_path, "observations_nn_ffw_torques_kp70_cp_termination_noise_lower_pushes_locosim_radius_100_new_cmd.npy"), padded_obs)
+        np.save(os.path.join(save_path, "observations_rl_controller_100_new_frequency.npy"), padded_obs)
 
         print(f"Episodi completati: {n_episodes}")
         print(f"Caduti: {np.sum(stats[:, 0])}, CP raggiunto: {np.sum(stats[:, 1])}")

@@ -51,14 +51,17 @@ def critic_inference(critic_model, params, obs):
 
 
 class ValueFunctionManager:
-    def __init__(self, use_nn):
+    def __init__(self, use_nn, stop):
 
         full_path = os.path.realpath(__file__)
 
         if use_nn:
-            model_path = os.path.dirname(full_path) + '/../models/VF_nn_ffw_torques_kp70_cp_termination_noise_lower_pushes_locosim_radius_100_new_yaw.pkl'
-            self.min_switch = 5#10#2#10#2#0
-            self.min_back = 200
+            if stop:
+                pass
+            else:
+                model_path = os.path.dirname(full_path) + '/../models/VF_rl_controller_100C.pkl'#VF_nn_ffw_torques_kp70_cp_termination_noise_lower_pushes_locosim_radius_100_new_yaw.pkl'
+                self.min_switch = 10#2#10#2#0
+                self.min_back = 200
         else:
             model_path = os.path.dirname(full_path) + '/../models/VF_L_mpc.pkl'
             self.min_switch = 20

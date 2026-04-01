@@ -104,10 +104,8 @@ class PubSub():
       #  10 RH_HFE
       #  11 RH_KFE
 
-      # we convert into LH RH LF RF
 
         with self.lock_joint:
-            order = [6, 7, 8, 0, 1, 2, 9, 10, 11, 3, 4, 5]
         
             for i in range(12):
                 #self.joint_pos[order[i]] = data.position[i]

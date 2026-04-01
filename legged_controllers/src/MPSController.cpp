@@ -45,7 +45,7 @@ bool MPSController::init(hardware_interface::RobotHW* robot_hw, ros::NodeHandle&
   controller_nh.getParam("/referenceFile", referenceFile);
   controller_nh.getParam("/useNN", useNN_);
   
-  bool verbose = true;
+  bool verbose = false;
   loadData::loadCppDataType(taskFile, "legged_robot_interface.verbose", verbose);
   setupLeggedInterface(taskFile, urdfFile, referenceFile, verbose);
   setupMpc();
@@ -139,10 +139,10 @@ void MPSController::update(const ros::Time& time, const ros::Duration& period) {
   vector_t velDes = centroidal_model::getJointVelocities(optimizedInput, leggedInterface_->getCentroidalModelInfo());
 
   // Safety check, if failed, stop the controller
-  if (!safetyChecker_->check(currentObservation_, optimizedState, optimizedInput)) {
-    ROS_ERROR_STREAM("[MPS Controller] Safety check failed, stopping the controller.");
-    stopRequest(time);
-  }
+  //if (!safetyChecker_->check(currentObservation_, optimizedState, optimizedInput)) {
+  //  ROS_ERROR_STREAM("[MPS Controller] Safety check failed, stopping the controller.");
+  //  stopRequest(time);
+  //}
 
   
   if (!useNN_ || (useNN_ && isRecReceiverPtr->getIsRec())){
@@ -150,7 +150,7 @@ void MPSController::update(const ros::Time& time, const ros::Duration& period) {
     for (size_t j = 0; j < leggedInterface_->getCentroidalModelInfo().actuatedDofNum; ++j) {
       //double number = distribution(generator);
       //std::cout << j << " " << posDes(j) << " " << velDes(j) << " " << torque(j) << std::endl;
-      hybridJointHandles_[j].setCommand(posDes(j), velDes(j), 0, 3, torque(j)+eff_noise[j]);//+number);
+      hybridJointHandles_[j].setCommand(posDes(j), velDes(j), 0, 3, torque(j));//+number);
     }
   }
   else{
@@ -160,7 +160,7 @@ void MPSController::update(const ros::Time& time, const ros::Duration& period) {
     // Not recoverable
     for (size_t j = 0; j < leggedInterface_->getCentroidalModelInfo().actuatedDofNum; ++j) {
       
-      hybridJointHandles_[j].setCommand(pos_backup[j], vel_backup[j], pos_backup[12], vel_backup[12], eff_backup[j]);
+      hybridJointHandles_[j].setCommand(pos_backup[j], 0, 30, 0.5, 0);
     }
   }
 

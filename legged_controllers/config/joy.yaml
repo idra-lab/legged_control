@@ -14,6 +14,10 @@ teleop:
       - axis: 3
         target: angular.z
         scale: 0.5
+      - axis: 4
+        target: angular.y
+        scale: 0.3
+
         
   standup:
     type: topic
@@ -31,21 +35,26 @@ teleop:
       target: linear.y
       value: 0.0
       
-  stop:
+  backup:
     type: topic
-    message_type: geometry_msgs/Twist
-    topic_name: cmd_vel
-    deadman_buttons: [ 4, 5 ]
-    axis_mappings:
-      - axis: 0
-        target: linear.y
-        scale: 0
-      - axis: 1
-        target: linear.x
-        scale: 0
-      - axis: 3
-        target: angular.z
-        scale: 0
+    message_type: std_msgs/Bool
+    topic_name: is_rec
+    deadman_buttons: [ 6 ]
+    message_value:
+    - 
+      target: data
+      value: False
+
+  nominal:
+    type: topic
+    message_type: std_msgs/Bool
+    topic_name: is_rec
+    deadman_buttons: [ 7 ]
+    message_value:
+    - 
+      target: data
+      value: True
+
   
   shutdown: 
       type: service
