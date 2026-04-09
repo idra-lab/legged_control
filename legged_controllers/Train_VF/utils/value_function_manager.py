@@ -59,8 +59,8 @@ class ValueFunctionManager:
             if stop:
                 pass
             else:
-                model_path = os.path.dirname(full_path) + '/../models/VF_rl_controller_100C.pkl'#VF_nn_ffw_torques_kp70_cp_termination_noise_lower_pushes_locosim_radius_100_new_yaw.pkl'
-                self.min_switch = 10#2#10#2#0
+                model_path = os.path.dirname(full_path) + '/../models/VF_rl_controller_100_high_pushes_original_radius.pkl'
+                self.min_switch = 20#2#10#2#0
                 self.min_back = 200
         else:
             model_path = os.path.dirname(full_path) + '/../models/VF_L_mpc.pkl'

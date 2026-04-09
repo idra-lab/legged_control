@@ -19,6 +19,8 @@ class PubSub():
         self.state = ModelState()
         self.is_rec = Bool()
         self.joints_backup = JointState()
+        self.world_control = Bool()
+        self.reset = Bool()
 
         self.lock_state = threading.Lock()
         self.lock_joint = threading.Lock()
@@ -29,10 +31,11 @@ class PubSub():
 
         self.joint_pos = np.zeros(12)
         self.joint_vel = np.zeros(12)
+        self.joint_eff = np.zeros(12)
 
-        self.joint_pos_backup = np.zeros(13)
-        self.joint_vel_backup = np.zeros(13)
-        self.joint_eff_backup = np.zeros(13)
+        self.joint_pos_backup = np.zeros(12)
+        self.joint_vel_backup = np.zeros(12)
+        self.joint_eff_backup = np.zeros(12)
 
         self.imu_quat = np.zeros(4)
         self.imu_ang_vel = np.zeros(3)
@@ -106,13 +109,14 @@ class PubSub():
 
 
         with self.lock_joint:
-        
+    
             for i in range(12):
                 #self.joint_pos[order[i]] = data.position[i]
                 #self.joint_vel[order[i]] = data.velocity[i]
                 self.joint_pos[i] = data.position[i]
                 self.joint_vel[i] = data.velocity[i]
-
+                self.joint_eff[i] = data.effort[i]
+        
     def init_subscribers(self):
         self.joint_state_sub = rospy.Subscriber('/joint_states', JointState, self.callback_joint)
         self.pose_sub = rospy.Subscriber('/gazebo/model_states', ModelStates, self.callback_state)
@@ -124,8 +128,10 @@ class PubSub():
         self.button_pub = rospy.Publisher('/joy', Joy, queue_size=None, tcp_nodelay=True)
         self.is_rec_pub = rospy.Publisher('/is_rec', Bool, queue_size=None, tcp_nodelay=True)
         self.joints_backup_pub = rospy.Publisher('/joints_backup', JointState, queue_size=None, tcp_nodelay=True)
+        self.world_control_pub = rospy.Publisher('/world_control', Bool, queue_size=None, tcp_nodelay=True)
+        self.reset_pub = rospy.Publisher('/reset', Bool, queue_size=None, tcp_nodelay=True)
 
-    def publish_backup(self, pos, vel, eff, kp, kd):
+    def publish_backup(self, pos, vel, eff):
         # Data needs to be sent in the following order:
         #  0  LF_HAA
         #  1  LF_HFE
@@ -145,16 +151,9 @@ class PubSub():
                  "RF_HAA", "RF_HFE", "RF_KFE", "RH_HAA", "RH_HFE", "RH_KFE", "Gains"]
         try:
             for i in range(12):
-                '''self.joint_pos_backup[i] = pos[order[i]]
-                self.joint_vel_backup[i] = vel[order[i]]
-                self.joint_eff_backup[i] = eff[order[i]]'''
                 self.joint_pos_backup[i] = pos[i]
                 self.joint_vel_backup[i] = vel[i]
                 self.joint_eff_backup[i] = eff[i]
-            
-            self.joint_pos_backup[12] = kp
-            self.joint_vel_backup[12] = kd
-            self.joint_eff_backup[12] = 0
             
             self.joints_backup.position = self.joint_pos_backup
             self.joints_backup.velocity = self.joint_vel_backup
@@ -169,6 +168,22 @@ class PubSub():
         try:
             self.is_rec.data = is_rec
             self.is_rec_pub.publish(self.is_rec)
+            
+        except rospy.ROSInterruptException:
+            pass
+
+    def publish_world_control(self, world_control):
+        try:
+            self.world_control.data = world_control
+            self.world_control_pub.publish(self.world_control)
+            
+        except rospy.ROSInterruptException:
+            pass
+    
+    def publish_reset(self, reset):
+        try:
+            self.reset.data = reset
+            self.reset_pub.publish(self.reset)
             
         except rospy.ROSInterruptException:
             pass
@@ -205,7 +220,7 @@ class PubSub():
             if 4 in mode and 5 in mode:
                 self.button.axes = [0,0,0,0,0,0,0,0]
             elif 4 in mode:
-                self.button.axes = [0,1,0,0,0,0,0,0]
+                self.button.axes = [0,-1,0,0,0,0,0,0]
             self.button.buttons = buttons
             self.button_pub.publish(self.button)
             

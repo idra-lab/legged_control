@@ -9,6 +9,7 @@
             <max_step_size>0.001</max_step_size>
             <real_time_update_rate>1000</real_time_update_rate>
             <iters>500</iters>
+            <random_seed>1</random_seed>
         </physics>
         <!-- A global light source -->
         <include>

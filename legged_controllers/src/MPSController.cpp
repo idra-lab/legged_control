@@ -150,7 +150,7 @@ void MPSController::update(const ros::Time& time, const ros::Duration& period) {
     for (size_t j = 0; j < leggedInterface_->getCentroidalModelInfo().actuatedDofNum; ++j) {
       //double number = distribution(generator);
       //std::cout << j << " " << posDes(j) << " " << velDes(j) << " " << torque(j) << std::endl;
-      hybridJointHandles_[j].setCommand(posDes(j), velDes(j), 0, 3, torque(j));//+number);
+      hybridJointHandles_[j].setCommand(posDes(j), velDes(j), 0, 3, torque(j));// + eff_noise[j]);
     }
   }
   else{
@@ -160,7 +160,7 @@ void MPSController::update(const ros::Time& time, const ros::Duration& period) {
     // Not recoverable
     for (size_t j = 0; j < leggedInterface_->getCentroidalModelInfo().actuatedDofNum; ++j) {
       
-      hybridJointHandles_[j].setCommand(pos_backup[j], 0, 30, 0.5, 0);
+      hybridJointHandles_[j].setCommand(pos_backup[j], 0, 30, 0.5, 0);//+ eff_backup[j]);
     }
   }
 

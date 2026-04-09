@@ -5,6 +5,7 @@ from gazebo_msgs.srv import ApplyBodyWrench
 import rospkg
 import roslaunch
 import numpy as np
+import csv
 
 def load_config(file_path):
     """ Function to load YAML configuration """
@@ -89,3 +90,18 @@ def quaternion_to_euler_deg(quat):
     yaw = np.arctan2(2 * (w * z + x * y), 1 - 2 * (y**2 + z**2)) * (180 / np.pi)
 
     return roll, pitch, yaw
+
+def save_to_csv(nameFile, data):
+    """ Save data to CSV file """
+    if len(data) > 0:
+        with open(nameFile, 'a', encoding="ISO-8859-1", newline='') as myfile:
+            wr = csv.writer(myfile)
+            wr.writerows(data)
+        myfile.close()
+
+def save_data_tests(path_save, test_force, data_save):
+    """ Save data from a test """
+    data_names = list(data_save.keys())
+    for i in data_names:
+        nameFile = path_save + "/" + i + test_force + ".csv"
+        save_to_csv(nameFile, data_save[i])

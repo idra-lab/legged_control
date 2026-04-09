@@ -1,11 +1,11 @@
 controllers:
   joint_state_controller:
     type: joint_state_controller/JointStateController
-    publish_rate: 100
+    publish_rate: 500
   legged_controller:
     type: legged/LeggedController
   imu_sensor_controller:
     type: imu_sensor_controller/ImuSensorController
-    publish_rate: 100
+    publish_rate: 500
   mps_controller:
     type: legged/MPSController
