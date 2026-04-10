@@ -83,9 +83,12 @@ class TestManager():
         self.vf = ValueFunctionManager(use_nn=True, stop=False)
 
     def init_ros(self):
+        os.system('pkill rosmaster')
+        os.system('pkill gzserver')
+
         # ROS
         # Launch nodes
-        self.launch_world = launchFileNode('legged_unitree_description','empty_world.launch', additional_args=['use_sim_time:=true', 'gz_gui:=false'])
+        self.launch_world = launchFileNode('legged_unitree_description','empty_world.launch', additional_args=['use_sim_time:=true', 'gz_gui:=true'])
         self.launch_world.start()
         time.sleep(1)
 
