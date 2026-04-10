@@ -1,7 +1,8 @@
 from simulation import TestManager
+import rospy
 
 if __name__ == '__main__':
-    tm = TestManager(use_nn = True)
+    tm = TestManager(use_nn = False)
     try:
         tm.run_simulations()
 

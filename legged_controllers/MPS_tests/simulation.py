@@ -36,7 +36,7 @@ class TestManager():
         self.CP_SAFE_RADIUS = 0.05         # meters - acceptable radius to consider CP successful
         self.G = 9.81                      # gravitational constant
         self.policy_frequency = 50         # Hz
-        self.policy_frequency = 100        # Hz
+        self.vf_frequency = 100        # Hz
         self.dt = 0.002
         self.decimation = (1 / self.dt) * (1 / self.policy_frequency)
         self.decimation_vf = (1 / self.dt) * (1 / self.vf_frequency)
@@ -59,7 +59,7 @@ class TestManager():
         self.init_ros()
 
         full_path = os.path.realpath(__file__)
-        config_path = os.path.dirname(full_path) + '/config.yaml'
+        config_path = os.path.dirname(full_path) + '/../Train_VF/utils/config.yaml'
         self.config = load_config(config_path)
 
         self.force_time = self.config['settings']['tests']['force_time']
@@ -80,7 +80,7 @@ class TestManager():
         self.backup_policy.velocity_cmd = np.zeros(3)
         self.ffw_torques = np.zeros(12)
 
-        self.vf = ValueFunctionManager(use_nn, stop=False)
+        self.vf = ValueFunctionManager(use_nn=True, stop=False)
 
     def init_ros(self):
         # ROS
@@ -320,15 +320,13 @@ class TestManager():
         folder_results = os.path.dirname(full_path) + self.config['settings']['paths']['results_folder'] + '/'
 
         test_num_last = self.config['settings']['tests']['last_test']
-        dir_path = self.config['settings']['paths']['force_directions']
-        iter_path = self.config['settings']['paths']['force_iterations']
+        dir_path = os.path.dirname(full_path) + self.config['settings']['paths']['force_directions']
+        iter_path = os.path.dirname(full_path) + self.config['settings']['paths']['force_iterations']
         force_mag = np.array(self.config['settings']['tests']['force_mag'])
 
         max_steps = int(self.config['settings']['tests']['test_time']/self.dt)
         
-        data_save = {        'data_sim': [], 'save_fall': [], 
-                          'save_backup': [], 'save_stop': [], 
-                     'save_stop_backup': []}
+        
         
         self.reset()
         #for i in tqdm(range(n_episodes)):
@@ -340,6 +338,10 @@ class TestManager():
             dir_file = open(dir_path)
             dir_text = dir_file.readline().rstrip().split(',')
             while dir_text[0] != '':
+
+                data_save = {        'data_sim': [], 'save_fall': [], 
+                          'save_backup': [], 'save_stop': [], 
+                     'save_stop_backup': []}
                 # Change force 
                 
                 j = np.array([float(dir_text[0]),float(dir_text[1]),float(dir_text[2])])

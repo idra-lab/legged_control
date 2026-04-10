@@ -1,8 +1,8 @@
 settings:
   paths:
     results_folder: /No_MPS
-    force_directions: ../sphere_points_100.csv
-    force_iterations: ../aplication_iteration.csv
+    force_directions: /sphere_points_100.csv
+    force_iterations: /aplication_iteration.csv
     estimate_lipschitz: VF_data/data_vf_sensors_stop
   tests:
     last_test: 0
@@ -10,18 +10,16 @@ settings:
     torch_num_interop_threads: 1
     force_time: 0.2
     test_time: 20
-    threshold_vf: 0.5
+    threshold_vf: 0.6
     additional_term_vf: 0.0
-    switch_min: 1
-    test_code: False
-    visualize: False
+    switch_min: 5
     use_backup: True
     manual_mps: False
     estimate_lipschitz: False
     all_tests: True
     save_data: True
     save_iterations: False
-    force_mag: [100, 105, 110, 115, 120, 125, 130, 135, 140, 145, 150] #
+    force_mag: [200, 190, 180, 170, 160, 150, 140, 130, 120, 110, 100] #
     
 
 simulation:

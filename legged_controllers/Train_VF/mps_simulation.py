@@ -18,13 +18,13 @@ from controller_manager_msgs.srv import SwitchController, LoadController, Unload
 np.set_printoptions(linewidth=100000)
 
 def reset():
-        initial_pose = np.array([0, 1, 0.45, 0, 0, 0, 1])
+        initial_pose = np.array([0, 0, 0.45, 0, 0, 0, 1])
 
         joint_names = ['LF_HAA', 'LF_HFE', 'LF_KFE', 
                         'LH_HAA', 'LH_HFE', 'LH_KFE', 
                         'RF_HAA', 'RF_HFE', 'RF_KFE', 
                         'RH_HAA', 'RH_HFE', 'RH_KFE']
-        joint_positions = [-0.1, 0.62, -1.24,
+        joint_positions = [ -0.1, 0.62, -1.24,
                             -0.1, 0.62, -1.24,
                              0.1, 0.62, -1.24,
                              0.1, 0.62, -1.24]
@@ -163,7 +163,7 @@ if __name__ == '__main__':
     decimation_counter = 0
 
     sim = True
-    sim_push = False
+    sim_push = True
     use_backup = True
     use_joy = False
     prev_rec = True
@@ -237,7 +237,7 @@ if __name__ == '__main__':
         if stop:
             threshold = 0
         else:
-            threshold = 0.5#5#7
+            threshold = 0.6#5#7
     else:
         threshold = 0.5
     

@@ -28,8 +28,8 @@ os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "True"
 # ====================================
 full_path = os.path.realpath(__file__)
 folder_path = os.path.dirname(full_path)
-data_path = folder_path + '/observation_datasets/observations_rl_controller_100_high_pushes_original_radius.npy'
-model_path = folder_path + '/models/VF_rl_controller_100_high_pushes_original_radius.pkl'
+data_path = folder_path + '/observation_datasets/observations_rl_controller_250_high_pushes_3_5_original_radius.npy'
+model_path = folder_path + '/models/VF_rl_controller_250_high_pushes_3_5_original_radiusF.pkl'
 
 data = np.load(data_path)
 
@@ -222,7 +222,7 @@ def get_batches(states, next_states, dones, capt_p, batch_size, rng):
 # ====================================
 #           Training Loop
 # ====================================
-epochs = 1000
+epochs = 2000
 batch_size = 512
 rng = jax.random.PRNGKey(int(time.time()))
 losses, min_losses, max_losses = [], [], []

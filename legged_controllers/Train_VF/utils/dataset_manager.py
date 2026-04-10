@@ -246,7 +246,7 @@ class DatasetManager():
             print('quat', data_new[4])
             print('xyz', data_new[0][:3])'''
 
-        return self.capture_flag #self.fallen_flag#or 
+        return self.capture_flag #or self.fallen_flag
 
     def store_observations(self, data_new):
         # -------------------------------
@@ -358,8 +358,8 @@ class DatasetManager():
                 if self.step == push_instant:
                     #[self.pubSub.pose, self.pubSub.twist, self.pubSub.joint_pos, self.pubSub.joint_vel]
                     #apply as a twisch change
-                    vx = np.random.uniform(-3, 3) #(-2.0, 2.0)#+ self.quadruped.baseTwistW[0]
-                    vy = np.random.uniform(-3, 3) #(-2.0, 2.0) #+ self.quadruped.baseTwistW[1]
+                    vx = np.random.uniform(-3.5, 3.5) #(-2.0, 2.0)#+ self.quadruped.baseTwistW[0]
+                    vy = np.random.uniform(-3.5, 3.5) #(-2.0, 2.0) #+ self.quadruped.baseTwistW[1]
                     #debug makes it fall
                     # vx = -1.645
                     # vy = -1.239
@@ -441,7 +441,7 @@ class DatasetManager():
            
             
 
-            obs, fallen, captured = self.run_single_simulation(noise_std=noise_std,max_steps=3500, warmup_time=4.0)
+            obs, fallen, captured = self.run_single_simulation(noise_std=noise_std,max_steps=4500, warmup_time=6.0)
             # -------------------------------
             # Reset robot in Gazebo
             # -------------------------------
@@ -484,7 +484,7 @@ class DatasetManager():
 
         stats = np.array(stats, dtype=int)
 
-        np.save(os.path.join(save_path, "observations_rl_controller_100_high_pushes_original_radius_test.npy"), padded_obs)
+        np.save(os.path.join(save_path, "observations_rl_controller_250_high_pushes_3_5_original_radius.npy"), padded_obs)
 
         print(f"Episodi completati: {n_episodes}")
         print(f"Caduti: {np.sum(stats[:, 0])}, CP raggiunto: {np.sum(stats[:, 1])}")
