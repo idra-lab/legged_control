@@ -85,7 +85,7 @@ class TestManager():
     def init_ros(self):
         # ROS
         # Launch nodes
-        self.launch_world = launchFileNode('legged_unitree_description','empty_world.launch')
+        self.launch_world = launchFileNode('legged_unitree_description','empty_world.launch', additional_args=['use_sim_time:=true', 'gz_gui:=false'])
         self.launch_world.start()
         time.sleep(1)
 
@@ -93,7 +93,7 @@ class TestManager():
             nn_arg = 'nn:=true'
         else:
             nn_arg = 'nn:=false'
-        self.launch_controller = launchFileNode('legged_controllers', 'load_controller.launch', additional_args=['joy:=true', nn_arg, 'mps:=true'])
+        self.launch_controller = launchFileNode('legged_controllers', 'load_controller.launch', additional_args=['joy:=true', nn_arg, 'mps:=true', 'joy_msg:=true'])
         self.launch_controller.start()
 
         # Subscribe to messages
@@ -275,10 +275,6 @@ class TestManager():
                 applyForce(self.Fx, self.Fy, self.Fz, 0, 0, 0, self.force_time)
 
             if self.isrec:
-                cmd_vel = np.array([velocity_cmd[0], velocity_cmd[1], 0, 0, 0, 0, velocity_cmd[2]])
-                self.pubSub.publish_vel(cmd_vel)
-                self.pubSub.publish_backup(np.zeros(12),np.zeros(12),np.zeros(12))
-
                 if self.use_nn:
 
                     
@@ -288,11 +284,16 @@ class TestManager():
                         #torch.tensor(data_new[0][3:], device='cuda:0', dtype=torch.double).unsqueeze(0),
                         self.grav_tens
                     )[0].cpu().numpy()
-                    if self.use_backup and (self.step*self.dt > 0.5) and (decimation_counter_vf % self.decimation_vf) == 0:
+                    if (self.step*self.dt > 0.5) and (decimation_counter_vf % self.decimation_vf) == 0:
                         self.isrec, V_safe = self.vf.computeValueFnc(body_ang_vel, proj_gravity, joint_pos=data_new[2], joint_vel=data_new[3], threshold=self.threshold, vf_additional_term = self.vf_additional_term)
 
                     qDes_no = self.backup_policy.action(data_new[6], None, body_ang_vel, proj_gravity, data_new[2], data_new[3], policy_type="safe")
     
+                cmd_vel = np.array([velocity_cmd[0], velocity_cmd[1], 0, 0, 0, 0, velocity_cmd[2]])
+                self.pubSub.publish_vel(cmd_vel)
+                self.pubSub.publish_backup(np.zeros(12),np.zeros(12),np.zeros(12))
+
+                
             else:
                 self.backup_used = True
                 body_ang_vel = copy.copy(data_new[5])
@@ -308,6 +309,7 @@ class TestManager():
             #self.pubSub.publish_button(2) # Stance
 
             self.rate_ros.sleep()
+            decimation_counter_vf += 1
             self.sim_time = np.round(self.sim_time + self.dt, 4)  # np.array([self.loop_time]), 3)
 
         return data_new

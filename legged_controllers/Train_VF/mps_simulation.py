@@ -163,7 +163,7 @@ if __name__ == '__main__':
     decimation_counter = 0
 
     sim = True
-    sim_push = True
+    sim_push = False
     use_backup = True
     use_joy = False
     prev_rec = True
@@ -203,14 +203,14 @@ if __name__ == '__main__':
 
     
 
-    launch_world = launchFileNode('legged_unitree_description','empty_world.launch', additional_args=['use_sim_time:=true'])
+    launch_world = launchFileNode('legged_unitree_description','empty_world.launch', additional_args=['use_sim_time:=true', 'gz_gui:=true'])
     launch_world.start()
     time.sleep(1)
     if use_nn:
         nn_arg = 'nn:=true'
     else:
         nn_arg = 'nn:=false'
-    launch_controller = launchFileNode('legged_controllers', 'load_controller.launch', additional_args=['joy:=true', nn_arg, 'mps:=true'])
+    launch_controller = launchFileNode('legged_controllers', 'load_controller.launch', additional_args=['joy:=true', nn_arg, 'mps:=true', 'joy_msg:=false'])
     launch_controller.start()
     #time.sleep(2)
 
