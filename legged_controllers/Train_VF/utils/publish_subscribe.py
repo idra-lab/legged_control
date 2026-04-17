@@ -5,7 +5,7 @@ from geometry_msgs.msg import Twist
 from std_msgs.msg import Float64, Bool
 from nav_msgs.msg import Odometry
 from ocs2_msgs.msg._mode_schedule import mode_schedule
-from gazebo_msgs.msg import ModelState, ModelStates
+from gazebo_msgs.msg import ModelState, ModelStates, LinkStates
 from nav_msgs.msg import Odometry
 import threading
 import copy
@@ -21,13 +21,22 @@ class PubSub():
         self.joints_backup = JointState()
         self.world_control = Bool()
         self.reset = Bool()
+        self.VF_value = Float64()
 
         self.lock_state = threading.Lock()
         self.lock_joint = threading.Lock()
         self.lock_imu = threading.Lock()
+        self.lock_links = threading.Lock()
 
         self.pose = np.zeros(7)
         self.twist = np.zeros(6)
+
+        # Hips z, knees z, feet xyz 
+        self.coordinates_RF = np.zeros(5)
+        self.coordinates_LF = np.zeros(5)
+        self.coordinates_RH = np.zeros(5)
+        self.coordinates_LH = np.zeros(5)
+
 
         self.joint_pos = np.zeros(12)
         self.joint_vel = np.zeros(12)
@@ -116,11 +125,56 @@ class PubSub():
                 self.joint_pos[i] = data.position[i]
                 self.joint_vel[i] = data.velocity[i]
                 self.joint_eff[i] = data.effort[i]
-        
+
+    def callback_links(self, msg):
+        with self.lock_links:
+            RF_name = 'aliengo::RF_hip' 
+            LF_name = 'aliengo::LF_hip'
+            RH_name = 'aliengo::RH_hip'
+            LH_name = 'aliengo::LH_hip'
+            RF_index = msg.name.index(RF_name)
+            LF_index = msg.name.index(LF_name)
+            RH_index = msg.name.index(RH_name)
+            LH_index = msg.name.index(LH_name)
+
+            # Hips z
+            self.coordinates_RF[0] = msg.pose[RF_index].position.z
+            self.coordinates_LF[0] = msg.pose[LF_index].position.z
+            self.coordinates_RH[0] = msg.pose[RH_index].position.z
+            self.coordinates_LH[0] = msg.pose[LH_index].position.z
+
+            # Knees z
+            self.coordinates_RF[1] = msg.pose[RF_index+2].position.z
+            self.coordinates_LF[1] = msg.pose[LF_index+2].position.z
+            self.coordinates_RH[1] = msg.pose[RH_index+2].position.z
+            self.coordinates_LH[1] = msg.pose[LH_index+2].position.z
+
+            # Feet x
+            self.coordinates_RF[2] = msg.pose[RF_index+3].position.x
+            self.coordinates_LF[2] = msg.pose[LF_index+3].position.x
+            self.coordinates_RH[2] = msg.pose[RH_index+3].position.x
+            self.coordinates_LH[2] = msg.pose[LH_index+3].position.x
+
+            # Feet y
+            self.coordinates_RF[3] = msg.pose[RF_index+3].position.y
+            self.coordinates_LF[3] = msg.pose[LF_index+3].position.y
+            self.coordinates_RH[3] = msg.pose[RH_index+3].position.y
+            self.coordinates_LH[3] = msg.pose[LH_index+3].position.y
+
+            # Feet z
+            self.coordinates_RF[4] = msg.pose[RF_index+3].position.z
+            self.coordinates_LF[4] = msg.pose[LF_index+3].position.z
+            self.coordinates_RH[4] = msg.pose[RH_index+3].position.z
+            self.coordinates_LH[4] = msg.pose[LH_index+3].position.z
+
+
+
+
     def init_subscribers(self):
         self.joint_state_sub = rospy.Subscriber('/joint_states', JointState, self.callback_joint)
         self.pose_sub = rospy.Subscriber('/gazebo/model_states', ModelStates, self.callback_state)
         self.imu_sub = rospy.Subscriber('/base_imu', Imu, self.callback_imu)
+        self.link_states_sub = rospy.Subscriber('/gazebo/link_states', LinkStates, self.callback_links)
         
     def init_publishers(self):
         self.cmd_pub = rospy.Publisher('/cmd_vel', Twist, queue_size=None, tcp_nodelay=True)
@@ -130,6 +184,7 @@ class PubSub():
         self.joints_backup_pub = rospy.Publisher('/joints_backup', JointState, queue_size=None, tcp_nodelay=True)
         self.world_control_pub = rospy.Publisher('/world_control', Bool, queue_size=None, tcp_nodelay=True)
         self.reset_pub = rospy.Publisher('/reset', Bool, queue_size=None, tcp_nodelay=True)
+        self.VF_pub = rospy.Publisher('/vf', Float64, queue_size=None, tcp_nodelay=True)
 
     def publish_backup(self, pos, vel, eff):
         # Data needs to be sent in the following order:
@@ -168,9 +223,20 @@ class PubSub():
         try:
             self.is_rec.data = is_rec
             self.is_rec_pub.publish(self.is_rec)
+
             
         except rospy.ROSInterruptException:
             pass
+
+    def publish_vf(self, VF):
+        try:
+
+            self.VF_pub.publish(VF)
+            
+        except rospy.ROSInterruptException:
+            pass
+
+        
 
     def publish_world_control(self, world_control):
         try:

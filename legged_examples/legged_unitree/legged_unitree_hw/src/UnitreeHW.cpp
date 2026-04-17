@@ -104,7 +104,7 @@ void UnitreeHW::write(const ros::Time& /*time*/, const ros::Duration& /*period*/
     lowCmd_.motorCmd[i].tau = static_cast<float>(jointData_[i].ff_);
   }
   safety_->PositionLimit(lowCmd_);
-  safety_->PowerProtect(lowCmd_, lowState_, powerLimit_);
+  //safety_->PowerProtect(lowCmd_, lowState_, 10);
   udp_->SetSend(lowCmd_);
   udp_->Send();
 }

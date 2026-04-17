@@ -6,6 +6,9 @@ import rospkg
 import roslaunch
 import numpy as np
 import csv
+from matplotlib.path import Path
+import matplotlib
+from shapely.geometry import Polygon
 
 def load_config(file_path):
     """ Function to load YAML configuration """
@@ -105,3 +108,23 @@ def save_data_tests(path_save, test_force, data_save):
     for i in data_names:
         nameFile = path_save + "/" + i + test_force + ".csv"
         save_to_csv(nameFile, data_save[i])
+
+def capture_point_check(base_pos, base_vel, gravity, xy_feet, factor = 0.7):
+    # Compute the capture point coordinates
+    omega = np.sqrt(gravity / base_pos[2])
+    cp_x = base_pos[0] + (base_vel[0]/omega)
+    cp_y = base_pos[1] + (base_vel[1]/omega)
+
+    # Define convex hull and shrink it
+    hull_path = Path(xy_feet)
+    polygon = Polygon(hull_path.vertices)
+    hull_path = hull_path.transformed(matplotlib.transforms.Affine2D().scale(factor))
+    shrinked_polygon = Polygon(hull_path.vertices)
+    
+    translate_x = polygon.centroid.x - shrinked_polygon.centroid.x
+    translate_y = polygon.centroid.y - shrinked_polygon.centroid.y
+    hull_path = hull_path.transformed(matplotlib.transforms.Affine2D().translate(translate_x, translate_y))
+
+    return hull_path.contains_point((cp_x,cp_y))
+
+

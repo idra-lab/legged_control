@@ -44,6 +44,8 @@ class TestManager():
 
         self.sim_time = 0
 
+        self.average_time_data = []
+
         # Values to reset robot state
         self.initial_pose = np.array([0, 0, 0.45, 0, 0, 0, 1])
         self.joint_names = ['LF_HAA', 'LF_HFE', 'LF_KFE', 
@@ -71,6 +73,9 @@ class TestManager():
         self.Fz = 0
         self.iter_push = 0
         self.last_i = 0
+        self.contact_height = 0.03 # Feet
+        self.fall_height = 0.1 
+        self.knee_height = 0.05
         
         
         # Backup policy
@@ -96,7 +101,7 @@ class TestManager():
             nn_arg = 'nn:=true'
         else:
             nn_arg = 'nn:=false'
-        self.launch_controller = launchFileNode('legged_controllers', 'load_controller.launch', additional_args=['joy:=true', nn_arg, 'mps:=true', 'joy_msg:=true'])
+        self.launch_controller = launchFileNode('legged_controllers', 'load_controller.launch', additional_args=['joy:=true', nn_arg, 'mps:=true', 'joy_msg:=false'])
         self.launch_controller.start()
 
         # Subscribe to messages
@@ -248,10 +253,15 @@ class TestManager():
     def run_single_simulation(self, max_steps=2000, warmup_time=1.0):
         #init vars
         self.fallen_flag = 0
+        self.knee_flag = 0
         self.capture_flag = 0
         self.last_i = 0
         self.first_time = True
         self.isrec = True
+        self.vf.count = 0
+        self.vf.VF = True
+        self.vf.count_back = 0
+        self.vf.backup_trigger_counter = 0
         self.backup_used = False
         decimation_counter_vf = 0
 
@@ -266,10 +276,28 @@ class TestManager():
         self.pubSub.publish_button([3]) # Trot
         time.sleep(1)
         for self.step in range(max_steps):
+            #init_time = time.time()
             # Update messages
-            data_new = [self.pubSub.pose, self.pubSub.twist, self.pubSub.joint_pos, self.pubSub.joint_vel, self.pubSub.imu_quat, self.pubSub.imu_ang_vel, self.pubSub.imu_lin_acc]
+            data_new = [self.pubSub.pose, self.pubSub.twist, self.pubSub.joint_pos, self.pubSub.joint_vel, self.pubSub.imu_quat, self.pubSub.imu_ang_vel, self.pubSub.imu_lin_acc,
+                        self.pubSub.coordinates_RF, self.pubSub.coordinates_LF, self.pubSub.coordinates_RH, self.pubSub.coordinates_LH]
 
-            self.check_fall_cp(data_new)
+            #self.check_fall_cp(data_new)
+            z_coordinates = np.array([data_new[0][2], data_new[7][0], 
+                                      data_new[8][0], data_new[9][0], data_new[10][0]])
+                                      
+            if self.fallen_flag == 0 and np.any(z_coordinates < self.fall_height):
+                self.fallen_flag = 1
+            
+            z_coordinates = np.array([data_new[7][1], data_new[8][1], data_new[9][1], data_new[10][1]])
+            if self.knee_flag == 0 and np.any(z_coordinates < self.knee_height):
+                self.knee_flag = 1
+
+            phase_all = np.all(np.array([data_new[7][4], data_new[8][4], 
+                             data_new[10][4], data_new[9][4]]) < self.contact_height)
+            if not self.isrec and (decimation_counter_vf % self.decimation_vf) == 0 and phase_all:# and self.fallen_flag == 0:
+                xy_coords = [data_new[7][2:4], data_new[8][2:4], data_new[10][2:4], data_new[9][2:4]]
+                self.capture_flag = capture_point_check(data_new[0][:3], data_new[1][:2], self.G, xy_coords)
+                #print('self.capture_flag',self.capture_flag)
             if self.capture_flag:
                 self.last_i = int(self.step/5) + 1
              
@@ -279,8 +307,6 @@ class TestManager():
 
             if self.isrec:
                 if self.use_nn:
-
-                    
                     body_ang_vel = copy.copy(data_new[5])
                     proj_gravity = quat_rotate_inverse(
                         torch.tensor(data_new[4], device='cuda:0', dtype=torch.double).unsqueeze(0),
@@ -311,6 +337,9 @@ class TestManager():
                 self.pubSub.publish_backup(qDes,np.zeros(12),self.ffw_torques)
             #self.pubSub.publish_button(2) # Stance
 
+
+            #if not self.isrec and (decimation_counter_vf % self.decimation_vf) == 0 and phase_all:# and self.fallen_flag == 0:
+            #    self.average_time_data.append(time.time() - init_time)
             self.rate_ros.sleep()
             decimation_counter_vf += 1
             self.sim_time = np.round(self.sim_time + self.dt, 4)  # np.array([self.loop_time]), 3)
@@ -346,7 +375,7 @@ class TestManager():
 
                 data_save = {        'data_sim': [], 'save_fall': [], 
                           'save_backup': [], 'save_stop': [], 
-                     'save_stop_backup': []}
+                     'save_stop_backup': [], 'save_knee': []}
                 # Change force 
                 
                 j = np.array([float(dir_text[0]),float(dir_text[1]),float(dir_text[2])])
@@ -380,16 +409,19 @@ class TestManager():
                                                       self.last_i])        # 11
                         
                         
-                        if self.fallen_flag:
+                        if self.fallen_flag == 1:
                             data_save['save_fall'].append([i, test_num])
+
+                        if self.knee_flag == 1:
+                            data_save['save_knee'].append([i, test_num])
 
                         if not self.backup_used:
                             data_save['save_backup'].append([i, test_num])
 
-                        if not self.capture_flag:
+                        if self.capture_flag == 0:
                             data_save['save_stop'].append([i, test_num])
                         
-                        if not self.backup_used and not self.capture_flag:
+                        if not self.backup_used and self.capture_flag == 0:
                             data_save['save_stop_backup'].append([i, test_num])
                         
                         if self.use_nn:
@@ -403,7 +435,7 @@ class TestManager():
                     test_num += 1
                     iter_text = iter_file.readline().rstrip().split(',')
                 iter_file.close()
-
+                #break
                 # Save data
                 path_save = folder_results + test_force
                 save_data_tests(path_save, test_force, data_save)
@@ -412,7 +444,8 @@ class TestManager():
             dir_file.close()
             test_num_last = 0
 
-
+        #print('average ',sum(self.average_time_data) / len(self.average_time_data))
+        #print('len',len(self.average_time_data))
         self.deregister_node()
 
         

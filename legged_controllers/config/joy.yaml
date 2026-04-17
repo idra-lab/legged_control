@@ -7,13 +7,13 @@ teleop:
     axis_mappings:
       - axis: 0
         target: linear.y
-        scale: 0.1
+        scale: 0.5
       - axis: 1
         target: linear.x
-        scale: 0.1
+        scale: 0.5
       - axis: 3
         target: angular.z
-        scale: 0.1
+        scale: 0.5
       - axis: 4
         target: angular.y
         scale: 0.3

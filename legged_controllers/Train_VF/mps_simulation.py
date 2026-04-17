@@ -161,11 +161,13 @@ if __name__ == '__main__':
     stop_count = 0
     decimation = 5
     decimation_counter = 0
+    sim_time_push = 0
 
-    sim = True
+    sim = False
     sim_push = False
     use_backup = True
-    use_joy = False
+    use_joy = True
+    only_button_switch = False
     prev_rec = True
     manual_switch = False
     isrec = True
@@ -202,10 +204,14 @@ if __name__ == '__main__':
     
 
     
-
-    launch_world = launchFileNode('legged_unitree_description','empty_world.launch', additional_args=['use_sim_time:=true', 'gz_gui:=true'])
-    launch_world.start()
-    time.sleep(1)
+    if sim:
+        launch_world = launchFileNode('legged_unitree_description','empty_world.launch', additional_args=['use_sim_time:=true', 'gz_gui:=true'])
+        launch_world.start()
+        time.sleep(1)
+    else:
+        launch_hw = launchFileNode('legged_unitree_hw','legged_unitree_hw.launch')
+        launch_hw.start()
+        time.sleep(1)
     if use_nn:
         nn_arg = 'nn:=true'
     else:
@@ -237,14 +243,14 @@ if __name__ == '__main__':
         if stop:
             threshold = 0
         else:
-            threshold = 0.6#5#7
+            threshold = 0.8#5#7
     else:
         threshold = 0.5
     
 
     pubSub.publish_is_rec(isrec)
 
-    if sim:
+    if sim and not use_joy:
         reset()
     
     while not rospy.is_shutdown():
@@ -289,8 +295,11 @@ if __name__ == '__main__':
             #torch.tensor(data_new[0][3:], device='cuda:0', dtype=torch.double).unsqueeze(0),
             grav_tens
         )[0].cpu().numpy()
-        if not manual_switch and (sim_time > 0.5) and (decimation_counter % decimation)==0:
+        if not manual_switch and (sim_time > 0.5) and (decimation_counter % decimation)==0 and sim_time_push > 1:
             isrec, V_safe = vf.computeValueFnc(body_ang_vel, proj_gravity, joint_pos=data_new[2], joint_vel=data_new[3], threshold=threshold, vf_additional_term = 0.0)
+            pubSub.publish_vf(V_safe)
+            if only_button_switch:
+                isrec = True
             #print(V_safe)
         #isrec =True
         if only_backup:
@@ -301,6 +310,9 @@ if __name__ == '__main__':
             pubSub.publish_button([2])
         if stop:
             stop_count += 1
+
+        if not prev_rec and isrec:
+            sim_time_push = 0
         
             
         if not use_backup and not isrec:
@@ -354,4 +366,5 @@ if __name__ == '__main__':
         decimation_counter += 1
         
         sim_time = np.round(sim_time + dt, 4)
+        sim_time_push = np.round(sim_time_push + dt, 4)
         rate_ros.sleep()

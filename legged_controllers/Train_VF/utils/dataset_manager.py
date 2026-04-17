@@ -25,7 +25,7 @@ class DatasetManager():
         # -------------------------------
         # Simulation Thresholds and Constants
         # -------------------------------
-        self.INCLINATION_THRESHOLD = 30.0  # degrees - max allowed inclination before considering robot as fallen
+        self.INCLINATION_THRESHOLD = 45.0  # degrees - max allowed inclination before considering robot as fallen
         self.FALL_HEIGHT_THRESHOLD = 0.2   # meters - min allowed height before considering robot as fallen
         self.CP_SAFE_RADIUS = 0.05         # meters - acceptable radius to consider CP successful
         self.G = 9.81                      # gravitational constant
@@ -358,8 +358,8 @@ class DatasetManager():
                 if self.step == push_instant:
                     #[self.pubSub.pose, self.pubSub.twist, self.pubSub.joint_pos, self.pubSub.joint_vel]
                     #apply as a twisch change
-                    vx = np.random.uniform(-3.5, 3.5) #(-2.0, 2.0)#+ self.quadruped.baseTwistW[0]
-                    vy = np.random.uniform(-3.5, 3.5) #(-2.0, 2.0) #+ self.quadruped.baseTwistW[1]
+                    vx = np.random.uniform(-4, 4) #(-2.0, 2.0)#+ self.quadruped.baseTwistW[0]
+                    vy = np.random.uniform(-4, 4) #(-2.0, 2.0) #+ self.quadruped.baseTwistW[1]
                     #debug makes it fall
                     # vx = -1.645
                     # vy = -1.239
@@ -484,7 +484,7 @@ class DatasetManager():
 
         stats = np.array(stats, dtype=int)
 
-        np.save(os.path.join(save_path, "observations_rl_controller_250_high_pushes_3_5_original_radius.npy"), padded_obs)
+        np.save(os.path.join(save_path, "observations_rl_controller_250_high_pushes_4_original_radius_inclination_noise.npy"), padded_obs)
 
         print(f"Episodi completati: {n_episodes}")
         print(f"Caduti: {np.sum(stats[:, 0])}, CP raggiunto: {np.sum(stats[:, 1])}")

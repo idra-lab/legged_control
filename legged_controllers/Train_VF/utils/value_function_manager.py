@@ -54,13 +54,16 @@ class ValueFunctionManager:
     def __init__(self, use_nn, stop):
 
         full_path = os.path.realpath(__file__)
+        self.threshold_back = 0.3
 
         if use_nn:
             if stop:
                 pass
             else:
-                model_path = os.path.dirname(full_path) + '/../models/VF_rl_controller_250_high_pushes_3_5_original_radiusF.pkl'
-                self.min_switch = 5#2#10#2#0
+                #model_path = os.path.dirname(full_path) + '/../models/VF_rl_controller_250_high_pushes_3_5_original_radiusF.pkl'
+                model_path = os.path.dirname(full_path) + '/../models/VF_rl_controller_250_high_pushes_3_5_original_radiusG.pkl'
+                #model_path = os.path.dirname(full_path) + '/../models/VF_rl_controller_250_high_pushes_3_5_original_radiusH.pkl'
+                self.min_switch = 1#2#10#2#0
                 self.min_back = 200
         else:
             model_path = os.path.dirname(full_path) + '/../models/VF_L_mpc.pkl'
@@ -121,7 +124,7 @@ class ValueFunctionManager:
                 print('Backup triggered ',self.backup_trigger_counter)
             else:
                 self.VF = True
-        elif V_safe - vf_additional_term > threshold and not self.VF:
+        elif not self.VF:#V_safe - vf_additional_term > self.threshold_back and not self.VF:
             self.count_back += 1
             #print('self.count_back',self.count_back)
             if self.count_back >= self.min_back:
