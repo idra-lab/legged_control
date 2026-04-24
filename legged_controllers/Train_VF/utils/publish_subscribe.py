@@ -18,8 +18,8 @@ class PubSub():
         self.button = Joy()
         self.state = ModelState()
         self.is_rec = Bool()
-        self.joints_backup = JointState()
-        self.world_control = Bool()
+        self.joints_rl = JointState()
+        self.is_reset = Bool()
         self.reset = Bool()
         self.VF_value = Float64()
 
@@ -27,6 +27,7 @@ class PubSub():
         self.lock_joint = threading.Lock()
         self.lock_imu = threading.Lock()
         self.lock_links = threading.Lock()
+        self.lock_odom = threading.Lock()
 
         self.pose = np.zeros(7)
         self.twist = np.zeros(6)
@@ -42,13 +43,15 @@ class PubSub():
         self.joint_vel = np.zeros(12)
         self.joint_eff = np.zeros(12)
 
-        self.joint_pos_backup = np.zeros(12)
-        self.joint_vel_backup = np.zeros(12)
-        self.joint_eff_backup = np.zeros(12)
+        self.joint_pos_rl = np.zeros(12)
+        self.joint_vel_rl = np.zeros(12)
+        self.joint_eff_rl = np.zeros(12)
 
         self.imu_quat = np.zeros(4)
         self.imu_ang_vel = np.zeros(3)
         self.imu_lin_acc = np.zeros(3)
+
+        self.odom_lin_vel = np.zeros(3)
 
 
 
@@ -77,6 +80,15 @@ class PubSub():
                 msg.twist[index].angular.x,
                 msg.twist[index].angular.y,
                 msg.twist[index].angular.z
+            ], dtype=np.float32)
+
+    def callback_odom(self, msg):
+        with self.lock_odom:
+
+            self.odom_lin_vel = np.array([
+                msg.twist.twist.linear.x,
+                msg.twist.twist.linear.y,
+                msg.twist.twist.linear.z
             ], dtype=np.float32)
 
     def callback_imu(self, msg):
@@ -173,6 +185,7 @@ class PubSub():
     def init_subscribers(self):
         self.joint_state_sub = rospy.Subscriber('/joint_states', JointState, self.callback_joint)
         self.pose_sub = rospy.Subscriber('/gazebo/model_states', ModelStates, self.callback_state)
+        self.odom_sub = rospy.Subscriber('/odom', Odometry, self.callback_odom)
         self.imu_sub = rospy.Subscriber('/base_imu', Imu, self.callback_imu)
         self.link_states_sub = rospy.Subscriber('/gazebo/link_states', LinkStates, self.callback_links)
         
@@ -181,12 +194,12 @@ class PubSub():
         self.state_pub = rospy.Publisher('/gazebo/set_model_state', ModelState, queue_size=None, tcp_nodelay=True)
         self.button_pub = rospy.Publisher('/joy', Joy, queue_size=None, tcp_nodelay=True)
         self.is_rec_pub = rospy.Publisher('/is_rec', Bool, queue_size=None, tcp_nodelay=True)
-        self.joints_backup_pub = rospy.Publisher('/joints_backup', JointState, queue_size=None, tcp_nodelay=True)
-        self.world_control_pub = rospy.Publisher('/world_control', Bool, queue_size=None, tcp_nodelay=True)
+        self.joints_rl_pub = rospy.Publisher('/joints_rl', JointState, queue_size=None, tcp_nodelay=True)
+        self.is_reset_pub = rospy.Publisher('/is_reset', Bool, queue_size=None, tcp_nodelay=True)
         self.reset_pub = rospy.Publisher('/reset', Bool, queue_size=None, tcp_nodelay=True)
         self.VF_pub = rospy.Publisher('/vf', Float64, queue_size=None, tcp_nodelay=True)
 
-    def publish_backup(self, pos, vel, eff):
+    def publish_rl(self, pos, vel, eff):
         # Data needs to be sent in the following order:
         #  0  LF_HAA
         #  1  LF_HFE
@@ -206,15 +219,15 @@ class PubSub():
                  "RF_HAA", "RF_HFE", "RF_KFE", "RH_HAA", "RH_HFE", "RH_KFE", "Gains"]
         try:
             for i in range(12):
-                self.joint_pos_backup[i] = pos[i]
-                self.joint_vel_backup[i] = vel[i]
-                self.joint_eff_backup[i] = eff[i]
+                self.joint_pos_rl[i] = pos[i]
+                self.joint_vel_rl[i] = vel[i]
+                self.joint_eff_rl[i] = eff[i]
             
-            self.joints_backup.position = self.joint_pos_backup
-            self.joints_backup.velocity = self.joint_vel_backup
-            self.joints_backup.effort = self.joint_eff_backup
-            self.joints_backup.name = names
-            self.joints_backup_pub.publish(self.joints_backup)
+            self.joints_rl.position = self.joint_pos_rl
+            self.joints_rl.velocity = self.joint_vel_rl
+            self.joints_rl.effort = self.joint_eff_rl
+            self.joints_rl.name = names
+            self.joints_rl_pub.publish(self.joints_rl)
             
         except rospy.ROSInterruptException:
             pass
@@ -238,10 +251,9 @@ class PubSub():
 
         
 
-    def publish_world_control(self, world_control):
+    def publish_is_reset(self, is_reset):
         try:
-            self.world_control.data = world_control
-            self.world_control_pub.publish(self.world_control)
+            self.is_reset_pub.publish(is_reset)
             
         except rospy.ROSInterruptException:
             pass

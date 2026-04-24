@@ -44,6 +44,8 @@ bool MPSController::init(hardware_interface::RobotHW* robot_hw, ros::NodeHandle&
   controller_nh.getParam("/taskFile", taskFile);
   controller_nh.getParam("/referenceFile", referenceFile);
   controller_nh.getParam("/useNN", useNN_);
+  controller_nh.getParam("/onlyRL", onlyRL_);
+  controller_nh.getParam("/onlyMPC", onlyMPC_);
   
   bool verbose = false;
   loadData::loadCppDataType(taskFile, "legged_robot_interface.verbose", verbose);
@@ -143,9 +145,8 @@ void MPSController::update(const ros::Time& time, const ros::Duration& period) {
   //  ROS_ERROR_STREAM("[MPS Controller] Safety check failed, stopping the controller.");
   //  stopRequest(time);
   //}
-
-  
-  if (!useNN_ || (useNN_ && isRecReceiverPtr->getIsRec())){
+  if ((!useNN_ || (useNN_ && isRecReceiverPtr->getIsRec()) || onlyMPC_) && (!onlyRL_ || isResetReceiverPtr->getIsReset())){
+    // MPC
     auto eff_noise = jointReceiverPtr->getJointEfforts();
     for (size_t j = 0; j < leggedInterface_->getCentroidalModelInfo().actuatedDofNum; ++j) {
       //double number = distribution(generator);
@@ -153,14 +154,26 @@ void MPSController::update(const ros::Time& time, const ros::Duration& period) {
       hybridJointHandles_[j].setCommand(posDes(j), velDes(j), 0, 3, torque(j));// + eff_noise[j]);
     }
   }
-  else{
-    auto pos_backup = jointReceiverPtr->getJointPositions();
-    auto vel_backup = jointReceiverPtr->getJointVelocities();
-    auto eff_backup = jointReceiverPtr->getJointEfforts();
+  else if (onlyRL_ && isRecReceiverPtr->getIsRec()){
+    // Nominal RL policy
+    auto pos_rl = jointReceiverPtr->getJointPositions();
+    auto vel_rl = jointReceiverPtr->getJointVelocities();
+    auto eff_rl = jointReceiverPtr->getJointEfforts();
     // Not recoverable
     for (size_t j = 0; j < leggedInterface_->getCentroidalModelInfo().actuatedDofNum; ++j) {
       
-      hybridJointHandles_[j].setCommand(pos_backup[j], 0, 30, 0.5, 0);//+ eff_backup[j]);
+      hybridJointHandles_[j].setCommand(pos_rl[j], 0, 35, 1.5, 0);//+ eff_rl[j]);
+    }
+  }
+  else{
+    // Backup RL policy
+    auto pos_rl = jointReceiverPtr->getJointPositions();
+    auto vel_rl = jointReceiverPtr->getJointVelocities();
+    auto eff_rl = jointReceiverPtr->getJointEfforts();
+    // Not recoverable
+    for (size_t j = 0; j < leggedInterface_->getCentroidalModelInfo().actuatedDofNum; ++j) {
+      
+      hybridJointHandles_[j].setCommand(pos_rl[j], 0, 30, 0.5, 0);//+ eff_rl[j]);
     }
   }
 
@@ -244,6 +257,7 @@ void MPSController::setupMpc() {
   auto gaitReceiverPtr =
       std::make_shared<GaitReceiver>(nh, leggedInterface_->getSwitchedModelReferenceManagerPtr()->getGaitSchedule(), robotName);
   isRecReceiverPtr = std::make_shared<IsRecReceiver>(nh);
+  isResetReceiverPtr = std::make_shared<IsResetReceiver>(nh);
   jointReceiverPtr = std::make_shared<JointReceiver>(nh);
   // ROS ReferenceManager
   auto rosReferenceManagerPtr = std::make_shared<RosReferenceManager>(robotName, leggedInterface_->getReferenceManagerPtr());

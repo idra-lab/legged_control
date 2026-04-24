@@ -13,6 +13,8 @@
     <arg name="nn" default="false"/>
     <arg name="mps" default="false"/>
     <arg name="joy_msg" default="false"/>
+    <arg name="only_rl" default="false"/>
+    <arg name="only_mpc" default="false"/>
     
 
 
@@ -22,6 +24,8 @@
     <param name="referenceFile" value="$(find legged_controllers)/config/$(arg robot_type)/reference.info"/>
     <param name="gaitCommandFile" value="$(find legged_controllers)/config/$(arg robot_type)/gait.info"/>
     <param name="useNN" value="$(arg nn)"/>
+    <param name="onlyRL" value="$(arg only_rl)"/>
+    <param name="onlyMPC" value="$(arg only_mpc)"/>
 
     <rosparam file="$(find legged_controllers)/config/controllers.yaml" command="load"/>
 

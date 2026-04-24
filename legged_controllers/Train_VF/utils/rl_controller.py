@@ -16,7 +16,7 @@ class RlVelocityController():
             self.pub_gt_base_lin_vel = rospy.Publisher("/" + self.robot_name + "/gt_base_lin_vel", Vector3, queue_size=10)
 
         full_path = os.path.realpath(__file__)
-        base_model_path = os.path.dirname(full_path) + "/../nn/policies"
+        base_model_path = os.path.dirname(full_path) + "/../nn/policies/backup"
 
 
         config_path = os.path.join(base_model_path, f"{robot_name}.json")

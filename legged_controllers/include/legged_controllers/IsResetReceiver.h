@@ -27,34 +27,30 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include "legged_controllers/JointReceiver.h"
+#pragma once
+
+#include <mutex>
+
+#include <ros/ros.h>
+#include <std_msgs/Bool.h>
 
 namespace ocs2 {
 namespace legged_robot {
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-JointReceiver::JointReceiver(ros::NodeHandle nodeHandle)
-{
-  jointSubscriber_ = nodeHandle.subscribe("/joints_rl", 1, &JointReceiver::jointCallback, this);                                                    
-}
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
+class IsResetReceiver {
+ public:
+  IsResetReceiver(::ros::NodeHandle nodeHandle);
+  bool getIsReset() { return receivedIsReset_; }
+  void isResetCallback(const std_msgs::Bool::ConstPtr& msg);
 
-void JointReceiver::jointCallback(const sensor_msgs::JointState::ConstPtr& msg)
-{
-    std::lock_guard<std::mutex> lock(receivedJointMutex_);
-    // assuming the joint state message has already 12 elements allocated
-    for (std::size_t i(0); i < 13; ++i){
-	  receivedPos_[i] = msg->position[i];
-	  receivedVel_[i] = msg->velocity[i]; // this is normally zero
-	  receivedEff_[i] = msg->effort[i]; // this is normally fixed
+ private:
+  
+  ros::Subscriber isResetSubscriber_;
+  std::shared_ptr<bool> isResetPtr_;
 
-
-  }
-}
+  std::mutex receivedIsResetMutex_;
+  bool receivedIsReset_;
+};
 
 }  // namespace legged_robot
-}  // end of namespace ocs2
+}  // namespace ocs2

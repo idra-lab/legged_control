@@ -96,7 +96,7 @@ def plot_two(bins, comparison, weightsB, weightsC, labelB, labelC, title, x_labe
     print('percentages_C - percentages_comp', percentages_C - percentages_comp)
 
     plt.figure()
-    plot_A = plt.hist(bins[:-1], bins, weights = percentages_C, label = 'Backup policy was used and the robot could be stopped', edgecolor='black')
+    plot_A = plt.hist(bins[:-1], bins, weights = percentages_C, label = 'Backup policy was used and the robot could be stopped safely', edgecolor='black')
     plot_B = plt.hist(bins[:-1], bins, weights = percentages_B - percentages_C, label = labelB, bottom = plot_A[0], edgecolor='black')
     plt.legend(prop={'size': 35})
     plt.title(title)
@@ -119,11 +119,11 @@ plt.rcParams['font.serif'] = ['Times New Roman'] + plt.rcParams['font.serif']
 plt.rcParams["font.size"] = "35"
 
 full_path = os.path.realpath(__file__)
-force_file = os.path.dirname(full_path) + "/plot_forces_no_mps_150_200.csv"
+force_file = os.path.dirname(full_path) + "/plot_forces_mps.csv"
 
 N = 1000
 
-force_mag  = [ 150, 200]
+force_mag  = [200, 210, 220, 230, 240, 250, 260, 270]
 stop_force_list = []
 backup_force_list = [] 
 force_backup_stop_list = []
@@ -180,18 +180,18 @@ force_iter = [x for x in range(1,91)]
 # Histograms force
 
 bins = np.zeros(len(force_mag) + 1)
-bins[1:] = [x + 2.5 for x in force_mag]
-bins[0] = bins[1] - 5
+bins[1:] = [x + 5 for x in force_mag]
+bins[0] = bins[1] - 10
 x_label = 'Force magnitude (N)'
 
 #'''
-plot_one(bins, stop_force, 'Times the robot stopped', x_label, total_tests, True)
+plot_one(bins, stop_force, 'Times the robot could be stopped safely', x_label, total_tests, True)
 
 plot_one(bins, backup_force, 'Times the backup policy was used', x_label, total_tests, True)
 
 labelB = 'Backup policy was used'
-labelC = 'The robot stopped'
-title = 'Comparison between the times the backup policy was used and the robot stopped'
+labelC = 'The robot could be stopped safely'
+title = 'Comparison between the times the backup policy was used and the robot could be stopped safely'
 plot_two(bins, force_backup_stop, backup_force, stop_force, labelB, labelC, title, x_label, total_tests, True)#'''
 
 #'''

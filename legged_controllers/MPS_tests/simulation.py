@@ -21,13 +21,14 @@ sys.path.append(os.path.dirname(full_path) + '/../Train_VF/utils')
 
 import publish_subscribe as publish_subscribe
 from rl_controller import RlVelocityController
+from rl_controller_no_se import RlVelocityControllerNoSE
 from utils import *
 from value_function_manager import ValueFunctionManager
 
 
 
 class TestManager():
-    def __init__(self, use_nn=False):
+    def __init__(self, use_nn=False, only_mpc = False, only_rl = True):
         # -------------------------------
         # Simulation Thresholds and Constants
         # -------------------------------
@@ -41,7 +42,7 @@ class TestManager():
         self.decimation = (1 / self.dt) * (1 / self.policy_frequency)
         self.decimation_vf = (1 / self.dt) * (1 / self.vf_frequency)
         self.grav_tens = torch.tensor([[0., 0., -1.]], device='cuda:0', dtype=torch.double)
-
+        self.velocity_cmd = np.array([0.5, 0, 0])
         self.sim_time = 0
 
         self.average_time_data = []
@@ -58,6 +59,8 @@ class TestManager():
                                  0.1, 0.62, -1.24]
             
         self.use_nn = use_nn
+        self.only_mpc = only_mpc
+        self.only_rl = only_rl
         self.init_ros()
 
         full_path = os.path.realpath(__file__)
@@ -68,6 +71,7 @@ class TestManager():
         self.use_backup = self.config['settings']['tests']['use_backup']
         self.vf_additional_term = self.config['settings']['tests']['additional_term_vf']
         self.threshold = self.config['settings']['tests']['threshold_vf']
+        min_switch = self.config['settings']['tests']['switch_min']
         self.Fx = 0
         self.Fy = 0
         self.Fz = 0
@@ -85,7 +89,11 @@ class TestManager():
         self.backup_policy.velocity_cmd = np.zeros(3)
         self.ffw_torques = np.zeros(12)
 
-        self.vf = ValueFunctionManager(use_nn=True, stop=False)
+        self.vf = ValueFunctionManager(use_nn=True, stop=False, min_switch=min_switch)
+
+        if only_rl:
+            self.nominal_policy = RlVelocityControllerNoSE('aliengo', self.dt)
+            self.nominal_policy.velocity_cmd = self.velocity_cmd
 
     def init_ros(self):
         os.system('pkill rosmaster')
@@ -101,7 +109,15 @@ class TestManager():
             nn_arg = 'nn:=true'
         else:
             nn_arg = 'nn:=false'
-        self.launch_controller = launchFileNode('legged_controllers', 'load_controller.launch', additional_args=['joy:=true', nn_arg, 'mps:=true', 'joy_msg:=false'])
+        if self.only_mpc:
+            only_mpc_arg = 'only_mpc:=true' 
+        else:
+            only_mpc_arg = 'only_mpc:=false' 
+        if self.only_rl:
+            only_rl_arg = 'only_rl:=true' 
+        else:
+            only_rl_arg = 'only_rl:=false' 
+        self.launch_controller = launchFileNode('legged_controllers', 'load_controller.launch', additional_args=['joy:=true', nn_arg, 'mps:=true', 'joy_msg:=false', only_rl_arg, only_mpc_arg])
         self.launch_controller.start()
 
         # Subscribe to messages
@@ -122,6 +138,7 @@ class TestManager():
         response = service(**kwargs)
 
     def reset(self):
+        self.pubSub.publish_is_reset(True)
         reset_iter = 1
         while(np.linalg.norm(self.pubSub.pose - self.initial_pose) > 0.05*2 or np.linalg.norm(self.pubSub.twist) > 0.05*2 or
               np.linalg.norm(self.pubSub.joint_pos - self.joint_positions) > 0.05*2):
@@ -266,20 +283,21 @@ class TestManager():
         decimation_counter_vf = 0
 
         self.warmup_time = warmup_time
-        velocity_cmd = np.array([0.1, 0, 0])
+        
         #debug
         #generate push instant
         self.warmup_steps = int(warmup_time / self.dt)
         push_instant = self.warmup_steps + (self.iter_push*5)
 
-        
-        self.pubSub.publish_button([3]) # Trot
-        time.sleep(1)
+        if not self.only_rl:
+            self.pubSub.publish_button([3]) # Trot
+            time.sleep(1)
         for self.step in range(max_steps):
             #init_time = time.time()
             # Update messages
             data_new = [self.pubSub.pose, self.pubSub.twist, self.pubSub.joint_pos, self.pubSub.joint_vel, self.pubSub.imu_quat, self.pubSub.imu_ang_vel, self.pubSub.imu_lin_acc,
-                        self.pubSub.coordinates_RF, self.pubSub.coordinates_LF, self.pubSub.coordinates_RH, self.pubSub.coordinates_LH]
+                        self.pubSub.coordinates_RF, self.pubSub.coordinates_LF, self.pubSub.coordinates_RH, self.pubSub.coordinates_LH,
+                        self.pubSub.odom_lin_vel]
 
             #self.check_fall_cp(data_new)
             z_coordinates = np.array([data_new[0][2], data_new[7][0], 
@@ -318,9 +336,14 @@ class TestManager():
 
                     qDes_no = self.backup_policy.action(data_new[6], None, body_ang_vel, proj_gravity, data_new[2], data_new[3], policy_type="safe")
     
-                cmd_vel = np.array([velocity_cmd[0], velocity_cmd[1], 0, 0, 0, 0, velocity_cmd[2]])
-                self.pubSub.publish_vel(cmd_vel)
-                self.pubSub.publish_backup(np.zeros(12),np.zeros(12),np.zeros(12))
+                if not self.only_rl:
+                    cmd_vel = np.array([self.velocity_cmd[0], self.velocity_cmd[1], 0, 0, 0, 0, self.velocity_cmd[2]])
+                    self.pubSub.publish_vel(cmd_vel)
+                    self.pubSub.publish_rl(np.zeros(12),np.zeros(12),np.zeros(12))
+                else:
+                    qDes = self.nominal_policy.action(data_new[11], body_ang_vel, proj_gravity, data_new[2], data_new[3], policy_type="default")
+                    self.pubSub.publish_is_reset(False)
+                    self.pubSub.publish_rl(qDes, np.zeros(12), self.ffw_torques)
 
                 
             else:
@@ -334,7 +357,7 @@ class TestManager():
                 qDes = self.backup_policy.action(data_new[6], None, body_ang_vel, proj_gravity, data_new[2], data_new[3], policy_type="safe")
                 self.pubSub.publish_is_rec(False)
                 
-                self.pubSub.publish_backup(qDes,np.zeros(12),self.ffw_torques)
+                self.pubSub.publish_rl(qDes,np.zeros(12),self.ffw_torques)
             #self.pubSub.publish_button(2) # Stance
 
 
@@ -429,7 +452,11 @@ class TestManager():
                             self.backup_policy.decimation_counter = 0
                             self.backup_policy.history_buffer = np.zeros((1, 3, 48))
                             self.pubSub.publish_is_rec(True)
-                            self.pubSub.publish_backup(np.zeros(12),np.zeros(12),np.zeros(12))
+                            self.pubSub.publish_rl(np.zeros(12),np.zeros(12),np.zeros(12))
+
+                        if self.only_rl:
+                            self.nominal_policy.prev_action = np.zeros(12)
+                            self.nominal_policy.decimation_counter = 0
                         time.sleep(2)
                     
                     test_num += 1

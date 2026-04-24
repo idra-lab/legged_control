@@ -27,33 +27,27 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include "legged_controllers/JointReceiver.h"
+#include "legged_controllers/IsResetReceiver.h"
 
 namespace ocs2 {
 namespace legged_robot {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-JointReceiver::JointReceiver(ros::NodeHandle nodeHandle)
+IsResetReceiver::IsResetReceiver(ros::NodeHandle nodeHandle) : receivedIsReset_(true)
 {
-  jointSubscriber_ = nodeHandle.subscribe("/joints_rl", 1, &JointReceiver::jointCallback, this);                                                    
+  isResetSubscriber_ = nodeHandle.subscribe("/is_reset", 1, &IsResetReceiver::isResetCallback, this);                                                    
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-void JointReceiver::jointCallback(const sensor_msgs::JointState::ConstPtr& msg)
+void IsResetReceiver::isResetCallback(const std_msgs::Bool::ConstPtr& msg)
 {
-    std::lock_guard<std::mutex> lock(receivedJointMutex_);
-    // assuming the joint state message has already 12 elements allocated
-    for (std::size_t i(0); i < 13; ++i){
-	  receivedPos_[i] = msg->position[i];
-	  receivedVel_[i] = msg->velocity[i]; // this is normally zero
-	  receivedEff_[i] = msg->effort[i]; // this is normally fixed
+    std::lock_guard<std::mutex> lock(receivedIsResetMutex_);
+    receivedIsReset_ = msg->data;        
 
-
-  }
 }
 
 }  // namespace legged_robot

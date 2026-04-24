@@ -22,6 +22,7 @@
 
 #include <legged_controllers/JointReceiver.h>
 #include <legged_controllers/IsRecReceiver.h>
+#include <legged_controllers/IsResetReceiver.h>
 
 namespace legged {
 using namespace ocs2;
@@ -72,8 +73,9 @@ class MPSController : public controller_interface::MultiInterfaceController<Hybr
   std::shared_ptr<LeggedSelfCollisionVisualization> selfCollisionVisualization_;
   ros::Publisher observationPublisher_;
 
-  // Backup policy
+  // RL policies
   std::shared_ptr<IsRecReceiver> isRecReceiverPtr;
+  std::shared_ptr<IsResetReceiver> isResetReceiverPtr;
   std::shared_ptr<JointReceiver> jointReceiverPtr;
 
  private:
@@ -82,6 +84,8 @@ class MPSController : public controller_interface::MultiInterfaceController<Hybr
   benchmark::RepeatedTimer mpcTimer_;
   benchmark::RepeatedTimer wbcTimer_;
   bool useNN_;
+  bool onlyRL_;
+  bool onlyMPC_;
 };
 
 

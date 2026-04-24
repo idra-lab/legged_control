@@ -51,7 +51,7 @@ def critic_inference(critic_model, params, obs):
 
 
 class ValueFunctionManager:
-    def __init__(self, use_nn, stop):
+    def __init__(self, use_nn, stop, min_switch):
 
         full_path = os.path.realpath(__file__)
         self.threshold_back = 0.3
@@ -63,7 +63,7 @@ class ValueFunctionManager:
                 #model_path = os.path.dirname(full_path) + '/../models/VF_rl_controller_250_high_pushes_3_5_original_radiusF.pkl'
                 model_path = os.path.dirname(full_path) + '/../models/VF_rl_controller_250_high_pushes_3_5_original_radiusG.pkl'
                 #model_path = os.path.dirname(full_path) + '/../models/VF_rl_controller_250_high_pushes_3_5_original_radiusH.pkl'
-                self.min_switch = 1#2#10#2#0
+                self.min_switch = min_switch
                 self.min_back = 200
         else:
             model_path = os.path.dirname(full_path) + '/../models/VF_L_mpc.pkl'

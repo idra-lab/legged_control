@@ -73,6 +73,7 @@ add_library(${PROJECT_NAME}
         src/LeggedController.cpp
         src/MPSController.cpp
         src/IsRecReceiver.cpp
+        src/IsResetReceiver.cpp
         src/JointReceiver.cpp
         )
 

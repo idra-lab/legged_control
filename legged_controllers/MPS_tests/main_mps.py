@@ -2,7 +2,7 @@ from simulation import TestManager
 import rospy
 
 if __name__ == '__main__':
-    tm = TestManager(use_nn = False)
+    tm = TestManager(use_nn = True, only_mpc = False, only_rl = True)
     try:
         tm.run_simulations()
 

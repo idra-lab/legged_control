@@ -217,13 +217,13 @@ def list_str_to_float(list_str):
     list_float = [float(x) for x in list_split]
     return list_float
 
-force_mag = [150, 200]
+force_mag = [200, 210, 220, 230, 240, 250, 260, 270]
 full_path = os.path.realpath(__file__)
 
 for force_data in force_mag:
     row_num = 0
 
-    dir_path = os.path.dirname(full_path) + "/../MPS_heights/" + str(force_data)
+    dir_path = os.path.dirname(full_path) + "/../No_MPS_frequencies/" + str(force_data)
     N = 1000
 
     f60 = dir_path + "/data_sim" + str(force_data) + ".csv"
@@ -266,7 +266,7 @@ for force_data in force_mag:
 
 
     data_forces_save = [[force_data, stop_force, backup_force, force_backup_stop, fall_force, knee_force, force_fall_knee]]
-    nameFile = os.path.dirname(full_path) + "/plot_forces_mps_150_200.csv"
+    nameFile = os.path.dirname(full_path) + "/plot_forces_no_mps.csv"
     with open(nameFile, 'a', encoding="ISO-8859-1", newline='') as myfile:
         wr = csv.writer(myfile)
         wr.writerows(data_forces_save)
