@@ -101,7 +101,7 @@ class TestManager():
 
         # ROS
         # Launch nodes
-        self.launch_world = launchFileNode('legged_unitree_description','empty_world.launch', additional_args=['use_sim_time:=true', 'gz_gui:=true'])
+        self.launch_world = launchFileNode('legged_unitree_description','empty_world.launch', additional_args=['use_sim_time:=true', 'gz_gui:=false'])
         self.launch_world.start()
         time.sleep(1)
 
@@ -117,7 +117,7 @@ class TestManager():
             only_rl_arg = 'only_rl:=true' 
         else:
             only_rl_arg = 'only_rl:=false' 
-        self.launch_controller = launchFileNode('legged_controllers', 'load_controller.launch', additional_args=['joy:=true', nn_arg, 'mps:=true', 'joy_msg:=false', only_rl_arg, only_mpc_arg])
+        self.launch_controller = launchFileNode('legged_controllers', 'load_controller.launch', additional_args=['joy:=true', nn_arg, 'mps:=true', 'joy_msg:=false', only_rl_arg, only_mpc_arg, 'rviz:=false'])
         self.launch_controller.start()
 
         # Subscribe to messages
