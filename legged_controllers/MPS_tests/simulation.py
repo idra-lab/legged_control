@@ -89,19 +89,28 @@ class TestManager():
         self.backup_policy.velocity_cmd = np.zeros(3)
         self.ffw_torques = np.zeros(12)
 
-        self.vf = ValueFunctionManager(use_nn=True, stop=False, min_switch=min_switch)
-
         if only_rl:
             self.nominal_policy = RlVelocityControllerNoSE('aliengo', self.dt)
             self.nominal_policy.velocity_cmd = self.velocity_cmd
 
+        if only_mpc:
+            min_switch = self.config['settings']['tests']['switch_min_mpc']
+            self.threshold = self.config['settings']['tests']['threshold_vf_mpc']
+
+        self.vf = ValueFunctionManager(use_nn=True, stop=False, min_switch=min_switch)
+
+        
+
     def init_ros(self):
-        os.system('pkill rosmaster')
         os.system('pkill gzserver')
+        os.system('pkill gzclient')
+        time.sleep(2)
+        os.system('pkill rosmaster')
+        time.sleep(2)
 
         # ROS
         # Launch nodes
-        self.launch_world = launchFileNode('legged_unitree_description','empty_world.launch', additional_args=['use_sim_time:=true', 'gz_gui:=false'])
+        self.launch_world = launchFileNode('legged_unitree_description','empty_world.launch', additional_args=['use_sim_time:=true', 'gz_gui:=False'])
         self.launch_world.start()
         time.sleep(1)
 
@@ -117,11 +126,11 @@ class TestManager():
             only_rl_arg = 'only_rl:=true' 
         else:
             only_rl_arg = 'only_rl:=false' 
-        self.launch_controller = launchFileNode('legged_controllers', 'load_controller.launch', additional_args=['joy:=true', nn_arg, 'mps:=true', 'joy_msg:=false', only_rl_arg, only_mpc_arg, 'rviz:=false'])
+        self.launch_controller = launchFileNode('legged_controllers', 'load_controller.launch', additional_args=['joy:=true', nn_arg, 'mps:=true', 'joy_msg:=false', only_rl_arg, only_mpc_arg])
         self.launch_controller.start()
 
         # Subscribe to messages
-        rospy.init_node('communicate_aliengo')
+        rospy.init_node('communicate_aliengo', anonymous=True)
         
         self.pubSub = publish_subscribe.PubSub()
         self.pubSub.init_publishers()
@@ -129,8 +138,9 @@ class TestManager():
         self.rate_ros = rospy.Rate(1/self.dt)  # 500 Hz for dt = 0.002
 
     def deregister_node(self):
-        self.launch_world.shutdown()
         self.launch_controller.shutdown()
+        self.launch_world.shutdown()
+        
    
     def call_service(self, ns, cls, **kwargs):
         rospy.wait_for_service(ns)
@@ -345,7 +355,12 @@ class TestManager():
                     self.pubSub.publish_is_reset(False)
                     self.pubSub.publish_rl(qDes, np.zeros(12), self.ffw_torques)
 
-                
+            elif not self.isrec and self.only_mpc:
+                self.backup_used = True
+                cmd_vel = np.array([0, 0, 0, 0, 0, 0, 0.])
+                self.pubSub.publish_vel(cmd_vel)
+                #self.pubSub.publish_button([2])
+                self.pubSub.publish_rl(np.zeros(12),np.zeros(12),np.zeros(12))
             else:
                 self.backup_used = True
                 body_ang_vel = copy.copy(data_new[5])

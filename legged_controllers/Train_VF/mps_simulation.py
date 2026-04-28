@@ -165,21 +165,22 @@ if __name__ == '__main__':
     sim_time_push = 0
 
     sim = True
-    sim_push = True
+    sim_push = False
     use_backup = True
     use_joy = False
     only_button_switch = False
     prev_rec = True
     manual_switch = False
     isrec = True
-    use_nn = True
+    use_nn = False
     stop = False
     stop_backup = False
     only_backup = False
     backup_trot = False
     push_once = False
-    only_mpc = False
-    only_rl = True
+    only_mpc = True
+    only_rl = False
+
 
     grav_tens = torch.tensor([[0., 0., -1.]], device='cuda:0', dtype=torch.double)
 
@@ -254,7 +255,7 @@ if __name__ == '__main__':
         else:
             threshold = 0.6#5#7
     else:
-        threshold = 0.5
+        threshold = 0.7
     
 
     pubSub.publish_is_rec(isrec)
@@ -319,12 +320,12 @@ if __name__ == '__main__':
         #isrec =True
         if only_backup:
             isrec = False
-        if not prev_rec and isrec and use_backup and not use_nn and not use_joy:
-            print('STOP')
-            stop = True
-            pubSub.publish_button([2])
-        if stop:
-            stop_count += 1
+        #if not prev_rec and isrec and use_backup and not use_nn and not use_joy:
+        #    print('STOP')
+        #    stop = True
+        #    pubSub.publish_button([2])
+        #if stop:
+        #    stop_count += 1
 
         if not prev_rec and isrec:
             sim_time_push = 0
@@ -340,9 +341,10 @@ if __name__ == '__main__':
             nominal_policy.decimation_counter = 0
         if not use_backup and not isrec:
             isrec = True
-        elif use_backup and not isrec and not use_nn and not stop and not use_joy and not only_rl:
+        elif use_backup and not isrec and not use_nn and not stop and not use_joy and only_mpc and not only_rl:
             pubSub.publish_button_no_joy([4,5])
         if sim and not stop and not use_joy and isrec and not only_rl:
+            #print('return')
             pubSub.publish_button_no_joy([4])
         if not prev_rec and isrec and use_backup and use_nn:
             if not only_rl:
@@ -383,11 +385,11 @@ if __name__ == '__main__':
             pubSub.publish_rl(qDes,np.zeros(12),ffw_torques)
             
         #pubSub.publish_is_rec(False)
-        if stop_count == 1000:
-            stop_count = 0
-            stop = False
-            pubSub.publish_button([3])
-            time_rec = sim_time
+        #if stop_count == 1000:
+        #    stop_count = 0
+        #    stop = False
+        #    pubSub.publish_button([3])
+        #    time_rec = sim_time
 
         decimation_counter += 1
         

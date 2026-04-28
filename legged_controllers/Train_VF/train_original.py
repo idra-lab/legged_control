@@ -28,8 +28,9 @@ os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "True"
 # ====================================
 full_path = os.path.realpath(__file__)
 folder_path = os.path.dirname(full_path)
-data_path = folder_path + '/observation_datasets/observations_rl_controller_250_high_pushes_3_5_original_radius.npy'
-model_path = folder_path + '/models/VF_rl_controller_250_high_pushes_3_5_original_radiusH.pkl'
+data_path = folder_path + '/observation_datasets/observations_mpc_controller_100 1_original_radius.npy'
+model_path = folder_path + '/models/VF_mpc_controller_100 1_original_radiusD.pkl'
+load_parameters = True
 
 data = np.load(data_path)
 
@@ -132,7 +133,7 @@ model = ValueNetwork()
 params = model.init(key, jnp.ones((1, input_dim)))
 
 
-load_parameters = False
+
 
 if load_parameters:
     try:
@@ -222,7 +223,7 @@ def get_batches(states, next_states, dones, capt_p, batch_size, rng):
 # ====================================
 #           Training Loop
 # ====================================
-epochs = 800
+epochs = 250
 batch_size = 512
 rng = jax.random.PRNGKey(int(time.time()))
 losses, min_losses, max_losses = [], [], []

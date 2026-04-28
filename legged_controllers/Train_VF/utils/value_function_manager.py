@@ -66,9 +66,9 @@ class ValueFunctionManager:
                 self.min_switch = min_switch
                 self.min_back = 200
         else:
-            model_path = os.path.dirname(full_path) + '/../models/VF_L_mpc.pkl'
-            self.min_switch = 20
-            self.min_back = 20
+            model_path = os.path.dirname(full_path) + '/../models/VF_mpc_controller_100 1_original_radiusD.pkl'
+            self.min_switch = min_switch
+            self.min_back = 200
         
         self.model = self.load_value(model_path)
         self.setup_value_function(self.model)

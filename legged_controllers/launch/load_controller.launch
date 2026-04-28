@@ -26,6 +26,7 @@
     <param name="useNN" value="$(arg nn)"/>
     <param name="onlyRL" value="$(arg only_rl)"/>
     <param name="onlyMPC" value="$(arg only_mpc)"/>
+    <param name="nomRL" value="$(arg nom_rl)"/>
 
     <rosparam file="$(find legged_controllers)/config/controllers.yaml" command="load"/>
 

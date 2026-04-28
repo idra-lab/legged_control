@@ -21,11 +21,11 @@ from controller_manager import controller_manager_interface
 
 
 class DatasetManager():
-    def __init__(self, use_nn=False, backup_trot=True):
+    def __init__(self, use_nn=False, backup_trot=True, only_mpc = False, only_rl = True):
         # -------------------------------
         # Simulation Thresholds and Constants
         # -------------------------------
-        self.INCLINATION_THRESHOLD = 45.0  # degrees - max allowed inclination before considering robot as fallen
+        self.INCLINATION_THRESHOLD = 30.0  # degrees - max allowed inclination before considering robot as fallen
         self.FALL_HEIGHT_THRESHOLD = 0.2   # meters - min allowed height before considering robot as fallen
         self.CP_SAFE_RADIUS = 0.05         # meters - acceptable radius to consider CP successful
         self.G = 9.81                      # gravitational constant
@@ -48,7 +48,15 @@ class DatasetManager():
             
         self.use_nn = use_nn
         self.backup_trot = backup_trot
+        self.only_mpc = only_mpc
+        self.only_rl = only_rl
         self.init_ros()
+        '''rospy.init_node('communicate_aliengo')
+        
+        self.pubSub = publish_subscribe.PubSub()
+        self.pubSub.init_publishers()
+        self.pubSub.init_subscribers()
+        self.rate_ros = rospy.Rate(1/self.dt)  # 500 Hz for dt = 0.002'''
 
         full_path = os.path.realpath(__file__)
         config_path = os.path.dirname(full_path) + '/config.yaml'
@@ -68,7 +76,7 @@ class DatasetManager():
                                     -1.6, 0.0, 0.0,      # RF
                                     -1.6, 0.0, 0.0])*1  # RH
             
-        else:
+        elif self.use_nn:
             self.backup_policy = RlVelocityController('aliengo', self.dt, use_nn_se=True)
             self.kp_backup = self.backup_policy.kp[0]
             self.kd_backup = self.backup_policy.kd[0]
@@ -77,7 +85,11 @@ class DatasetManager():
 
     def init_ros(self):
         # ROS
-        
+        os.system('pkill gzserver')
+        os.system('pkill gzclient')
+        time.sleep(2)
+        os.system('pkill rosmaster')
+        time.sleep(2)
 
         self.launch_world = launchFileNode('legged_unitree_description','empty_world.launch')
         self.launch_world.start()
@@ -87,19 +99,40 @@ class DatasetManager():
             nn_arg = 'nn:=true'
         else:
             nn_arg = 'nn:=false'
-        self.launch_controller = launchFileNode('legged_controllers', 'load_controller.launch', additional_args=['joy:=true', nn_arg, 'mps:=true'])
+        if self.only_mpc:
+            only_mpc_arg = 'only_mpc:=true' 
+        else:
+            only_mpc_arg = 'only_mpc:=false' 
+        if self.only_rl:
+            only_rl_arg = 'only_rl:=true' 
+        else:
+            only_rl_arg = 'only_rl:=false' 
+        self.launch_controller = launchFileNode('legged_controllers', 'load_controller.launch', additional_args=['joy:=true', nn_arg, 'mps:=true', 'joy_msg:=false', only_rl_arg, only_mpc_arg, 'rviz:=false'])
         self.launch_controller.start()
 
-        rospy.init_node('communicate_aliengo')
+        # Subscribe to messages
+        rospy.init_node('communicate_aliengo', anonymous=True)
         
         self.pubSub = publish_subscribe.PubSub()
         self.pubSub.init_publishers()
         self.pubSub.init_subscribers()
         self.rate_ros = rospy.Rate(1/self.dt)  # 500 Hz for dt = 0.002
 
+        #self.launch_pub_sub = launchFileNode('legged_controllers', 'launch_pub_sub.launch')
+        #self.launch_pub_sub.start()
+        #rospy.init_node('communicate_tests')
+        #self.pose = rospy.get_param('~topic_from_launch', 'default_topic')
+        #rospy.init_node('communicate_aliengo')
+        #
+        #self.pubSub = publish_subscribe.PubSub()
+        #self.pubSub.init_publishers()
+        #self.pubSub.init_subscribers()
+        #self.rate_ros = rospy.Rate(1/self.dt)  # 500 Hz for dt = 0.002
+
     def deregister_node(self):
-        self.launch_world.shutdown()
         self.launch_controller.shutdown()
+        self.launch_world.shutdown()
+        
    
     def call_service(self, ns, cls, **kwargs):
         rospy.wait_for_service(ns)
@@ -109,7 +142,8 @@ class DatasetManager():
     def reset(self):
         reset_iter = 1
         #time.sleep(2)
-        reset_iter = 1
+        reset_max = 2
+        
         '''data_new = [self.pubSub.pose, self.pubSub.twist, self.pubSub.joint_pos, self.pubSub.joint_vel, self.pubSub.imu_quat, self.pubSub.imu_ang_vel, self.pubSub.imu_lin_acc]
             
         print('resquat', data_new[4])
@@ -118,6 +152,8 @@ class DatasetManager():
               np.linalg.norm(self.pubSub.joint_pos - self.joint_positions) > 0.05*2):
             
             print(reset_iter)
+            print(self.pubSub.pose, self.pubSub.twist,
+              self.pubSub.joint_pos)
             if reset_iter > 10:
                 self.deregister_node()
                 self.init_ros()
@@ -292,9 +328,9 @@ class DatasetManager():
         #reset robot
         self.warmup_time = warmup_time
         random_cmd = np.array([ 
-            np.random.uniform(-0.1, 0.1),  # (-0.5, 1.0),#vx
-            np.random.uniform(-0.1, 0.1),  # vy
-            np.random.uniform(-0.1, 0.1) #(-0.4, 0.4)  # yaw_rate
+            np.random.uniform(-0.5, 0.5),  # (-0.5, 1.0),#vx
+            np.random.uniform(-0.5, 0.5),  # vy
+            np.random.uniform(-0.5, 0.5) #(-0.4, 0.4)  # yaw_rate
         ])
         #debug
         #actor_network.velocity_cmd = np.array([0.5, 0.0, 0.0])
@@ -358,8 +394,8 @@ class DatasetManager():
                 if self.step == push_instant:
                     #[self.pubSub.pose, self.pubSub.twist, self.pubSub.joint_pos, self.pubSub.joint_vel]
                     #apply as a twisch change
-                    vx = np.random.uniform(-4, 4) #(-2.0, 2.0)#+ self.quadruped.baseTwistW[0]
-                    vy = np.random.uniform(-4, 4) #(-2.0, 2.0) #+ self.quadruped.baseTwistW[1]
+                    vx = np.random.uniform(-1.5, 1.5) #(-2.0, 2.0)#+ self.quadruped.baseTwistW[0]
+                    vy = np.random.uniform(-1.5, 1.5) #(-2.0, 2.0) #+ self.quadruped.baseTwistW[1]
                     #debug makes it fall
                     # vx = -1.645
                     # vy = -1.239
@@ -371,7 +407,7 @@ class DatasetManager():
                     self.pubSub.publish_state(data_new[0], push_vel)
                 cmd_vel = np.array([random_cmd[0], random_cmd[1], 0, 0, 0, 0, random_cmd[2]])
                 self.pubSub.publish_vel(cmd_vel)
-                self.pubSub.publish_backup(np.zeros(12),np.zeros(12),torque_noise)
+                self.pubSub.publish_rl(np.zeros(12),np.zeros(12),torque_noise)
 
                 if not self.backup_trot and self.use_nn:
                     body_ang_vel = copy.copy(data_new[5])
@@ -388,6 +424,8 @@ class DatasetManager():
                 if not self.use_nn:
                     cmd_vel = np.array([0, 0, 0, 0, 0, 0, 0.])
                     self.pubSub.publish_vel(cmd_vel)
+                    #self.pubSub.publish_button([2])
+                    self.pubSub.publish_rl(np.zeros(12),np.zeros(12),torque_noise)
                 else:
                     if self.backup_trot:
                         qDes = self.backup_policy.compute_actions(data_new[4], data_new[5], data_new[2], data_new[3])
@@ -401,7 +439,7 @@ class DatasetManager():
                         qDes = self.backup_policy.action(data_new[6], None, body_ang_vel, proj_gravity, data_new[2], data_new[3], policy_type="safe")
                     self.pubSub.publish_is_rec(False)
                     
-                    self.pubSub.publish_backup(qDes,np.zeros(12),self.ffw_torques+torque_noise)
+                    self.pubSub.publish_rl(qDes,np.zeros(12),self.ffw_torques+torque_noise)
                 #self.pubSub.publish_button(2) # Stance
 
             # Add noise to simulate real-world actuation
@@ -440,24 +478,42 @@ class DatasetManager():
             print(colored(f"Simulation {i}-----------------------", "blue"))
            
             
+            try: 
+                obs, fallen, captured = self.run_single_simulation(noise_std=noise_std,max_steps=4500, warmup_time=6.0)
+                # -------------------------------
+                # Reset robot in Gazebo
+                # -------------------------------
+                self.reset()
+                print(colored(f"Fallen {fallen}, Captured {captured}", "green"))
+                #print('obs', obs)
+                for j in obs:
+                    if len(j) == 32:
+                        print(obs)
+                        exit()
+                all_obs.append(obs)
 
-            obs, fallen, captured = self.run_single_simulation(noise_std=noise_std,max_steps=4500, warmup_time=6.0)
-            # -------------------------------
-            # Reset robot in Gazebo
-            # -------------------------------
-            self.reset()
-            print(colored(f"Fallen {fallen}, Captured {captured}", "green"))
-            #print('obs', obs)
-            for j in obs:
-                if len(j) == 32:
-                    print(obs)
-                    exit()
-            all_obs.append(obs)
+                #debug
+                #print(obs.shape)
+                stats.append((fallen, captured, len(obs)))
+                max_len = max(max_len, len(obs))
+            except  (rospy.ROSInterruptException, rospy.service.ServiceException):
+                rospy.signal_shutdown("killed")
+                # Pad observation arrays to same length in case of early termination (com comverget to cop)
+                obs_dim = all_obs[0].shape[1]
+                padded_obs = np.zeros((i+1, max_len, obs_dim), dtype=np.float32)
 
-            #debug
-            #print(obs.shape)
-            stats.append((fallen, captured, len(obs)))
-            max_len = max(max_len, len(obs))
+                for i, episode in enumerate(all_obs):
+                    padded_obs[i, :len(episode), :] = episode
+
+                stats = np.array(stats, dtype=int)
+
+                np.save(os.path.join(save_path, "observations_mpc_controller_100 1_5_original_radius.npy"), padded_obs)
+
+                print(f"Episodi completati: {i+1}")
+                print(f"Caduti: {np.sum(stats[:, 0])}, CP raggiunto: {np.sum(stats[:, 1])}")
+                print(f"Dati salvati in: {save_path}")
+                print(f"Shape of observations: {padded_obs.shape}")
+                exit()
 
             if self.use_nn:
                 if self.backup_trot:
@@ -472,7 +528,7 @@ class DatasetManager():
                     self.backup_policy.decimation_counter = 0
                     self.backup_policy.history_buffer = np.zeros((1, 3, 48))
                 self.pubSub.publish_is_rec(True)
-                self.pubSub.publish_backup(np.zeros(12),np.zeros(12),np.zeros(12))
+            self.pubSub.publish_rl(np.zeros(12),np.zeros(12),np.zeros(12))
             time.sleep(2)
 
         # Pad observation arrays to same length in case of early termination (com comverget to cop)
@@ -484,7 +540,7 @@ class DatasetManager():
 
         stats = np.array(stats, dtype=int)
 
-        np.save(os.path.join(save_path, "observations_rl_controller_250_high_pushes_4_original_radius_inclination_noise.npy"), padded_obs)
+        np.save(os.path.join(save_path, "observations_mpc_controller_100 1_5_original_radius.npy"), padded_obs)
 
         print(f"Episodi completati: {n_episodes}")
         print(f"Caduti: {np.sum(stats[:, 0])}, CP raggiunto: {np.sum(stats[:, 1])}")
