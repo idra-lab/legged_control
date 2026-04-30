@@ -28,7 +28,7 @@ from value_function_manager import ValueFunctionManager
 
 
 class TestManager():
-    def __init__(self, use_nn=False, only_mpc = False, only_rl = True):
+    def __init__(self, use_nn=False, only_mpc = False, only_rl = True, nom_rl = False):
         # -------------------------------
         # Simulation Thresholds and Constants
         # -------------------------------
@@ -61,6 +61,7 @@ class TestManager():
         self.use_nn = use_nn
         self.only_mpc = only_mpc
         self.only_rl = only_rl
+        self.nom_rl = nom_rl
         self.init_ros()
 
         full_path = os.path.realpath(__file__)
@@ -89,15 +90,15 @@ class TestManager():
         self.backup_policy.velocity_cmd = np.zeros(3)
         self.ffw_torques = np.zeros(12)
 
-        if only_rl:
+        if only_rl or nom_rl:
             self.nominal_policy = RlVelocityControllerNoSE('aliengo', self.dt)
             self.nominal_policy.velocity_cmd = self.velocity_cmd
 
-        if only_mpc:
+        if only_mpc or (nom_rl and not only_rl):
             min_switch = self.config['settings']['tests']['switch_min_mpc']
             self.threshold = self.config['settings']['tests']['threshold_vf_mpc']
-
-        self.vf = ValueFunctionManager(use_nn=True, stop=False, min_switch=min_switch)
+        print('min_switch',min_switch,'self.threshold',self.threshold)
+        self.vf = ValueFunctionManager(use_nn=True, nom_rl=nom_rl, min_switch=min_switch)
 
         
 
@@ -106,6 +107,7 @@ class TestManager():
         os.system('pkill gzclient')
         time.sleep(2)
         os.system('pkill rosmaster')
+        os.system('pkill rosout')
         time.sleep(2)
 
         # ROS
@@ -126,7 +128,11 @@ class TestManager():
             only_rl_arg = 'only_rl:=true' 
         else:
             only_rl_arg = 'only_rl:=false' 
-        self.launch_controller = launchFileNode('legged_controllers', 'load_controller.launch', additional_args=['joy:=true', nn_arg, 'mps:=true', 'joy_msg:=false', only_rl_arg, only_mpc_arg])
+        if self.nom_rl:
+            nom_rl_arg = 'nom_rl:=true' 
+        else:
+            nom_rl_arg = 'nom_rl:=false' 
+        self.launch_controller = launchFileNode('legged_controllers', 'load_controller.launch', additional_args=['joy:=true', nn_arg, 'mps:=true', 'joy_msg:=false', only_rl_arg, only_mpc_arg, nom_rl_arg])
         self.launch_controller.start()
 
         # Subscribe to messages
@@ -299,7 +305,7 @@ class TestManager():
         self.warmup_steps = int(warmup_time / self.dt)
         push_instant = self.warmup_steps + (self.iter_push*5)
 
-        if not self.only_rl:
+        if not self.only_rl and not self.nom_rl:
             self.pubSub.publish_button([3]) # Trot
             time.sleep(1)
         for self.step in range(max_steps):
@@ -334,7 +340,7 @@ class TestManager():
                 applyForce(self.Fx, self.Fy, self.Fz, 0, 0, 0, self.force_time)
 
             if self.isrec:
-                if self.use_nn:
+                if self.use_nn or self.only_rl or self.nom_rl:
                     body_ang_vel = copy.copy(data_new[5])
                     proj_gravity = quat_rotate_inverse(
                         torch.tensor(data_new[4], device='cuda:0', dtype=torch.double).unsqueeze(0),
@@ -346,7 +352,7 @@ class TestManager():
 
                     qDes_no = self.backup_policy.action(data_new[6], None, body_ang_vel, proj_gravity, data_new[2], data_new[3], policy_type="safe")
     
-                if not self.only_rl:
+                if not self.only_rl and not self.nom_rl:
                     cmd_vel = np.array([self.velocity_cmd[0], self.velocity_cmd[1], 0, 0, 0, 0, self.velocity_cmd[2]])
                     self.pubSub.publish_vel(cmd_vel)
                     self.pubSub.publish_rl(np.zeros(12),np.zeros(12),np.zeros(12))
@@ -354,13 +360,15 @@ class TestManager():
                     qDes = self.nominal_policy.action(data_new[11], body_ang_vel, proj_gravity, data_new[2], data_new[3], policy_type="default")
                     self.pubSub.publish_is_reset(False)
                     self.pubSub.publish_rl(qDes, np.zeros(12), self.ffw_torques)
+                    self.pubSub.publish_button([3])
 
-            elif not self.isrec and self.only_mpc:
+            elif not self.isrec and (self.only_mpc or self.nom_rl):
                 self.backup_used = True
                 cmd_vel = np.array([0, 0, 0, 0, 0, 0, 0.])
                 self.pubSub.publish_vel(cmd_vel)
                 #self.pubSub.publish_button([2])
                 self.pubSub.publish_rl(np.zeros(12),np.zeros(12),np.zeros(12))
+                self.pubSub.publish_is_rec(False)
             else:
                 self.backup_used = True
                 body_ang_vel = copy.copy(data_new[5])
@@ -469,7 +477,7 @@ class TestManager():
                             self.pubSub.publish_is_rec(True)
                             self.pubSub.publish_rl(np.zeros(12),np.zeros(12),np.zeros(12))
 
-                        if self.only_rl:
+                        if self.only_rl or self.nom_rl:
                             self.nominal_policy.prev_action = np.zeros(12)
                             self.nominal_policy.decimation_counter = 0
                         time.sleep(2)

@@ -46,6 +46,8 @@ bool MPSController::init(hardware_interface::RobotHW* robot_hw, ros::NodeHandle&
   controller_nh.getParam("/useNN", useNN_);
   controller_nh.getParam("/onlyRL", onlyRL_);
   controller_nh.getParam("/onlyMPC", onlyMPC_);
+  controller_nh.getParam("/nomRL", nomRL_);
+  
   
   bool verbose = false;
   loadData::loadCppDataType(taskFile, "legged_robot_interface.verbose", verbose);
@@ -145,8 +147,10 @@ void MPSController::update(const ros::Time& time, const ros::Duration& period) {
   //  ROS_ERROR_STREAM("[MPS Controller] Safety check failed, stopping the controller.");
   //  stopRequest(time);
   //}
-  if ((!useNN_ || (useNN_ && isRecReceiverPtr->getIsRec()) || onlyMPC_) && (!onlyRL_ || isResetReceiverPtr->getIsReset())){
+  if (((!useNN_ || (useNN_ && isRecReceiverPtr->getIsRec()) || onlyMPC_) && ((!onlyRL_ && !nomRL_) || isResetReceiverPtr->getIsReset()))
+  || (nomRL_ && (isResetReceiverPtr->getIsReset() || !isRecReceiverPtr->getIsRec()))){
     // MPC
+    //std::cout << " MPC POL"  << std::endl;
     auto eff_noise = jointReceiverPtr->getJointEfforts();
     for (size_t j = 0; j < leggedInterface_->getCentroidalModelInfo().actuatedDofNum; ++j) {
       //double number = distribution(generator);
@@ -154,8 +158,9 @@ void MPSController::update(const ros::Time& time, const ros::Duration& period) {
       hybridJointHandles_[j].setCommand(posDes(j), velDes(j), 0, 3, torque(j) );//+ eff_noise[j]);
     }
   }
-  else if (onlyRL_ && isRecReceiverPtr->getIsRec()){
+  else if ((onlyRL_ || nomRL_) && isRecReceiverPtr->getIsRec()){
     // Nominal RL policy
+    //std::cout << " RL POL"  << std::endl;
     auto pos_rl = jointReceiverPtr->getJointPositions();
     auto vel_rl = jointReceiverPtr->getJointVelocities();
     auto eff_rl = jointReceiverPtr->getJointEfforts();
@@ -167,6 +172,7 @@ void MPSController::update(const ros::Time& time, const ros::Duration& period) {
   }
   else{
     // Backup RL policy
+    //std::cout << " RL BACK"  << std::endl;
     auto pos_rl = jointReceiverPtr->getJointPositions();
     auto vel_rl = jointReceiverPtr->getJointVelocities();
     auto eff_rl = jointReceiverPtr->getJointEfforts();

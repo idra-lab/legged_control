@@ -51,20 +51,17 @@ def critic_inference(critic_model, params, obs):
 
 
 class ValueFunctionManager:
-    def __init__(self, use_nn, stop, min_switch):
+    def __init__(self, use_nn, nom_rl, min_switch):
 
         full_path = os.path.realpath(__file__)
         self.threshold_back = 0.3
 
-        if use_nn:
-            if stop:
-                pass
-            else:
-                #model_path = os.path.dirname(full_path) + '/../models/VF_rl_controller_250_high_pushes_3_5_original_radiusF.pkl'
-                model_path = os.path.dirname(full_path) + '/../models/VF_rl_controller_250_high_pushes_3_5_original_radiusG.pkl'
-                #model_path = os.path.dirname(full_path) + '/../models/VF_rl_controller_250_high_pushes_3_5_original_radiusH.pkl'
-                self.min_switch = min_switch
-                self.min_back = 200
+        if use_nn and not nom_rl:
+            #model_path = os.path.dirname(full_path) + '/../models/VF_rl_controller_250_high_pushes_3_5_original_radiusF.pkl'
+            model_path = os.path.dirname(full_path) + '/../models/VF_rl_controller_250_high_pushes_3_5_original_radiusG.pkl'
+            #model_path = os.path.dirname(full_path) + '/../models/VF_rl_controller_250_high_pushes_3_5_original_radiusH.pkl'
+            self.min_switch = min_switch
+            self.min_back = 200
         else:
             model_path = os.path.dirname(full_path) + '/../models/VF_mpc_controller_100 1_original_radiusD.pkl'
             self.min_switch = min_switch

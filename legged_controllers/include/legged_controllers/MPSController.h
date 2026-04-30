@@ -86,6 +86,7 @@ class MPSController : public controller_interface::MultiInterfaceController<Hybr
   bool useNN_;
   bool onlyRL_;
   bool onlyMPC_;
+  bool nomRL_;
 };
 
 
