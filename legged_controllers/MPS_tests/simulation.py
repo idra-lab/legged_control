@@ -57,7 +57,20 @@ class TestManager():
                                 -0.1, 0.62, -1.24,
                                  0.1, 0.62, -1.24,
                                  0.1, 0.62, -1.24]
-            
+        
+        self.compare_pos_i =  np.array([0, 2, 3, 5, 6, 8, 9, 11])  
+        
+        self.lim_tau = 44
+        self.lim_vel = 26.5
+        self.jmax_compare = np.array([ 1.22, -0.65,
+                                       1.22, -0.65,
+                                       1.22, -0.65,
+                                       1.22, -0.65])
+        self.jmin_compare = np.array([-1.22, -2.78,
+                                      -1.22, -2.78,
+                                      -1.22, -2.78,
+                                      -1.22, -2.78])
+        
         self.use_nn = use_nn
         self.only_mpc = only_mpc
         self.only_rl = only_rl
@@ -132,7 +145,7 @@ class TestManager():
             nom_rl_arg = 'nom_rl:=true' 
         else:
             nom_rl_arg = 'nom_rl:=false' 
-        self.launch_controller = launchFileNode('legged_controllers', 'load_controller.launch', additional_args=['joy:=true', nn_arg, 'mps:=true', 'joy_msg:=false', only_rl_arg, only_mpc_arg, nom_rl_arg])
+        self.launch_controller = launchFileNode('legged_controllers', 'load_controller.launch', additional_args=['joy:=true', nn_arg, 'mps:=true', 'joy_msg:=false', only_rl_arg, only_mpc_arg, nom_rl_arg, 'rviz:=false'])
         self.launch_controller.start()
 
         # Subscribe to messages
@@ -156,6 +169,7 @@ class TestManager():
     def reset(self):
         self.pubSub.publish_is_reset(True)
         reset_iter = 1
+        
         while(np.linalg.norm(self.pubSub.pose - self.initial_pose) > 0.05*2 or np.linalg.norm(self.pubSub.twist) > 0.05*2 or
               np.linalg.norm(self.pubSub.joint_pos - self.joint_positions) > 0.05*2):
             if reset_iter > 10:
@@ -278,7 +292,47 @@ class TestManager():
         if np.linalg.norm(cp_local) < self.CP_SAFE_RADIUS and self.fallen_flag == 0:
             self.capture_flag = 1
         
+    def check_limits(self, joint_pos, joint_vel, joint_eff):
+        data_compare = np.array([joint_pos[0], joint_pos[2], joint_pos[3], joint_pos[5], joint_pos[6], joint_pos[8], joint_pos[9], joint_pos[11]])
 
+        check_pos = (np.any(data_compare > self.jmax_compare) or np.any(data_compare < self.jmin_compare))
+        if check_pos and len(self.data_pos) == 0:
+            self.data_pos.append([joint_pos, self.force_mag, self.test_num])
+
+        if check_pos:
+            k = 0
+            for l in data_compare:
+                if l > self.jmax_compare[k] and l > self.max_pos[self.compare_pos_i[k]]:
+                    self.max_pos[self.compare_pos_i[k]] = l
+                elif l < self.jmin_compare[k] and l < self.min_pos[self.compare_pos_i[k]]:
+                    self.min_pos[self.compare_pos_i[k]] = l
+                elif l > self.jmax_compare[k] and self.max_pos[self.compare_pos_i[k]] == 0:
+                    self.max_pos[self.compare_pos_i[k]] = l
+                k += 1
+
+        check_vel = np.any(np.abs(joint_vel) > self.lim_vel)
+        if check_vel and len(self.data_vel) == 0:
+            self.data_vel.append([joint_vel, self.force_mag, self.test_num])
+        if check_vel:
+            k = 0
+            for l in joint_vel: 
+                if l > self.lim_vel and l > self.max_vel[k]:
+                    self.max_vel[k] = l
+                elif l < -self.lim_vel and l < self.min_vel[k]:
+                    self.min_vel[k] = l
+                k += 1
+
+        check_tau = np.any(np.abs(joint_eff) > self.lim_tau)
+        if check_tau and len(self.data_torque) == 0:
+            self.data_torque.append([joint_eff, self.force_mag, self.test_num]) 
+        if check_tau:
+            k = 0
+            for l in joint_eff: 
+                if l > self.lim_tau and l > self.max_tau[k]:
+                    self.max_tau[k] = l
+                elif l < -self.lim_tau and l < self.min_tau[k]:
+                    self.min_tau[k] = l
+                k += 1
 
     # -------------------------------
     # Main Function: Single Simulation Episode
@@ -298,6 +352,17 @@ class TestManager():
         self.backup_used = False
         decimation_counter_vf = 0
 
+        self.data_pos = []
+        self.data_vel = []
+        self.data_torque = []
+
+        self.max_pos = np.zeros(12)
+        self.min_pos = np.zeros(12)
+        self.max_vel = np.zeros(12)
+        self.min_vel = np.zeros(12)
+        self.max_tau = np.zeros(12)
+        self.min_tau = np.zeros(12)
+
         self.warmup_time = warmup_time
         
         #debug
@@ -313,7 +378,7 @@ class TestManager():
             # Update messages
             data_new = [self.pubSub.pose, self.pubSub.twist, self.pubSub.joint_pos, self.pubSub.joint_vel, self.pubSub.imu_quat, self.pubSub.imu_ang_vel, self.pubSub.imu_lin_acc,
                         self.pubSub.coordinates_RF, self.pubSub.coordinates_LF, self.pubSub.coordinates_RH, self.pubSub.coordinates_LH,
-                        self.pubSub.odom_lin_vel]
+                        self.pubSub.odom_lin_vel, self.pubSub.joint_eff]
 
             #self.check_fall_cp(data_new)
             z_coordinates = np.array([data_new[0][2], data_new[7][0], 
@@ -325,6 +390,8 @@ class TestManager():
             z_coordinates = np.array([data_new[7][1], data_new[8][1], data_new[9][1], data_new[10][1]])
             if self.knee_flag == 0 and np.any(z_coordinates < self.knee_height):
                 self.knee_flag = 1
+            if (decimation_counter_vf % self.decimation_vf) == 0:
+                self.check_limits(data_new[2], data_new[3], data_new[12])
 
             phase_all = np.all(np.array([data_new[7][4], data_new[8][4], 
                              data_new[10][4], data_new[9][4]]) < self.contact_height)
@@ -412,6 +479,7 @@ class TestManager():
         #for i in tqdm(range(n_episodes)):
         # Each test lasts 20 seconds 
         for i in force_mag:
+            self.force_mag = i
             test_force = str(i)
             test_num = 1   
 
@@ -419,9 +487,11 @@ class TestManager():
             dir_text = dir_file.readline().rstrip().split(',')
             while dir_text[0] != '':
 
-                data_save = {        'data_sim': [], 'save_fall': [], 
-                          'save_backup': [], 'save_stop': [], 
-                     'save_stop_backup': [], 'save_knee': []}
+                data_save = {   'data_sim': [], 'save_fall': [], 
+                          '   save_backup': [], 'save_stop': [], 
+                        'save_stop_backup': [], 'save_knee': [],
+                                'save_pos': [],  'save_vel': [], 
+                             'save_torque': []}
                 # Change force 
                 
                 j = np.array([float(dir_text[0]),float(dir_text[1]),float(dir_text[2])])
@@ -433,6 +503,7 @@ class TestManager():
                 iter_file = open(iter_path)
                 iter_text = iter_file.readline().rstrip().split(',')
                 while iter_text[0] != '':
+                    self.test_num = test_num
                     self.iter_push = int(iter_text[0])
                     if  test_num > test_num_last:
                         data_final = self.run_single_simulation(max_steps=max_steps, warmup_time=4.0)
@@ -469,6 +540,13 @@ class TestManager():
                         
                         if not self.backup_used and self.capture_flag == 0:
                             data_save['save_stop_backup'].append([i, test_num])
+
+                        if len(self.data_pos) > 0:
+                            data_save['save_pos'].append([self.data_pos[0][0], self.data_pos[0][1], self.data_pos[0][2]])
+                        if len(self.data_vel) > 0:
+                            data_save['save_vel'].append([self.data_vel[0][0], self.data_vel[0][1], self.data_vel[0][2]])
+                        if len(self.data_torque) > 0:
+                            data_save['save_torque'].append([self.data_torque[0][0], self.data_torque[0][1], self.data_torque[0][2]])
                         
                         if self.use_nn:
                             self.backup_policy.prev_action = np.zeros(12)

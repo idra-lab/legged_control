@@ -1,0 +1,41 @@
+# Set positions
+initial_joint_positions:
+  joint_map:
+    FR_hip_joint : "0.1"                                #Hinge/Slide joint: single axis value
+    FR_thigh_joint : "0.62"
+    FR_calf_joint : "-1.24"
+
+    FL_hip_joint : "-0.1"                                #Hinge/Slide joint: single axis value
+    FL_thigh_joint : "0.62"
+    FL_calf_joint : "-1.24"
+
+    RR_hip_joint : "0.1"                                #Hinge/Slide joint: single axis value
+    RR_thigh_joint : "0.62"
+    RR_calf_joint : "-1.24"
+
+    RL_hip_joint : "-0.1"                                #Hinge/Slide joint: single axis value
+    RL_thigh_joint : "0.62"
+    RL_calf_joint : "-1.24"
+
+    base: "0.0 0.0 0.45 1.0 0.0 0.0 0.0"  #Free joint: Position (x y z) followed by a quaternion (w x y z) in world coordinates
+
+# Set velocities
+initial_joint_velocities:
+  joint_map:
+    FR_hip_joint : "0.0"                     #Hinge/Slide joint: single axis value
+    FR_thigh_joint : "0.0"
+    FR_calf_joint : "0.0"
+
+    FL_hip_joint : "0.0"                     #Hinge/Slide joint: single axis value
+    FL_thigh_joint : "0.0"
+    FL_calf_joint : "0.0"
+
+    RR_hip_joint : "0.0"                     #Hinge/Slide joint: single axis value
+    RR_thigh_joint : "0.0"
+    RR_calf_joint : "0.0"
+
+    RL_hip_joint : "0.0"                     #Hinge/Slide joint: single axis value
+    RL_thigh_joint : "0.0"
+    RL_calf_joint : "0.0"
+
+    base : "0.0 0.0 0.0 0.0 0.0 0.0"  #Free joint: x y z r p y

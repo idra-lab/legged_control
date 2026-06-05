@@ -1,11 +1,11 @@
 settings:
   paths:
-    results_folder: /MPS_frequencies_R1_MPC_tests
+    results_folder: /No_MPS
     force_directions: /sphere_points_100.csv
     force_iterations: /aplication_iteration.csv
     estimate_lipschitz: VF_data/data_vf_sensors_stop
   tests:
-    last_test: 280
+    last_test: 0
     torch_num_threads: 1
     torch_num_interop_threads: 1
     force_time: 0.2
@@ -21,7 +21,7 @@ settings:
     all_tests: True
     save_data: True
     save_iterations: False
-    force_mag: [ 260] # [ 100, 120, 140, 160, 180, 200] #
+    force_mag: [ 200, 220, 240, 260] # [ 100, 120, 140, 160, 180, 200] #
     
 
 simulation:
