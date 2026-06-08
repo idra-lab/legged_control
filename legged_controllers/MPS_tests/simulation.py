@@ -111,7 +111,7 @@ class TestManager():
             min_switch = self.config['settings']['tests']['switch_min_mpc']
             self.threshold = self.config['settings']['tests']['threshold_vf_mpc']
         print('min_switch',min_switch,'self.threshold',self.threshold)
-        self.vf = ValueFunctionManager(use_nn=True, nom_rl=nom_rl, min_switch=min_switch)
+        self.vf = ValueFunctionManager(use_nn=True, nom_rl=nom_rl, only_mpc=only_mpc, only_rl=only_rl, min_switch=min_switch)
 
         
 
@@ -145,7 +145,7 @@ class TestManager():
             nom_rl_arg = 'nom_rl:=true' 
         else:
             nom_rl_arg = 'nom_rl:=false' 
-        self.launch_controller = launchFileNode('legged_controllers', 'load_controller.launch', additional_args=['joy:=true', nn_arg, 'mps:=true', 'joy_msg:=false', only_rl_arg, only_mpc_arg, nom_rl_arg, 'rviz:=false'])
+        self.launch_controller = launchFileNode('legged_controllers', 'load_controller.launch', additional_args=['joy:=true', nn_arg, 'mps:=true', 'joy_msg:=true', only_rl_arg, only_mpc_arg, nom_rl_arg, 'rviz:=false'])
         self.launch_controller.start()
 
         # Subscribe to messages
@@ -297,6 +297,7 @@ class TestManager():
 
         check_pos = (np.any(data_compare > self.jmax_compare) or np.any(data_compare < self.jmin_compare))
         if check_pos and len(self.data_pos) == 0:
+            print(data_compare)
             self.data_pos.append([joint_pos, self.force_mag, self.test_num])
 
         if check_pos:
@@ -488,7 +489,7 @@ class TestManager():
             while dir_text[0] != '':
 
                 data_save = {   'data_sim': [], 'save_fall': [], 
-                          '   save_backup': [], 'save_stop': [], 
+                             'save_backup': [], 'save_stop': [], 
                         'save_stop_backup': [], 'save_knee': [],
                                 'save_pos': [],  'save_vel': [], 
                              'save_torque': []}
@@ -507,6 +508,7 @@ class TestManager():
                     self.iter_push = int(iter_text[0])
                     if  test_num > test_num_last:
                         data_final = self.run_single_simulation(max_steps=max_steps, warmup_time=4.0)
+                        #print('self.backup_used',self.backup_used)
                         # -------------------------------
                         # Reset robot in Gazebo
                         # -------------------------------
@@ -523,8 +525,15 @@ class TestManager():
                                                       data_final[4],       # 8
                                                       data_final[5],       # 9
                                                       data_final[6],       # 10
-                                                      self.last_i])        # 11
+                                                      self.last_i,
+                                                      self.max_pos,
+                                                      self.min_pos,
+                                                      self.max_vel,
+                                                      self.min_vel,
+                                                      self.max_tau,
+                                                      self.min_tau])        # 11
                         
+
                         
                         if self.fallen_flag == 1:
                             data_save['save_fall'].append([i, test_num])

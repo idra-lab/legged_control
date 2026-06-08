@@ -165,20 +165,20 @@ if __name__ == '__main__':
     sim_time_push = 0
 
     sim = True
-    sim_push = True
+    sim_push = False
     use_backup = True
     use_joy = False
     only_button_switch = False
     prev_rec = True
     manual_switch = False
     isrec = True
-    use_nn = True
+    use_nn = False
     stop = False
     stop_backup = False
     only_backup = False
     backup_trot = False
     push_once = False
-    only_mpc = False
+    only_mpc = True
     only_rl = False
     nom_rl = False
 
@@ -208,7 +208,7 @@ if __name__ == '__main__':
 
     
     if sim:
-        launch_world = launchFileNode('legged_unitree_description','empty_world.launch', additional_args=['use_sim_time:=true', 'gz_gui:=true'])
+        launch_world = launchFileNode('legged_unitree_description','empty_world.launch', additional_args=['use_sim_time:=true', 'gz_gui:=false'])
         launch_world.start()
         time.sleep(1)
     else:
@@ -231,7 +231,7 @@ if __name__ == '__main__':
         nom_rl_arg = 'nom_rl:=true' 
     else:
         nom_rl_arg = 'nom_rl:=false' 
-    launch_controller = launchFileNode('legged_controllers', 'load_controller.launch', additional_args=['joy:=true', nn_arg, 'mps:=true', 'joy_msg:=false', only_rl_arg, only_mpc_arg, nom_rl_arg])
+    launch_controller = launchFileNode('legged_controllers', 'load_controller.launch', additional_args=['joy:=true', nn_arg, 'mps:=true', 'joy_msg:=true', only_rl_arg, only_mpc_arg, nom_rl_arg,'rviz:=false'])
     launch_controller.start()
     #time.sleep(2)
 
@@ -255,13 +255,12 @@ if __name__ == '__main__':
     # Load value function
     
     if use_nn and not nom_rl:
-        vf = ValueFunctionManager(use_nn, nom_rl, 5)
+        vf = ValueFunctionManager(use_nn, nom_rl, only_mpc, only_rl, 5)
         threshold = 0.6#5#7
     else:
-        vf = ValueFunctionManager(use_nn, nom_rl, 2)
+        vf = ValueFunctionManager(use_nn, nom_rl, only_mpc, only_rl, 2)
         threshold = 0.7
     
-
     pubSub.publish_is_rec(isrec)
 
     if sim and not use_joy:
