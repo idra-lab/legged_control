@@ -1,11 +1,11 @@
 settings:
   paths:
-    results_folder: /MPS_MPC_MPC_4
+    results_folder: /MPS_RL_RL
     force_directions: /sphere_points_100.csv
     force_iterations: /aplication_iteration.csv
     estimate_lipschitz: VF_data/data_vf_sensors_stop
   tests:
-    last_test: 80
+    last_test: 900
     torch_num_threads: 1
     torch_num_interop_threads: 1
     force_time: 0.2
@@ -13,15 +13,15 @@ settings:
     threshold_vf: 0.6
     additional_term_vf: 0.0
     switch_min: 5
-    switch_min_mpc: 4
-    threshold_vf_mpc: 0.6
+    switch_min_mpc: 2 #4
+    threshold_vf_mpc: 0.59 #0.6
     use_backup: True
     manual_mps: False
     estimate_lipschitz: False
     all_tests: True
     save_data: True
     save_iterations: False
-    force_mag: [260] #[ 200, 220, 240, 260] # [ 100, 120, 140, 160, 180, 200] #
+    force_mag: [0] #[ 200, 220, 240, 260] # [ 100, 120, 140, 160, 180, 200] #
     
 
 simulation:
