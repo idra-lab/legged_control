@@ -51,15 +51,16 @@ def critic_inference(critic_model, params, obs):
 
 
 class ValueFunctionManager:
-    def __init__(self, use_nn=True, nom_rl=False, only_mpc=False, only_rl=False, min_switch=1):
+    def __init__(self, use_nn=True, nom_rl=False, only_mpc=False, only_rl=False, abs = False, min_switch=1):
 
         full_path = os.path.realpath(__file__)
         self.threshold_back = 0.3
 
         if use_nn and (not nom_rl or only_rl) and not only_mpc:
-            #model_path = os.path.dirname(full_path) + '/../models/VF_rl_controller_250_high_pushes_3_5_original_radiusF.pkl'
-            model_path = os.path.dirname(full_path) + '/../models/VF_rl_controller_250_high_pushes_3_5_original_radiusG.pkl'
-            #model_path = os.path.dirname(full_path) + '/../models/VF_rl_controller_250_high_pushes_3_5_original_radiusH.pkl'
+            if abs:
+                model_path = os.path.dirname(full_path) + '/../models/VF_abs_test.pkl'
+            else:
+                model_path = os.path.dirname(full_path) + '/../models/VF_rl_controller_250_high_pushes_3_5_original_radiusG.pkl'
             self.min_switch = min_switch
             self.min_back = 200
         elif only_mpc or nom_rl:

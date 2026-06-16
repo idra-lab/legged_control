@@ -1,6 +1,6 @@
 settings:
   paths:
-    results_folder: /MPS_RL_RL
+    results_folder: /MPS_RL_RL_ABS
     force_directions: /sphere_points_100.csv
     force_iterations: /aplication_iteration.csv
     estimate_lipschitz: VF_data/data_vf_sensors_stop
@@ -13,8 +13,10 @@ settings:
     threshold_vf: 0.6
     additional_term_vf: 0.0
     switch_min: 5
-    switch_min_mpc: 2 #4
-    threshold_vf_mpc: 0.59 #0.6
+    switch_min_mpc: 4
+    threshold_vf_mpc: 0.6
+    switch_min_abs: 1
+    threshold_vf_abs: 0.99
     use_backup: True
     manual_mps: False
     estimate_lipschitz: False

@@ -28,7 +28,7 @@ from value_function_manager import ValueFunctionManager
 
 
 class TestManager():
-    def __init__(self, use_nn=False, only_mpc = False, only_rl = True, nom_rl = False):
+    def __init__(self, use_nn=False, only_mpc = False, only_rl = True, nom_rl = False, abs = False):
         # -------------------------------
         # Simulation Thresholds and Constants
         # -------------------------------
@@ -110,8 +110,11 @@ class TestManager():
         if only_mpc or (nom_rl and not only_rl):
             min_switch = self.config['settings']['tests']['switch_min_mpc']
             self.threshold = self.config['settings']['tests']['threshold_vf_mpc']
+        elif abs:
+            min_switch = self.config['settings']['tests']['switch_min_abs']
+            self.threshold = self.config['settings']['tests']['threshold_vf_abs']
         print('min_switch',min_switch,'self.threshold',self.threshold)
-        self.vf = ValueFunctionManager(use_nn=True, nom_rl=nom_rl, only_mpc=only_mpc, only_rl=only_rl, min_switch=min_switch)
+        self.vf = ValueFunctionManager(use_nn=True, nom_rl=nom_rl, only_mpc=only_mpc, only_rl=only_rl, abs=abs, min_switch=min_switch)
 
         
 
