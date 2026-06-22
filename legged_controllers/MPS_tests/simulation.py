@@ -148,7 +148,7 @@ class TestManager():
             nom_rl_arg = 'nom_rl:=true' 
         else:
             nom_rl_arg = 'nom_rl:=false' 
-        self.launch_controller = launchFileNode('legged_controllers', 'load_controller.launch', additional_args=['joy:=true', nn_arg, 'mps:=true', 'joy_msg:=true', only_rl_arg, only_mpc_arg, nom_rl_arg, 'rviz:=false'])
+        self.launch_controller = launchFileNode('legged_controllers', 'load_controller.launch', additional_args=['joy:=true', nn_arg, 'mps:=true', 'joy_msg:=true', only_rl_arg, only_mpc_arg, nom_rl_arg, 'rviz:=true'])
         self.launch_controller.start()
 
         # Subscribe to messages
