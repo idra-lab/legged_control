@@ -12,7 +12,9 @@
     <xacro:include filename="$(find legged_unitree_description)/urdf/$(arg robot_type)/const.xacro"/>
 
    <!--    <xacro:property name="mesh_path" value="../meshes"/>-->
-   <xacro:property name="mesh_path" value="package://$(arg robot_type)_description/meshes"/>
+   <!-- Meshes are in legged_unitree_description/meshes/{robot_type}/, NOT in a
+        separate {robot_type}_description package (which does not exist here). -->
+   <xacro:property name="mesh_path" value="package://legged_unitree_description/meshes/$(arg robot_type)"/>
 
     <link name="base"/>
     <joint name="base_inertia_joint" type="fixed">

@@ -1,5 +1,5 @@
 Panels:
-  - Class: rviz/Displays
+  - Class: rviz_common/Displays
     Help Height: 138
     Name: Displays
     Property Tree Widget:
@@ -11,25 +11,25 @@ Panels:
         - /TF1/Frames1
       Splitter Ratio: 0.5
     Tree Height: 835
-  - Class: rviz/Selection
+  - Class: rviz_common/Selection
     Name: Selection
-  - Class: rviz/Tool Properties
+  - Class: rviz_common/Tool Properties
     Expanded:
       - /2D Pose Estimate1
       - /2D Nav Goal1
       - /Publish Point1
     Name: Tool Properties
     Splitter Ratio: 0.5886790156364441
-  - Class: rviz/Views
+  - Class: rviz_common/Views
     Expanded:
       - /Current View1
     Name: Views
     Splitter Ratio: 0.5
-  - Class: rviz/Time
+  - Class: rviz_common/Time
     Name: Time
     SyncMode: 0
     SyncSource: ""
-  - Class: rviz/Displays
+  - Class: rviz_common/Displays
     Help Height: 138
     Name: Displays
     Property Tree Widget:
@@ -45,7 +45,7 @@ Visualization Manager:
   Displays:
     - Alpha: 0.5
       Cell Size: 1
-      Class: rviz/Grid
+      Class: rviz_default_plugins/Grid
       Color: 160; 160; 164
       Enabled: true
       Line Style:
@@ -62,7 +62,7 @@ Visualization Manager:
       Reference Frame: odom
       Value: true
     - Alpha: 0.4000000059604645
-      Class: rviz/RobotModel
+      Class: rviz_default_plugins/RobotModel
       Collision Enabled: false
       Enabled: true
       Links:
@@ -171,7 +171,7 @@ Visualization Manager:
       Update Interval: 0
       Value: true
       Visual Enabled: true
-    - Class: rviz/TF
+    - Class: rviz_default_plugins/TF
       Enabled: true
       Filter (blacklist): ""
       Filter (whitelist): ""
@@ -253,7 +253,7 @@ Visualization Manager:
               {}
       Update Interval: 0
       Value: true
-    - Class: rviz/MarkerArray
+    - Class: rviz_default_plugins/MarkerArray
       Enabled: true
       Marker Topic: /legged_robot/optimizedStateTrajectory
       Name: Optimized State Trajectory
@@ -263,7 +263,7 @@ Visualization Manager:
         Future footholds: true
       Queue Size: 100
       Value: true
-    - Class: rviz/MarkerArray
+    - Class: rviz_default_plugins/MarkerArray
       Enabled: true
       Marker Topic: /legged_robot/currentState
       Name: Current State
@@ -274,11 +274,11 @@ Visualization Manager:
         Support Polygon: true
       Queue Size: 100
       Value: true
-    - Class: rviz/Group
+    - Class: rviz_common/Group
       Displays:
-        - Class: rviz/Group
+        - Class: rviz_common/Group
           Displays:
-            - Class: rviz/Marker
+            - Class: rviz_default_plugins/Marker
               Enabled: true
               Marker Topic: /legged_robot/desiredFeetTrajectory/LF
               Name: Marker
@@ -286,7 +286,7 @@ Visualization Manager:
                 {}
               Queue Size: 100
               Value: true
-            - Class: rviz/Marker
+            - Class: rviz_default_plugins/Marker
               Enabled: true
               Marker Topic: /legged_robot/desiredFeetTrajectory/LH
               Name: Marker
@@ -294,7 +294,7 @@ Visualization Manager:
                 {}
               Queue Size: 100
               Value: true
-            - Class: rviz/Marker
+            - Class: rviz_default_plugins/Marker
               Enabled: true
               Marker Topic: /legged_robot/desiredFeetTrajectory/RF
               Name: Marker
@@ -302,7 +302,7 @@ Visualization Manager:
                 {}
               Queue Size: 100
               Value: true
-            - Class: rviz/Marker
+            - Class: rviz_default_plugins/Marker
               Enabled: true
               Marker Topic: /legged_robot/desiredFeetTrajectory/RH
               Name: Marker
@@ -312,7 +312,7 @@ Visualization Manager:
               Value: true
           Enabled: false
           Name: Target Feet Trajectories
-        - Class: rviz/Marker
+        - Class: rviz_default_plugins/Marker
           Enabled: true
           Marker Topic: /legged_robot/desiredBaseTrajectory
           Name: Target Base Trajectory
@@ -330,24 +330,24 @@ Visualization Manager:
     Frame Rate: 30
   Name: root
   Tools:
-    - Class: rviz/Interact
+    - Class: rviz_default_plugins/Interact
       Hide Inactive Objects: true
-    - Class: rviz/Select
-    - Class: rviz/Measure
-    - Class: rviz/SetInitialPose
+    - Class: rviz_default_plugins/Select
+    - Class: rviz_default_plugins/Measure
+    - Class: rviz_default_plugins/SetInitialPose
       Theta std deviation: 0.2617993950843811
       Topic: /initialpose
       X std deviation: 0.5
       Y std deviation: 0.5
-    - Class: rviz/SetGoal
+    - Class: rviz_default_plugins/SetGoal
       Topic: /move_base_simple/goal
-    - Class: rviz/PublishPoint
+    - Class: rviz_default_plugins/PublishPoint
       Single click: true
       Topic: /clicked_point
   Value: true
   Views:
     Current:
-      Class: rviz/Orbit
+      Class: rviz_default_plugins/Orbit
       Distance: 0.7074592113494873
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549

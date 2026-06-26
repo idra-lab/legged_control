@@ -1,26 +1,97 @@
 <?xml version="1.0"?>
-<robot>
-    <!-- ros_control plugin -->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+    <xacro:arg name="sim" default="true"/>
+
+    <!-- ===================================================================
+         ros2_control configuration
+         Only joints are declared here. Sensors (IMU, contacts) are handled
+         internally by LeggedHWSim::initSim() and read() — they cannot be
+         declared here because export_state_interfaces() is called during
+         on_configure() BEFORE initSim() populates the sensor data structures,
+         which would cause a resource_manager mismatch and SIGSEGV.
+    =================================================================== -->
+    <ros2_control name="LeggedRobot" type="system">
+        <hardware>
+            <xacro:if value="$(arg sim)">
+                <plugin>legged_gazebo/LeggedHWSim</plugin>
+            </xacro:if>
+            <xacro:unless value="$(arg sim)">
+                <plugin>legged_hw/LeggedHW</plugin>
+            </xacro:unless>
+        </hardware>
+
+        <xacro:macro name="legged_joint" params="name">
+            <joint name="${name}">
+                <command_interface name="position"/>
+                <command_interface name="velocity"/>
+                <command_interface name="kp"/>
+                <command_interface name="kd"/>
+                <command_interface name="effort"/>
+                <state_interface name="position"/>
+                <state_interface name="velocity"/>
+                <state_interface name="effort"/>
+            </joint>
+        </xacro:macro>
+
+        <!-- LF leg -->
+        <xacro:legged_joint name="LF_HAA"/>
+        <xacro:legged_joint name="LF_HFE"/>
+        <xacro:legged_joint name="LF_KFE"/>
+
+        <!-- LH leg -->
+        <xacro:legged_joint name="LH_HAA"/>
+        <xacro:legged_joint name="LH_HFE"/>
+        <xacro:legged_joint name="LH_KFE"/>
+
+        <!-- RF leg -->
+        <xacro:legged_joint name="RF_HAA"/>
+        <xacro:legged_joint name="RF_HFE"/>
+        <xacro:legged_joint name="RF_KFE"/>
+
+        <!-- RH leg -->
+        <xacro:legged_joint name="RH_HAA"/>
+        <xacro:legged_joint name="RH_HFE"/>
+        <xacro:legged_joint name="RH_KFE"/>
+
+        <!-- NOTE: IMU and contact sensors are NOT declared here.
+             LeggedHWSim exports them dynamically from initSim() and
+             read(), but on_configure() runs before initSim(), so any
+             sensor declared here would be expected by resource_manager
+             but not yet exported → crash.
+             The imu_sensor_broadcaster reads from the /imu topic instead. -->
+    </ros2_control>
+
+    <!-- ===================================================================
+         gazebo_ros2_control plugin
+    =================================================================== -->
+    <xacro:arg name="controllers_yaml" default="$(find legged_controllers)/config/controllers.yaml"/>
+
     <gazebo>
-        <plugin name="gazebo_ros_control" filename="liblegged_hw_sim.so">
-            <robotNamespace>/</robotNamespace>
-            <robotParam>legged_robot_description</robotParam>
-            <robotSimType>legged_gazebo/LeggedHWSim</robotSimType>
+        <plugin name="gazebo_ros2_control" filename="libgazebo_ros2_control.so">
+            <parameters>$(arg controllers_yaml)</parameters>
         </plugin>
     </gazebo>
 
+    <!-- ===================================================================
+         p3d ground-truth odometry plugin — DISABLED
+         Throws C++ exception during Load() with Gazebo 11 / ROS 2 Humble
+         when using <ros><namespace> syntax. Not required for simulation.
+    =================================================================== -->
+    <!--
     <gazebo>
         <plugin name="p3d_base_controller" filename="libgazebo_ros_p3d.so">
-            <alwaysOn>true</alwaysOn>
-            <updateRate>1000.0</updateRate>
-            <bodyName>base</bodyName>
-            <topicName>ground_truth/state</topicName>
-            <gaussianNoise>0</gaussianNoise>
-            <frameName>world</frameName>
-            <xyzOffsets>0 0 0</xyzOffsets>
-            <rpyOffsets>0 0 0</rpyOffsets>
+            <ros>
+                <remapping>odom:=ground_truth/state</remapping>
+            </ros>
+            <body_name>base_inertia</body_name>
+            <frame_name>world</frame_name>
+            <update_rate>500.0</update_rate>
+            <xyz_offset>0 0 0</xyz_offset>
+            <rpy_offset>0 0 0</rpy_offset>
+            <gaussian_noise>0.0</gaussian_noise>
         </plugin>
     </gazebo>
-
+    -->
 
 </robot>

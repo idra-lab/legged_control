@@ -119,7 +119,7 @@ install(TARGETS ${PROJECT_NAME}_lib legged_target_trajectories_publisher
         EXPORT ${PROJECT_NAME}
         ARCHIVE DESTINATION lib
         LIBRARY DESTINATION lib
-        RUNTIME DESTINATION bin
+        RUNTIME DESTINATION lib/${PROJECT_NAME}
         )
 
 install(DIRECTORY include/

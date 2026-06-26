@@ -1,9 +1,25 @@
-controllers:
-  joint_state_controller:
-    type: joint_state_controller/JointStateController
-    publish_rate: 100
-  legged_controller:
-    type: legged/LeggedController
-  imu_sensor_controller:
-    type: imu_sensor_controller/ImuSensorController
-    publish_rate: 100
+controller_manager:
+  ros__parameters:
+    update_rate: 100  # Hz
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    imu_sensor_broadcaster:
+      type: imu_sensor_broadcaster/ImuSensorBroadcaster
+
+    legged_controller:
+      type: legged_controllers/LeggedController
+
+joint_state_broadcaster:
+  ros__parameters:
+    publish_rate: 100.0
+
+imu_sensor_broadcaster:
+  ros__parameters:
+    sensor_name: base_imu
+    frame_id: base_imu
+    publish_rate: 100.0
+
+legged_controller:
+  ros__parameters: {}
