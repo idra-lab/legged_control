@@ -3,9 +3,9 @@
 //
 
 #pragma once
-#include <pinocchio/fwd.hpp>
+
 #include "legged_wbc/Task.h"
-#include <pinocchio/fwd.hpp>
+
 #include <ocs2_centroidal_model/PinocchioCentroidalDynamics.h>
 #include <ocs2_legged_robot/gait/MotionPhaseDefinition.h>
 #include <ocs2_pinocchio_interface/PinocchioEndEffectorKinematics.h>

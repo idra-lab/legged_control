@@ -1,16 +1,18 @@
 //
-// Created by qiayuan on 2022/7/24.
+// Refactored for ROS 2
 //
 
 #pragma once
 
-#include <geometry_msgs/PoseStamped.h>
-#include <geometry_msgs/Twist.h>
-#include <ros/subscriber.h>
-#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
+#include <geometry_msgs/msg/pose_stamped.hpp>
+#include <geometry_msgs/msg/twist.hpp>
+#include <rclcpp/rclcpp.hpp>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include <tf2_ros/transform_listener.h>
+#include <tf2_ros/buffer.h>
 #include <mutex>
 
+#include <ocs2_core/Types.h>
 #include <ocs2_mpc/SystemObservation.h>
 #include <ocs2_ros_interfaces/command/TargetTrajectoriesRosPublisher.h>
 
@@ -21,31 +23,33 @@ class TargetTrajectoriesPublisher final {
  public:
   using CmdToTargetTrajectories = std::function<TargetTrajectories(const vector_t& cmd, const SystemObservation& observation)>;
 
-  TargetTrajectoriesPublisher(::ros::NodeHandle& nh, const std::string& topicPrefix, CmdToTargetTrajectories goalToTargetTrajectories,
+  TargetTrajectoriesPublisher(const rclcpp::Node::SharedPtr& node, const std::string& topicPrefix, CmdToTargetTrajectories goalToTargetTrajectories,
                               CmdToTargetTrajectories cmdVelToTargetTrajectories)
-      : goalToTargetTrajectories_(std::move(goalToTargetTrajectories)),
+      : node_(node),
+        goalToTargetTrajectories_(std::move(goalToTargetTrajectories)),
         cmdVelToTargetTrajectories_(std::move(cmdVelToTargetTrajectories)),
+        buffer_(node->get_clock()),
         tf2_(buffer_) {
     // Trajectories publisher
-    targetTrajectoriesPublisher_.reset(new TargetTrajectoriesRosPublisher(nh, topicPrefix));
+    targetTrajectoriesPublisher_.reset(new TargetTrajectoriesRosPublisher(node, topicPrefix));
 
     // observation subscriber
-    auto observationCallback = [this](const ocs2_msgs::mpc_observation::ConstPtr& msg) {
+    auto observationCallback = [this](const ocs2_msgs::msg::MpcObservation::SharedPtr msg) {
       std::lock_guard<std::mutex> lock(latestObservationMutex_);
       latestObservation_ = ros_msg_conversions::readObservationMsg(*msg);
     };
-    observationSub_ = nh.subscribe<ocs2_msgs::mpc_observation>(topicPrefix + "_mpc_observation", 1, observationCallback);
+    observationSub_ = node->create_subscription<ocs2_msgs::msg::MpcObservation>(topicPrefix + "_mpc_observation", 1, observationCallback);
 
     // goal subscriber
-    auto goalCallback = [this](const geometry_msgs::PoseStamped::ConstPtr& msg) {
+    auto goalCallback = [this](const geometry_msgs::msg::PoseStamped::SharedPtr msg) {
       if (latestObservation_.time == 0.0) {
         return;
       }
-      geometry_msgs::PoseStamped pose = *msg;
+      geometry_msgs::msg::PoseStamped pose = *msg;
       try {
-        buffer_.transform(pose, pose, "odom", ros::Duration(0.2));
+        buffer_.transform(pose, pose, "odom", tf2::durationFromSec(0.2));
       } catch (tf2::TransformException& ex) {
-        ROS_WARN("Failure %s\n", ex.what());
+        RCLCPP_WARN(node_->get_logger(), "Failure %s\n", ex.what());
         return;
       }
 
@@ -63,7 +67,7 @@ class TargetTrajectoriesPublisher final {
     };
 
     // cmd_vel subscriber
-    auto cmdVelCallback = [this](const geometry_msgs::Twist::ConstPtr& msg) {
+    auto cmdVelCallback = [this](const geometry_msgs::msg::Twist::SharedPtr msg) {
       if (latestObservation_.time == 0.0) {
         return;
       }
@@ -78,16 +82,20 @@ class TargetTrajectoriesPublisher final {
       targetTrajectoriesPublisher_->publishTargetTrajectories(trajectories);
     };
 
-    goalSub_ = nh.subscribe<geometry_msgs::PoseStamped>("/move_base_simple/goal", 1, goalCallback);
-    cmdVelSub_ = nh.subscribe<geometry_msgs::Twist>("/cmd_vel", 1, cmdVelCallback);
+    goalSub_ = node->create_subscription<geometry_msgs::msg::PoseStamped>("/move_base_simple/goal", 1, goalCallback);
+    cmdVelSub_ = node->create_subscription<geometry_msgs::msg::Twist>("/cmd_vel", 1, cmdVelCallback);
   }
 
  private:
+  rclcpp::Node::SharedPtr node_;
   CmdToTargetTrajectories goalToTargetTrajectories_, cmdVelToTargetTrajectories_;
 
   std::unique_ptr<TargetTrajectoriesRosPublisher> targetTrajectoriesPublisher_;
 
-  ::ros::Subscriber observationSub_, goalSub_, cmdVelSub_;
+  rclcpp::Subscription<ocs2_msgs::msg::MpcObservation>::SharedPtr observationSub_;
+  rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr goalSub_;
+  rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmdVelSub_;
+  
   tf2_ros::Buffer buffer_;
   tf2_ros::TransformListener tf2_;
 

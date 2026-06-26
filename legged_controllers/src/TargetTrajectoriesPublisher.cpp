@@ -1,5 +1,5 @@
 //
-// Created by qiayuan on 2022/7/24.
+// Refactored for ROS 2
 //
 
 #include "legged_controllers/TargetTrajectoriesPublisher.h"
@@ -93,13 +93,16 @@ int main(int argc, char** argv) {
   const std::string robotName = "legged_robot";
 
   // Initialize ros node
-  ::ros::init(argc, argv, robotName + "_target");
-  ::ros::NodeHandle nodeHandle;
+  rclcpp::init(argc, argv);
+  auto node = rclcpp::Node::make_shared(robotName + "_target");
+  
   // Get node parameters
   std::string referenceFile;
   std::string taskFile;
-  nodeHandle.getParam("/referenceFile", referenceFile);
-  nodeHandle.getParam("/taskFile", taskFile);
+  node->declare_parameter<std::string>("referenceFile", "");
+  node->declare_parameter<std::string>("taskFile", "");
+  referenceFile = node->get_parameter("referenceFile").as_string();
+  taskFile = node->get_parameter("taskFile").as_string();
 
   loadData::loadCppDataType(referenceFile, "comHeight", COM_HEIGHT);
   loadData::loadEigenMatrix(referenceFile, "defaultJointState", DEFAULT_JOINT_STATE);
@@ -107,9 +110,10 @@ int main(int argc, char** argv) {
   loadData::loadCppDataType(referenceFile, "targetDisplacementVelocity", TARGET_DISPLACEMENT_VELOCITY);
   loadData::loadCppDataType(taskFile, "mpc.timeHorizon", TIME_TO_TARGET);
 
-  TargetTrajectoriesPublisher target_pose_command(nodeHandle, robotName, &goalToTargetTrajectories, &cmdVelToTargetTrajectories);
+  TargetTrajectoriesPublisher target_pose_command(node, robotName, &goalToTargetTrajectories, &cmdVelToTargetTrajectories);
 
-  ros::spin();
+  rclcpp::spin(node);
+  rclcpp::shutdown();
   // Successful exit
   return 0;
 }

@@ -1,5 +1,6 @@
 //
 // Created by qiayuan on 2022/7/24.
+// Refactored for ROS 2
 //
 
 #pragma once
@@ -9,28 +10,28 @@
 #include <ocs2_centroidal_model/CentroidalModelPinocchioMapping.h>
 #include <ocs2_pinocchio_interface/PinocchioEndEffectorKinematics.h>
 
-#include <realtime_tools/realtime_buffer.h>
-#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
-#include <tf2_ros/transform_broadcaster.h>
+#include <realtime_tools/realtime_buffer.hpp>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include <tf2_ros/transform_listener.h>
+#include <tf2_ros/buffer.h>
 
 namespace legged {
 using namespace ocs2;
 
 class KalmanFilterEstimate : public StateEstimateBase {
  public:
-  KalmanFilterEstimate(PinocchioInterface pinocchioInterface, CentroidalModelInfo info, const PinocchioEndEffectorKinematics& eeKinematics);
+  KalmanFilterEstimate(rclcpp::Node::SharedPtr node, PinocchioInterface pinocchioInterface, CentroidalModelInfo info, const PinocchioEndEffectorKinematics& eeKinematics);
 
-  vector_t update(const ros::Time& time, const ros::Duration& period) override;
+  vector_t update(const rclcpp::Time& time, const rclcpp::Duration& period) override;
 
   void loadSettings(const std::string& taskFile, bool verbose);
 
  protected:
   void updateFromTopic();
 
-  void callback(const nav_msgs::Odometry::ConstPtr& msg);
+  void callback(const nav_msgs::msg::Odometry::ConstSharedPtr msg);
 
-  nav_msgs::Odometry getOdomMsg();
+  nav_msgs::msg::Odometry getOdomMsg();
 
   vector_t feetHeights_;
 
@@ -50,10 +51,10 @@ class KalmanFilterEstimate : public StateEstimateBase {
   vector_t xHat_, ps_, vs_;
 
   // Topic
-  ros::Subscriber sub_;
-  realtime_tools::RealtimeBuffer<nav_msgs::Odometry> buffer_;
-  tf2_ros::Buffer tfBuffer_;
-  tf2_ros::TransformListener tfListener_;
+  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr sub_;
+  realtime_tools::RealtimeBuffer<nav_msgs::msg::Odometry> buffer_;
+  std::unique_ptr<tf2_ros::Buffer> tfBuffer_;
+  std::shared_ptr<tf2_ros::TransformListener> tfListener_;
   tf2::Transform world2odom_;
   std::string frameOdom_, frameGuess_;
   bool topicUpdated_;

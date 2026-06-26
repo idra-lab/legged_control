@@ -1,5 +1,6 @@
 <?xml version="1.0"?>
-<package format="2">
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
     <name>legged_controllers</name>
     <version>0.0.0</version>
     <description>The legged_controllers packages.</description>
@@ -7,26 +8,30 @@
     <license>BSD</license>
     <author email="liaoqiayuan@gmail.com">Qiayuan Liao</author>
 
-    <buildtool_depend>catkin</buildtool_depend>
+    <buildtool_depend>ament_cmake</buildtool_depend>
+    <buildtool_depend>rosidl_default_generators</buildtool_depend>
 
     <build_depend>cmake_clang_tools</build_depend>
-    <depend>roscpp</depend>
+    
+    <depend>rclcpp</depend>
     <depend>legged_common</depend>
     <depend>legged_interface</depend>
     <depend>legged_estimation</depend>
     <depend>legged_wbc</depend>
-
     <depend>controller_interface</depend>
+    <depend>pluginlib</depend>
     <depend>ocs2_legged_robot_ros</depend>
     <depend>ocs2_self_collision_visualization</depend>
-    <exec_depend>message_runtime</exec_depend>
     <depend>angles</depend>
-    <depend>rospy</depend>
     <depend>std_msgs</depend>
 
+    <exec_depend>rosidl_default_runtime</exec_depend>
+    <exec_depend>rclpy</exec_depend>
     <exec_depend>controller_manager</exec_depend>
 
+    <member_of_group>rosidl_interface_packages</member_of_group>
+
     <export>
-        <controller_interface plugin="${prefix}/legged_controllers_plugins.xml"/>
+        <build_type>ament_cmake</build_type>
     </export>
 </package>

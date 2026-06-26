@@ -1,96 +1,84 @@
-/*******************************************************************************
- * BSD 3-Clause License
- *
- * Copyright (c) 2021, Qiayuan Liao
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * * Redistributions of source code must retain the above copyright notice, this
- *   list of conditions and the following disclaimer.
- *
- * * Redistributions in binary form must reproduce the above copyright notice,
- *   this list of conditions and the following disclaimer in the documentation
- *   and/or other materials provided with the distribution.
- *
- * * Neither the name of the copyright holder nor the names of its
- *   contributors may be used to endorse or promote products derived from
- *   this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *******************************************************************************/
-
 //
 // Created by qiayuan on 2/10/21.
+// Refactored for ROS 2 gazebo_ros2_control
 //
 
 #pragma once
 
 #include <deque>
 #include <unordered_map>
+#include <vector>
+#include <string>
+#include <memory>
 
-#include <gazebo_ros_control/default_robot_hw_sim.h>
-#include <hardware_interface/imu_sensor_interface.h>
-#include <hardware_interface/joint_command_interface.h>
-
-#include <legged_common/hardware_interface/ContactSensorInterface.h>
-#include <legged_common/hardware_interface/HybridJointInterface.h>
+// ROS 2 and Gazebo Classic bindings
+#include <gazebo_ros2_control/gazebo_system_interface.hpp>
+#include <hardware_interface/system_interface.hpp>
+#include <rclcpp/rclcpp.hpp>
+#include <gazebo/physics/physics.hh>
 
 namespace legged {
-struct HybridJointData {
-  hardware_interface::JointHandle joint_;
-  double posDes_{}, velDes_{}, kp_{}, kd_{}, ff_{};
-};
 
 struct HybridJointCommand {
-  ros::Time stamp_;
-  double posDes_{}, velDes_{}, kp_{}, kd_{}, ff_{};
+  rclcpp::Time stamp_;
+  double posDes_{0.0}, velDes_{0.0}, kp_{0.0}, kd_{0.0}, ff_{0.0};
 };
 
 struct ImuData {
   gazebo::physics::LinkPtr linkPtr_;
-  double ori_[4];            // NOLINT(modernize-avoid-c-arrays)
-  double oriCov_[9];         // NOLINT(modernize-avoid-c-arrays)
-  double angularVel_[3];     // NOLINT(modernize-avoid-c-arrays)
-  double angularVelCov_[9];  // NOLINT(modernize-avoid-c-arrays)
-  double linearAcc_[3];      // NOLINT(modernize-avoid-c-arrays)
-  double linearAccCov_[9];   // NOLINT(modernize-avoid-c-arrays)
+  std::string name_;
+  double ori_[4] = {0.0, 0.0, 0.0, 1.0};
+  double oriCov_[9] = {0.0};
+  double angularVel_[3] = {0.0};
+  double angularVelCov_[9] = {0.0};
+  double linearAcc_[3] = {0.0};
+  double linearAccCov_[9] = {0.0};
 };
 
-class LeggedHWSim : public gazebo_ros_control::DefaultRobotHWSim {
+class LeggedHWSim : public gazebo_ros2_control::GazeboSystemInterface {
  public:
-  bool initSim(const std::string& robot_namespace, ros::NodeHandle model_nh, gazebo::physics::ModelPtr parent_model,
-               const urdf::Model* urdf_model, std::vector<transmission_interface::TransmissionInfo> transmissions) override;
-  void readSim(ros::Time time, ros::Duration period) override;
-  void writeSim(ros::Time time, ros::Duration period) override;
+  LeggedHWSim() = default;
+  virtual ~LeggedHWSim() = default;
+
+  // Gazebo-Specific Initialization lifecycle hook
+  bool initSim(
+    rclcpp::Node::SharedPtr & model_nh,
+    gazebo::physics::ModelPtr parent_model,
+    const hardware_interface::HardwareInfo & hardware_info,
+    sdf::ElementPtr sdf) override;
+
+  // Standard ros2_control Lifecycle hooks
+  hardware_interface::CallbackReturn on_init(const hardware_interface::HardwareInfo & system_info) override;
+  std::vector<hardware_interface::StateInterface> export_state_interfaces() override;
+  std::vector<hardware_interface::CommandInterface> export_command_interfaces() override;
+
+  hardware_interface::return_type read(const rclcpp::Time & time, const rclcpp::Duration & period) override;
+  hardware_interface::return_type write(const rclcpp::Time & time, const rclcpp::Duration & period) override;
 
  private:
-  void parseImu(XmlRpc::XmlRpcValue& imuDatas, const gazebo::physics::ModelPtr& parentModel);
-  void parseContacts(XmlRpc::XmlRpcValue& contactNames);
+  gazebo::physics::ModelPtr model_;
+  gazebo::physics::ContactManager* contactManager_{nullptr};
 
-  HybridJointInterface hybridJointInterface_;
-  ContactSensorInterface contactSensorInterface_;
-  hardware_interface::ImuSensorInterface imuSensorInterface_;
+  std::vector<gazebo::physics::JointPtr> sim_joints_;
 
-  gazebo::physics::ContactManager* contactManager_{};
+  // Command input buffers (populated by WBC controllers)
+  std::vector<double> hw_commands_positions_;
+  std::vector<double> hw_commands_velocities_;
+  std::vector<double> hw_commands_kps_;
+  std::vector<double> hw_commands_kds_;
+  std::vector<double> hw_commands_feedforward_torques_;
 
-  std::list<HybridJointData> hybridJointDatas_;
-  std::list<ImuData> imuDatas_;
-  std::unordered_map<std::string, std::deque<HybridJointCommand> > cmdBuffer_;
-  std::unordered_map<std::string, bool> name2contact_;
+  // State feedback buffers (read by Estimation nodes)
+  std::vector<double> hw_states_positions_;
+  std::vector<double> hw_states_velocities_;
+  std::vector<double> hw_states_torques_;
 
-  double delay_{};
+  // External structures for simulated feedback tracking
+  std::vector<ImuData> imuDatas_;
+  std::unordered_map<std::string, double> name2contact_;
+  std::unordered_map<std::string, std::deque<HybridJointCommand>> cmdBuffer_;
+
+  double delay_{0.0};
 };
 
 }  // namespace legged

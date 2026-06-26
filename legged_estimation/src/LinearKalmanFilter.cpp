@@ -1,5 +1,6 @@
 //
 // Created by qiayuan on 2022/7/24.
+// Refactored for ROS 2
 //
 
 #include <pinocchio/algorithm/frames.hpp>
@@ -12,14 +13,13 @@
 
 namespace legged {
 
-KalmanFilterEstimate::KalmanFilterEstimate(PinocchioInterface pinocchioInterface, CentroidalModelInfo info,
+KalmanFilterEstimate::KalmanFilterEstimate(rclcpp::Node::SharedPtr node, PinocchioInterface pinocchioInterface, CentroidalModelInfo info,
                                            const PinocchioEndEffectorKinematics& eeKinematics)
-    : StateEstimateBase(std::move(pinocchioInterface), std::move(info), eeKinematics),
+    : StateEstimateBase(node, std::move(pinocchioInterface), std::move(info), eeKinematics),
       numContacts_(info_.numThreeDofContacts + info_.numSixDofContacts),
       dimContacts_(3 * numContacts_),
       numState_(6 + dimContacts_),
       numObserve_(2 * dimContacts_ + numContacts_),
-      tfListener_(tfBuffer_),
       topicUpdated_(false) {
   xHat_.setZero(numState_);
   ps_.setZero(dimContacts_);
@@ -45,11 +45,16 @@ KalmanFilterEstimate::KalmanFilterEstimate(PinocchioInterface pinocchioInterface
   eeKinematics_->setPinocchioInterface(pinocchioInterface_);
 
   world2odom_.setRotation(tf2::Quaternion::getIdentity());
-  sub_ = ros::NodeHandle().subscribe<nav_msgs::Odometry>("/tracking_camera/odom/sample", 10, &KalmanFilterEstimate::callback, this);
+
+  tfBuffer_ = std::make_unique<tf2_ros::Buffer>(node_->get_clock());
+  tfListener_ = std::make_shared<tf2_ros::TransformListener>(*tfBuffer_);
+
+  sub_ = node_->create_subscription<nav_msgs::msg::Odometry>(
+      "/tracking_camera/odom/sample", 10, std::bind(&KalmanFilterEstimate::callback, this, std::placeholders::_1));
 }
 
-vector_t KalmanFilterEstimate::update(const ros::Time& time, const ros::Duration& period) {
-  scalar_t dt = period.toSec();
+vector_t KalmanFilterEstimate::update(const rclcpp::Time& time, const rclcpp::Duration& period) {
+  scalar_t dt = period.seconds();
   a_.block(0, 3, 3, 3) = dt * matrix3_t::Identity();
   b_.block(0, 0, 3, 3) = 0.5 * dt * dt * matrix3_t::Identity();
   b_.block(3, 0, 3, 3) = dt * matrix3_t::Identity();
@@ -64,13 +69,13 @@ vector_t KalmanFilterEstimate::update(const ros::Time& time, const ros::Duration
   vector_t qPino(info_.generalizedCoordinatesNum);
   vector_t vPino(info_.generalizedCoordinatesNum);
   qPino.setZero();
-  qPino.segment<3>(3) = rbdState_.head<3>();  // Only set orientation, let position in origin.
+  qPino.segment<3>(3) = rbdState_.head<3>();
   qPino.tail(actuatedDofNum) = rbdState_.segment(6, actuatedDofNum);
 
   vPino.setZero();
   vPino.segment<3>(3) = getEulerAnglesZyxDerivativesFromGlobalAngularVelocity<scalar_t>(
       qPino.segment<3>(3),
-      rbdState_.segment<3>(info_.generalizedCoordinatesNum));  // Only set angular velocity, let linear velocity be zero
+      rbdState_.segment<3>(info_.generalizedCoordinatesNum));
   vPino.tail(actuatedDofNum) = rbdState_.segment(6 + info_.generalizedCoordinatesNum, actuatedDofNum);
 
   pinocchio::forwardKinematics(model, data, qPino, vPino);
@@ -133,12 +138,6 @@ vector_t KalmanFilterEstimate::update(const ros::Time& time, const ros::Duration
   matrix_t pt = p_.transpose();
   p_ = (p_ + pt) / 2.0;
 
-  //  if (p_.block(0, 0, 2, 2).determinant() > 0.000001) {
-  //    p_.block(0, 2, 2, 16).setZero();
-  //    p_.block(2, 0, 16, 2).setZero();
-  //    p_.block(0, 0, 2, 2) /= 10.;
-  //  }
-
   if (topicUpdated_) {
     updateFromTopic();
     topicUpdated_ = false;
@@ -163,24 +162,24 @@ void KalmanFilterEstimate::updateFromTopic() {
   world2sensor.setRotation(tf2::Quaternion(msg->pose.pose.orientation.x, msg->pose.pose.orientation.y, msg->pose.pose.orientation.z,
                                            msg->pose.pose.orientation.w));
 
-  if (world2odom_.getRotation() == tf2::Quaternion::getIdentity())  // First received
+  if (world2odom_.getRotation() == tf2::Quaternion::getIdentity())
   {
     tf2::Transform odom2sensor;
     try {
-      geometry_msgs::TransformStamped tf_msg = tfBuffer_.lookupTransform("odom", msg->child_frame_id, msg->header.stamp);
+      geometry_msgs::msg::TransformStamped tf_msg = tfBuffer_->lookupTransform("odom", msg->child_frame_id, rclcpp::Time(msg->header.stamp));
       tf2::fromMsg(tf_msg.transform, odom2sensor);
     } catch (tf2::TransformException& ex) {
-      ROS_WARN("%s", ex.what());
+      RCLCPP_WARN(node_->get_logger(), "%s", ex.what());
       return;
     }
     world2odom_ = world2sensor * odom2sensor.inverse();
   }
   tf2::Transform base2sensor;
   try {
-    geometry_msgs::TransformStamped tf_msg = tfBuffer_.lookupTransform("base", msg->child_frame_id, msg->header.stamp);
+    geometry_msgs::msg::TransformStamped tf_msg = tfBuffer_->lookupTransform("base", msg->child_frame_id, rclcpp::Time(msg->header.stamp));
     tf2::fromMsg(tf_msg.transform, base2sensor);
   } catch (tf2::TransformException& ex) {
-    ROS_WARN("%s", ex.what());
+    RCLCPP_WARN(node_->get_logger(), "%s", ex.what());
     return;
   }
   tf2::Transform odom2base = world2odom_.inverse() * world2sensor * base2sensor.inverse();
@@ -211,13 +210,13 @@ void KalmanFilterEstimate::updateFromTopic() {
   publishMsgs(odom);
 }
 
-void KalmanFilterEstimate::callback(const nav_msgs::Odometry::ConstPtr& msg) {
+void KalmanFilterEstimate::callback(const nav_msgs::msg::Odometry::ConstSharedPtr msg) {
   buffer_.writeFromNonRT(*msg);
   topicUpdated_ = true;
 }
 
-nav_msgs::Odometry KalmanFilterEstimate::getOdomMsg() {
-  nav_msgs::Odometry odom;
+nav_msgs::msg::Odometry KalmanFilterEstimate::getOdomMsg() {
+  nav_msgs::msg::Odometry odom;
   odom.pose.pose.position.x = xHat_.segment<3>(0)(0);
   odom.pose.pose.position.y = xHat_.segment<3>(0)(1);
   odom.pose.pose.position.z = xHat_.segment<3>(0)(2);
@@ -225,14 +224,12 @@ nav_msgs::Odometry KalmanFilterEstimate::getOdomMsg() {
   odom.pose.pose.orientation.y = quat_.y();
   odom.pose.pose.orientation.z = quat_.z();
   odom.pose.pose.orientation.w = quat_.w();
-  odom.pose.pose.orientation.x = quat_.x();
   for (int i = 0; i < 3; ++i) {
     for (int j = 0; j < 3; ++j) {
       odom.pose.covariance[i * 6 + j] = p_(i, j);
       odom.pose.covariance[6 * (3 + i) + (3 + j)] = orientationCovariance_(i * 3 + j);
     }
   }
-  //  The twist in this message should be specified in the coordinate frame given by the child_frame_id: "base"
   vector_t twist = getRotationMatrixFromZyxEulerAngles(quatToZyx(quat_)).transpose() * xHat_.segment<3>(3);
   odom.twist.twist.linear.x = twist.x();
   odom.twist.twist.linear.y = twist.y();

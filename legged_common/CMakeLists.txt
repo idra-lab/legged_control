@@ -1,32 +1,29 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.12)
 project(legged_common)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-find_package(catkin REQUIRED
-        COMPONENTS
-        roscpp
-        hardware_interface
-        )
+# Find ament_cmake instead of catkin
+find_package(ament_cmake REQUIRED)
 
-catkin_package(
-        INCLUDE_DIRS
-        include
-        LIBRARIES
-        CATKIN_DEPENDS
-        roscpp
-        hardware_interface
-        DEPENDS
-)
+# Find ROS 2 dependencies
+find_package(rclcpp REQUIRED)
+find_package(hardware_interface REQUIRED)
 
-include_directories(
-        include
-        ${catkin_INCLUDE_DIRS}
-)
-
+# Define the interface library
 add_library(${PROJECT_NAME} INTERFACE)
 
-target_include_directories(${PROJECT_NAME} INTERFACE include)
+# Define include directories for the interface library
+target_include_directories(${PROJECT_NAME} INTERFACE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+)
+
+# Link dependencies to the interface library using modern target-based CMake
+target_link_libraries(${PROJECT_NAME} INTERFACE
+    rclcpp::rclcpp
+    hardware_interface::hardware_interface
+)
 
 #########################
 ###   CLANG TOOLING   ###
@@ -46,22 +43,32 @@ endif (cmake_clang_tools_FOUND)
 ## Install ##
 #############
 
-# Mark executables and/or libraries for installation
-install(
-        TARGETS ${PROJECT_NAME}
-        ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-        LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-        RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+# Interface targets do not produce binary files, so ARCHIVE/LIBRARY/RUNTIME are omitted
+install(TARGETS ${PROJECT_NAME}
+        EXPORT ${PROJECT_NAME}
 )
 
 # Mark cpp header files for installation
-install(
-        DIRECTORY include/${PROJECT_NAME}/
-        DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION}
+install(DIRECTORY include/
+        DESTINATION include
         FILES_MATCHING PATTERN "*.h"
 )
 
+# Install executable scripts to the standard ROS 2 package lib layout
 install(PROGRAMS scripts/generate_urdf.sh
-        DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}/scripts
-        )
+        DESTINATION lib/${PROJECT_NAME}
+)
 
+#####################
+## Ament Exporting ##
+#####################
+
+# Export targets and dependencies for downstream packages
+ament_export_include_directories(include)
+
+# NOTE: ament_export_libraries() is removed here because this is a pure INTERFACE target.
+# Downstream packages will still get the right configurations via ament_export_targets.
+ament_export_targets(${PROJECT_NAME})
+ament_export_dependencies(rclcpp hardware_interface)
+
+ament_package()

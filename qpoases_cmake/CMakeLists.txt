@@ -1,12 +1,12 @@
 cmake_minimum_required(VERSION 3.14)
-project(qpoases_catkin)
+project(qpoases_cmake)
 
-find_package(catkin REQUIRED)
+find_package(ament_cmake REQUIRED)
 
 include(FetchContent)
 
 # Define directories
-set(QPOASES_DEVEL_PREFIX ${CATKIN_DEVEL_PREFIX} CACHE STRING "QPOASES install path")
+set(QPOASES_DEVEL_PREFIX ${CMAKE_CURRENT_BINARY_DIR}/qpoases_install CACHE STRING "QPOASES install path")
 set(QPOASES_INCLUDE_DIR ${QPOASES_DEVEL_PREFIX}/include)
 set(QPOASES_LIB_DIR ${QPOASES_DEVEL_PREFIX}/lib)
 set(QPOASES_DOWNLOAD_DIR ${CMAKE_CURRENT_BINARY_DIR}/download)
@@ -34,7 +34,7 @@ FetchContent_Declare(qpoasesDownload
         )
 FetchContent_MakeAvailable(qpoasesDownload)
 
-# Copy header to where catkin expects them
+# Copy header to where cmake expects them
 file(COPY ${QPOASES_DOWNLOAD_DIR}/include/qpOASES.hpp DESTINATION ${QPOASES_INCLUDE_DIR})
 
 file(GLOB_RECURSE HEADERS "${QPOASES_DOWNLOAD_DIR}/include/qpOASES/*")
@@ -49,9 +49,28 @@ foreach (HEADER_FILE ${HEADERS})
     file(COPY ${HEADER_FILE} DESTINATION ${QPOASES_INCLUDE_DIR}/qpOASES/extras)
 endforeach ()
 
-set_target_properties(qpOASES PROPERTIES LIBRARY_OUTPUT_DIRECTORY ${QPOASES_LIB_DIR})
+set_target_properties(qpOASES PROPERTIES 
+    LIBRARY_OUTPUT_DIRECTORY ${QPOASES_LIB_DIR}
+    ARCHIVE_OUTPUT_DIRECTORY ${QPOASES_LIB_DIR}
+    RUNTIME_OUTPUT_DIRECTORY ${QPOASES_LIB_DIR}
+    )
 
-catkin_package(
-        INCLUDE_DIRS ${QPOASES_INCLUDE_DIR}
-        LIBRARIES qpOASES
+include_directories(
+    ${QPOASES_INCLUDE_DIR}
 )
+
+#############
+## Install ##
+#############
+# Install targets
+install(DIRECTORY ${QPOASES_INCLUDE_DIR}/
+  DESTINATION include/qpOASES)
+
+install(TARGETS qpOASES
+  EXPORT export_${PROJECT_NAME}
+  LIBRARY DESTINATION lib
+  ARCHIVE DESTINATION lib)
+
+ament_export_include_directories(${QPOASES_INCLUDE_DIR})
+ament_export_libraries(qpOASES)
+ament_package()

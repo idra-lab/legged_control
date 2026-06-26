@@ -1,0 +1,18 @@
+<library path="legged_unitree_hw_3_3_1">
+    <class name="legged_unitree_hw/UnitreeHW_3_3_1"
+           type="legged::UnitreeHW"
+           base_class_type="hardware_interface::SystemInterface">
+        <description>
+            Unitree Robots ROS 2 Control Hardware Interface (SDK 3.3.1).
+        </description>
+    </class>
+</library>
+<library path="legged_unitree_hw_3_8_0">
+    <class name="legged_unitree_hw/UnitreeHW_3_8_0"
+           type="legged::UnitreeHW"
+           base_class_type="hardware_interface::SystemInterface">
+        <description>
+            Unitree Robots ROS 2 Control Hardware Interface (SDK 3.8.0).
+        </description>
+    </class>
+</library>

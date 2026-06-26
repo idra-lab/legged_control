@@ -1,52 +1,50 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.12)
 project(legged_gazebo)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-## Find catkin macros and libraries
-find_package(catkin REQUIRED
-        COMPONENTS
-        roscpp
-        legged_common
-        gazebo_dev
-        gazebo_ros_control
-        )
+# Find ament_cmake instead of catkin
+find_package(ament_cmake REQUIRED)
 
-catkin_package(
-        INCLUDE_DIRS
-        include
-        LIBRARIES
-        legged_hw_sim
-        CATKIN_DEPENDS
-        roscpp
-        legged_common
-        gazebo_ros_control
-        DEPENDS
-)
+# Find ROS 2 package dependencies individually
+find_package(rclcpp REQUIRED)
+find_package(legged_common REQUIRED)
+find_package(gazebo_ros REQUIRED)
+find_package(gazebo_ros2_control REQUIRED)
+
+# Find external non-ament Gazebo dev environment
+find_package(gazebo_dev REQUIRED)
 
 ###########
 ## Build ##
 ###########
 
-include_directories(
-        include
-        ${catkin_INCLUDE_DIRS}
-        ${GAZEBO_INCLUDE_DIRS}
-)
-
-## Declare a cpp library
-add_library(legged_hw_sim
+add_library(legged_hw_sim SHARED
         src/LeggedHWSim.cpp
         )
 
-add_dependencies(legged_hw_sim
-        ${catkin_EXPORTED_TARGETS}
+# Configure include directory interfaces for the library target
+target_include_directories(legged_hw_sim PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+        ${GAZEBO_INCLUDE_DIRS}
         )
 
-target_link_libraries(legged_hw_sim
-        ${catkin_LIBRARIES}
+# Link standard external Gazebo libraries using a keyword signature
+target_link_libraries(legged_hw_sim PUBLIC
         ${GAZEBO_LIBRARIES}
         )
+
+# Fixed: Added the explicit PUBLIC keyword to match the signature above
+ament_target_dependencies(legged_hw_sim PUBLIC
+        rclcpp
+        legged_common
+        gazebo_ros
+        gazebo_ros2_control
+        )
+
+# Register the plugin description file for pluginlib in ROS 2
+pluginlib_export_plugin_description_file(gazebo_ros2_control legged_hw_sim_plugins.xml)
 
 #########################
 ###   CLANG TOOLING   ###
@@ -66,21 +64,33 @@ endif (cmake_clang_tools_FOUND)
 ## Install ##
 #############
 
+# Mark library for installation into standard workspace paths
 install(TARGETS legged_hw_sim
-        ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-        LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-        RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+        EXPORT legged_hw_sim
+        ARCHIVE DESTINATION lib
+        LIBRARY DESTINATION lib
+        RUNTIME DESTINATION bin
         )
 
-install(DIRECTORY include/${PROJECT_NAME}/
-        DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION}
+# Mark headers for installation
+install(DIRECTORY include/
+        DESTINATION include
         FILES_MATCHING PATTERN "*.h"
         )
 
-install(FILES legged_hw_sim_plugins.xml
-        DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
+# Install resource config directory into share
+install(DIRECTORY config
+        DESTINATION share/${PROJECT_NAME}
         )
 
-install(DIRECTORY config
-        DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
-        )
+#####################
+## Ament Exporting ##
+#####################
+
+# Export interfaces so downstream packages can find this library via find_package()
+ament_export_include_directories(include)
+ament_export_libraries(legged_hw_sim)
+ament_export_targets(legged_hw_sim)
+ament_export_dependencies(rclcpp legged_common gazebo_ros gazebo_ros2_control)
+
+ament_package()

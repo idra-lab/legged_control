@@ -1,26 +1,30 @@
 //
 // Created by qiayuan on 2021/11/15.
+// Refactored for ROS 2
 //
 
 #include "legged_estimation/StateEstimateBase.h"
 
 #include <ocs2_centroidal_model/FactoryFunctions.h>
-#include <ocs2_legged_robot/common/Types.h>
 #include <ocs2_robotic_tools/common/RotationDerivativesTransforms.h>
 
 namespace legged {
 using namespace legged_robot;
 
-StateEstimateBase::StateEstimateBase(PinocchioInterface pinocchioInterface, CentroidalModelInfo info,
+StateEstimateBase::StateEstimateBase(rclcpp::Node::SharedPtr node, PinocchioInterface pinocchioInterface, CentroidalModelInfo info,
                                      const PinocchioEndEffectorKinematics& eeKinematics)
-    : pinocchioInterface_(std::move(pinocchioInterface)),
+    : node_(node),
+      pinocchioInterface_(std::move(pinocchioInterface)),
       info_(std::move(info)),
       eeKinematics_(eeKinematics.clone()),
-      rbdState_(vector_t ::Zero(2 * info_.generalizedCoordinatesNum)) {
-  ros::NodeHandle nh;
-  odomPub_.reset(new realtime_tools::RealtimePublisher<nav_msgs::Odometry>(nh, "odom", 10));
+      rbdState_(vector_t ::Zero(2 * info_.generalizedCoordinatesNum)),
+      lastPub_(node->now()) {
+  
+  odomPub_ = std::make_shared<realtime_tools::RealtimePublisher<nav_msgs::msg::Odometry>>(
+      node_->create_publisher<nav_msgs::msg::Odometry>("odom", 10));
 
-  posePub_.reset(new realtime_tools::RealtimePublisher<geometry_msgs::PoseWithCovarianceStamped>(nh, "pose", 10));
+  posePub_ = std::make_shared<realtime_tools::RealtimePublisher<geometry_msgs::msg::PoseWithCovarianceStamped>>(
+      node_->create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>("pose", 10));
 }
 
 void StateEstimateBase::updateJointStates(const vector_t& jointPos, const vector_t& jointVel) {
@@ -54,10 +58,10 @@ void StateEstimateBase::updateLinear(const vector_t& pos, const vector_t& linear
   rbdState_.segment<3>(info_.generalizedCoordinatesNum + 3) = linearVel;
 }
 
-void StateEstimateBase::publishMsgs(const nav_msgs::Odometry& odom) {
-  ros::Time time = odom.header.stamp;
+void StateEstimateBase::publishMsgs(const nav_msgs::msg::Odometry& odom) {
+  rclcpp::Time time = odom.header.stamp;
   scalar_t publishRate = 200;
-  if (lastPub_ + ros::Duration(1. / publishRate) < time) {
+  if (lastPub_ + rclcpp::Duration::from_seconds(1. / publishRate) < time) {
     lastPub_ = time;
     if (odomPub_->trylock()) {
       odomPub_->msg_ = odom;
