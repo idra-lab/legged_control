@@ -16,5 +16,9 @@
 
     <export>
         <build_type>ament_cmake</build_type>
+        <!-- Tells gazebo_ros to add this package's share/.. directory to
+             GAZEBO_MODEL_PATH, so Gazebo can resolve
+             model://legged_unitree_description/meshes/{robot_type}/*.dae -->
+        <gazebo_ros gazebo_model_path="${prefix}/.."/>
     </export>
 </package>

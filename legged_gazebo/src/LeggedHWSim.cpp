@@ -63,15 +63,24 @@ bool LeggedHWSim::initSim(
     name2contact_[name] = 0.0;
   }
 
-  // Parse IMU link context configuration defaults
+  RCLCPP_INFO(model_nh->get_logger(), "Debug: Listing all links in the Gazebo model:");
+  for (const auto & link : model_->GetLinks()) {
+    RCLCPP_INFO(model_nh->get_logger(), "Link name: '%s'", link->GetName().c_str());
+  }
+
+  // Parse IMU link context — root link is "base_inertia" (the actual
+  // inertial link). "base" is a virtual zero-mass link that Gazebo merges.
+  // "base_link" does not exist in this robot model at all.
   std::vector<std::string> imu_names = {"base_imu"};
   for (const auto & name : imu_names) {
-    auto linkPtr = model_->GetLink("base_link"); // Default root link lookup
+    auto linkPtr = model_->GetLink("base");
     if (linkPtr) {
       ImuData imu;
       imu.linkPtr_ = linkPtr;
       imu.name_ = name;
       imuDatas_.push_back(imu);
+    } else {
+      RCLCPP_WARN(model_nh->get_logger(), "IMU link 'base' not found in Gazebo model — IMU data will not be available");
     }
   }
 
@@ -169,13 +178,19 @@ hardware_interface::return_type LeggedHWSim::read(const rclcpp::Time & /*time*/,
   }
   if (contactManager_) {
     for (const auto & contact : contactManager_->GetContacts()) {
-      std::string linkName1 = contact->collision1->GetLink()->GetName();
-      if (name2contact_.find(linkName1) != name2contact_.end()) {
-        name2contact_[linkName1] = 1.0;
-      }
-      std::string linkName2 = contact->collision2->GetLink()->GetName();
-      if (name2contact_.find(linkName2) != name2contact_.end()) {
-        name2contact_[linkName2] = 1.0;
+      if (contact) {
+        if (contact->collision1 && contact->collision1->GetLink()) {
+          std::string linkName1 = contact->collision1->GetLink()->GetName();
+          if (name2contact_.find(linkName1) != name2contact_.end()) {
+            name2contact_[linkName1] = 1.0;
+          }
+        }
+        if (contact->collision2 && contact->collision2->GetLink()) {
+          std::string linkName2 = contact->collision2->GetLink()->GetName();
+          if (name2contact_.find(linkName2) != name2contact_.end()) {
+            name2contact_[linkName2] = 1.0;
+          }
+        }
       }
     }
   }
