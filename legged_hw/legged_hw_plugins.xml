@@ -1,0 +1,9 @@
+<library path="legged_hw">
+    <class name="legged_hw/LeggedHW"
+           type="legged::LeggedHW"
+           base_class_type="hardware_interface::SystemInterface">
+        <description>
+            ROS 2 Control hardware interface plugin for quadruped robots.
+        </description>
+    </class>
+</library>

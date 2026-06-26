@@ -1,6 +1,6 @@
-
 //
 // Created by qiayuan on 6/24/22.
+// Refactored for ROS 2 Control
 //
 
 #pragma once
@@ -9,50 +9,50 @@
 #include <string>
 #include <vector>
 
-// ROS
-#include <ros/ros.h>
-#include <urdf/model.h>
+// ROS 2 C++ client library
+#include <rclcpp/rclcpp.hpp>
 
-// ROS control
-#include <hardware_interface/imu_sensor_interface.h>
-#include <hardware_interface/joint_state_interface.h>
-#include <hardware_interface/robot_hw.h>
-#include <legged_common/hardware_interface/ContactSensorInterface.h>
-#include <legged_common/hardware_interface/HybridJointInterface.h>
+// ROS 2 Control Hardware Interface
+#include <hardware_interface/system_interface.hpp>
+#include <hardware_interface/types/hardware_interface_return_values.hpp>
+#include <hardware_interface/handle.hpp>
+#include <hardware_interface/hardware_info.hpp>
 
 namespace legged {
-class LeggedHW : public hardware_interface::RobotHW {
+
+class LeggedHW : public hardware_interface::SystemInterface {
  public:
   LeggedHW() = default;
-  /** \brief Get necessary params from param server. Init hardware_interface.
-   *
-   * Get params from param server and check whether these params are set. Load urdf of robot. Set up transmission and
-   * joint limit. Get configuration of can bus and create data pointer which point to data received from Can bus.
-   *
-   * @param root_nh Root node-handle of a ROS node.
-   * @param robot_hw_nh Node-handle for robot hardware.
-   * @return True when init successful, False when failed.
-   */
-  bool init(ros::NodeHandle& root_nh, ros::NodeHandle& robot_hw_nh) override;
+  virtual ~LeggedHW() = default;
+
+  // ROS 2 Control Lifecycle Methods
+  hardware_interface::CallbackReturn on_init(const hardware_interface::HardwareInfo & info) override;
+  
+  std::vector<hardware_interface::StateInterface> export_state_interfaces() override;
+  
+  std::vector<hardware_interface::CommandInterface> export_command_interfaces() override;
+
+  hardware_interface::return_type read(const rclcpp::Time & time, const rclcpp::Duration & period) override;
+  
+  hardware_interface::return_type write(const rclcpp::Time & time, const rclcpp::Duration & period) override;
 
  protected:
-  // Interface
-  hardware_interface::JointStateInterface jointStateInterface_;  // NOLINT(misc-non-private-member-variables-in-classes)
-  hardware_interface::ImuSensorInterface imuSensorInterface_;    // NOLINT(misc-non-private-member-variables-in-classes)
-  HybridJointInterface hybridJointInterface_;                    // NOLINT(misc-non-private-member-variables-in-classes)
-  ContactSensorInterface contactSensorInterface_;                // NOLINT(misc-non-private-member-variables-in-classes)
-  // URDF model of the robot
-  std::shared_ptr<urdf::Model> urdfModel_;  // NOLINT(misc-non-private-member-variables-in-classes)
+  // Instead of standalone Interface classes, ROS 2 control holds raw data buffers
+  // that are mapped directly to controllers via export_ functions.
+  std::vector<double> hw_commands_positions_;
+  std::vector<double> hw_commands_velocities_;
+  std::vector<double> hw_commands_kps_;
+  std::vector<double> hw_commands_kds_;
+  std::vector<double> hw_commands_feedforward_torques_;
 
- private:
-  /** \brief Load urdf of robot from param server.
-   *
-   * Load urdf of robot from param server.
-   *
-   * @param rootNh Root node-handle of a ROS node
-   * @return True if successful.
-   */
-  bool loadUrdf(ros::NodeHandle& rootNh);
+  std::vector<double> hw_states_positions_;
+  std::vector<double> hw_states_velocities_;
+  std::vector<double> hw_states_torques_;
+
+  // IMU states
+  double imu_orientation_[4] = {0.0, 0.0, 0.0, 1.0};
+  double imu_angular_velocity_[3] = {0.0, 0.0, 0.0};
+  double imu_linear_acceleration_[3] = {0.0, 0.0, 0.0};
 };
 
 }  // namespace legged

@@ -1,5 +1,6 @@
 <?xml version="1.0"?>
-<package format="2">
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
     <name>legged_interface</name>
     <version>0.0.0</version>
     <description>Legged interface base on OCS2</description>
@@ -8,12 +9,15 @@
     <license>BSD</license>
     <author email="liaoqiayuan@gmail.com">Qiayuan Liao</author>
 
-    <buildtool_depend>catkin</buildtool_depend>
+    <buildtool_depend>ament_cmake</buildtool_depend>
 
     <build_depend>cmake_clang_tools</build_depend>
-    <depend>roscpp</depend>
+    <depend>rclcpp</depend>
     <depend>ocs2_legged_robot</depend>
     <depend>ocs2_self_collision</depend>
     <depend>pinocchio</depend>
 
+    <export>
+        <build_type>ament_cmake</build_type>
+    </export>
 </package>

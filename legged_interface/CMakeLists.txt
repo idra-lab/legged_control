@@ -1,58 +1,36 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.12)
 project(legged_interface)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-find_package(catkin REQUIRED
-        COMPONENTS
-        roscpp
-        ocs2_legged_robot
-        ocs2_self_collision
-        )
+# Find ament_cmake instead of catkin
+find_package(ament_cmake REQUIRED)
 
+# Find ROS 2 packages individually
+find_package(rclcpp REQUIRED)
+find_package(ocs2_legged_robot REQUIRED)
+find_package(ocs2_self_collision REQUIRED)
+
+# Find plain CMake external dependencies
 find_package(Boost REQUIRED COMPONENTS
         system
         filesystem
+        log
+        log_setup
         )
-
 find_package(Eigen3 3.3 REQUIRED NO_MODULE)
-
-
 find_package(pinocchio REQUIRED)
+
 message(STATUS "pinocchio_FOUND = ${pinocchio_FOUND}")
 message(STATUS "pinocchio_INCLUDE_DIRS = ${pinocchio_INCLUDE_DIRS}")
 message(STATUS "pinocchio_LIBRARIES = ${pinocchio_LIBRARIES}")
 message(STATUS "pinocchio_DIR = ${pinocchio_DIR}")
 
-catkin_package(
-        INCLUDE_DIRS
-        include
-        LIBRARIES
-        ${PROJECT_NAME}
-        CATKIN_DEPENDS
-        roscpp
-        ocs2_legged_robot
-        ocs2_self_collision
-	#DEPENDS
-	#pinocchio
-)
-
 ###########
 ## Build ##
 ###########
 
-include_directories(
-        include
-        ${catkin_INCLUDE_DIRS}
-        ${EIGEN3_INCLUDE_DIRS}
-        ${pinocchio_INCLUDE_DIRS}
-)
-
-link_directories(
-        ${pinocchio_LIBRARY_DIRS}
-)
-
-add_library(${PROJECT_NAME}
+add_library(${PROJECT_NAME} SHARED
         src/constraint/EndEffectorLinearConstraint.cpp
         src/constraint/FrictionConeConstraint.cpp
         src/constraint/ZeroForceConstraint.cpp
@@ -65,10 +43,27 @@ add_library(${PROJECT_NAME}
         src/LeggedInterface.cpp
         )
 
-target_link_libraries(${PROJECT_NAME}
-        ${catkin_LIBRARIES}
-	${pinocchio_LIBRARIES}
+# Use ROS 2 recommended macro to link and include ament dependencies
+ament_target_dependencies(${PROJECT_NAME} PUBLIC
+        rclcpp
+        ocs2_legged_robot
+        ocs2_self_collision
         )
+
+# Link standard CMake external dependencies
+target_link_libraries(${PROJECT_NAME} PUBLIC
+        pinocchio::pinocchio
+        Eigen3::Eigen
+        Boost::system
+        Boost::filesystem
+        )
+
+# Configure include directory interfaces for the library target
+target_include_directories(${PROJECT_NAME} PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+        )
+
 target_compile_options(${PROJECT_NAME} PUBLIC ${OCS2_CXX_FLAGS})
 
 #########################
@@ -89,15 +84,28 @@ endif (cmake_clang_tools_FOUND)
 ## Install ##
 #############
 
-# Mark executables and/or libraries for installation
+# Mark targets for installation into the local workspace layout
 install(TARGETS ${PROJECT_NAME}
-        ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-        LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-        RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+        EXPORT ${PROJECT_NAME}
+        ARCHIVE DESTINATION lib
+        LIBRARY DESTINATION lib
+        RUNTIME DESTINATION bin
         )
 
 # Mark cpp header files for installation
-install(DIRECTORY include/${PROJECT_NAME}/
-        DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION}
+install(DIRECTORY include/
+        DESTINATION include
         FILES_MATCHING PATTERN "*.h"
         )
+
+#####################
+## Ament Exporting ##
+#####################
+
+# Export interfaces so downstream packages can find this library via find_package()
+ament_export_include_directories(include)
+ament_export_libraries(${PROJECT_NAME})
+ament_export_targets(${PROJECT_NAME})
+ament_export_dependencies(rclcpp ocs2_legged_robot ocs2_self_collision pinocchio Eigen3 Boost)
+
+ament_package()

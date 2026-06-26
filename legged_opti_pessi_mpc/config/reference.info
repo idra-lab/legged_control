@@ -1,0 +1,46 @@
+comHeight                           0.23
+targetDisplacementVelocity          0.5
+targetRotationVelocity              0.3
+
+; Joint order follows URDF: FL, FR, RL, RR (HAA, HFE/thigh, KFE/calf)
+defaultJointState
+{
+   (0,0)   0.10    ; FL_hip_joint    (HAA, sinistra: positivo)
+   (1,0)   0.67    ; FL_thigh_joint  (HFE)
+   (2,0)  -1.30    ; FL_calf_joint   (KFE)
+   (3,0)  -0.10    ; FR_hip_joint    (HAA, destra: negativo)
+   (4,0)   0.67    ; FR_thigh_joint  (HFE)
+   (5,0)  -1.30    ; FR_calf_joint   (KFE)
+   (6,0)   0.10    ; RL_hip_joint    (HAA, sinistra: positivo)
+   (7,0)   0.67    ; RL_thigh_joint  (HFE)
+   (8,0)  -1.30    ; RL_calf_joint   (KFE)
+   (9,0)  -0.10    ; RR_hip_joint    (HAA, destra: negativo)
+   (10,0)  0.67    ; RR_thigh_joint  (HFE)
+   (11,0) -1.30    ; RR_calf_joint   (KFE)
+}
+
+initialModeSchedule
+{
+  modeSequence
+  {
+    [0]  STANCE
+    [1]  STANCE
+  }
+  eventTimes
+  {
+    [0]  0.5
+  }
+}
+
+defaultModeSequenceTemplate
+{
+  modeSequence
+  {
+    [0]  STANCE
+  }
+  switchingTimes
+  {
+    [0]  0.0
+    [1]  1.0
+  }
+}

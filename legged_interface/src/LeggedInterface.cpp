@@ -411,7 +411,6 @@ std::unique_ptr<StateCost> LeggedInterface::getSelfCollisionConstraint(
                                   collisionLinkPairs,
                                   verbose);
     geometryInterfacePtr_ = std::make_unique<PinocchioGeometryInterface>(pinocchioInterface,
-                                                                         urdfFile,
                                                                          collisionLinkPairs,
                                                                          collisionObjectPairs);
     if (verbose) {

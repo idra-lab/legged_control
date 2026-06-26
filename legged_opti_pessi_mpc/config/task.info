@@ -1,0 +1,219 @@
+centroidalModelType             1      // 0: FullCentroidalDynamics, 1: Single Rigid Body Dynamics
+  
+legged_robot_interface
+{
+  verbose                               false  
+  useAnalyticalGradientsDynamics        false
+  useAnalyticalGradientsConstraints     false
+}
+
+model_settings
+{
+  positionErrorGain             0.0 
+  phaseTransitionStanceTime     0.2
+
+  verboseCppAd                  true
+  recompileLibrariesCppAd       true
+  modelFolderCppAd              /tmp/ocs2
+}
+
+swing_trajectory_config
+{
+  liftOffVelocity               0.15
+  touchDownVelocity            -0.3
+  swingHeight                   0.10   ; Abbassato per le gambe corte del Go2
+  touchdownAfterHorizon         0.1
+  swingTimeScale                0.10
+}
+
+; Multiple_Shooting SQP settings
+sqp
+{
+  nThreads                        4    ; Solitamente i PC a bordo dei Go2 hanno ottimi processori (es. Jetson Orin)
+  dt                              0.01
+  sqpIteration                    1
+  deltaTol                        1e-4
+  g_max                           1e-2
+  g_min                           1e-6
+  inequalityConstraintMu          0.1
+  inequalityConstraintDelta       5.0
+  projectStateInputEqualityConstraints  true
+  printSolverStatistics           false
+  printSolverStatus               false
+  printLinesearch                 false
+  useFeedbackPolicy               true
+  integratorType                  RK2
+  threadPriority                  50
+}
+
+mpc
+{
+  timeHorizon                     0.5  ; Ridotto l'orizzonte temporale (0.5s - 0.6s) ideale per l'agilità del Go2
+  solutionTimeWindow              -1   
+  coldStart                       false
+  debugPrint                      false
+  mpcDesiredFrequency             100  ; Frequenza MPC alzata a 100Hz per correzioni più rapide
+  mrtDesiredFrequency             400 
+}
+
+initialState
+{
+  ; --- Base ---
+  (0,0)  0.0    ; pos_x
+  (1,0)  0.0    ; pos_y
+  (2,0)  0.23   ; pos_z (Altezza del CoM - deve coincidere con comHeight)
+  (3,0)  0.0    ; ori_x (roll)
+  (4,0)  0.0    ; ori_y (pitch)
+  (5,0)  0.0    ; ori_z (yaw)
+  (6,0)  0.0    ; vel_x
+  (7,0)  0.0    ; vel_y
+  (8,0)  0.0    ; vel_z
+  (9,0)  0.0    ; omega_x
+  (10,0) 0.0    ; omega_y
+  (11,0) 0.0    ; omega_z
+  
+  ; --- Joints (FL, FR, RL, RR) ---
+  (12,0)  0.10   ; FL_HAA
+  (13,0)  0.67   ; FL_HFE
+  (14,0) -1.30   ; FL_KFE
+  (15,0) -0.10   ; FR_HAA
+  (16,0)  0.67   ; FR_HFE
+  (17,0) -1.30   ; FR_KFE
+  (18,0)  0.10   ; RL_HAA
+  (19,0)  0.67   ; RL_HFE
+  (20,0) -1.30   ; RL_KFE
+  (21,0) -0.10   ; RR_HAA
+  (22,0)  0.67   ; RR_HFE
+  (23,0) -1.30   ; RR_KFE
+}
+
+; standard state weight matrix
+Q
+{
+  scaling 1e+0
+
+  ;; Normalized Centroidal Momentum ;;
+  (0,0)   20.0     ; vcom_x
+  (1,1)   20.0     ; vcom_y
+  (2,2)   40.0     ; vcom_z
+  (3,3)   5.0      ; L_x / robotMass
+  (4,4)   10.0     ; L_y / robotMass
+  (5,5)   10.0     ; L_z / robotMass
+
+  ;; Base Pose ;;
+  (6,6)   550.0    ; p_base_x
+  (7,7)   550.0    ; p_base_y
+  (8,8)   750.0    ; p_base_z  -> Peso aumentato per vincolare rigidamente l'altezza
+  (9,9)   150.0    ; theta_base_z
+  (10,10) 200.0    ; theta_base_y
+  (11,11) 200.0    ; theta_base_x
+
+  ;; Leg Joint Positions ;;
+  (12,12) 15.0     ; LF_HAA
+  (13,13) 15.0     ; LF_HFE
+  (14,14) 15.0     ; LF_KFE
+  (15,15) 15.0     ; LH_HAA
+  (16,16) 15.0     ; LH_HFE
+  (17,17) 15.0     ; LH_KFE
+  (18,18) 15.0     ; RF_HAA
+  (19,19) 15.0     ; RF_HFE
+  (20,20) 15.0     ; RF_KFE
+  (21,21) 15.0     ; RH_HAA
+  (22,22) 15.0     ; RH_HFE
+  (23,23) 15.0     ; RH_KFE
+}
+
+; control weight matrix
+R
+{
+  scaling 1e-3
+
+  ;; Feet Contact Forces: [LF, RF, LH, RH] ;;
+  (0,0)   2.0       ; left_front_force (Aumentato leggermente per penalizzare forze brusche su robot leggero)
+  (1,1)   2.0       
+  (2,2)   1.0       
+  (3,3)   2.0       ; right_front_force
+  (4,4)   2.0       
+  (5,5)   1.0       
+  (6,6)   2.0       ; left_hind_force
+  (7,7)   2.0       
+  (8,8)   1.0       
+  (9,9)   2.0       ; right_hind_force
+  (10,10) 2.0       
+  (11,11) 1.0       
+
+  ;; Foot velocity relative to base ;;
+  (12,12) 8000.0    ; x  -> Pesi alzati per tracciare meglio la traiettoria dello swing veloce del Go2
+  (13,13) 8000.0    ; y
+  (14,14) 8000.0    ; z
+  (15,15) 8000.0    ; x
+  (16,16) 8000.0    ; y
+  (17,17) 8000.0    ; z
+  (18,18) 8000.0    ; x
+  (19,19) 8000.0    ; y
+  (20,20) 8000.0    ; z
+  (21,21) 8000.0    ; x
+  (22,22) 8000.0    ; y
+  (23,23) 8000.0    ; z
+}
+
+frictionConeSoftConstraint
+{
+  frictionCoefficient    0.6  ; Incrementato leggermente (i piedini in gomma del Go2 hanno ottimo grip)
+  mu                     0.1
+  delta                  5.0
+}
+
+defaultJointState
+{
+   (0,0)   0.10    ; FL_hip_joint    (HAA, sinistra: positivo)
+   (1,0)   0.67    ; FL_thigh_joint  (HFE)
+   (2,0)  -1.30    ; FL_calf_joint   (KFE)
+   (3,0)  -0.10    ; FR_hip_joint    (HAA, destra: negativo)
+   (4,0)   0.67    ; FR_thigh_joint  (HFE)
+   (5,0)  -1.30    ; FR_calf_joint   (KFE)
+   (6,0)   0.10    ; RL_hip_joint    (HAA, sinistra: positivo)
+   (7,0)   0.67    ; RL_thigh_joint  (HFE)
+   (8,0)  -1.30    ; RL_calf_joint   (KFE)
+   (9,0)  -0.10    ; RR_hip_joint    (HAA, destra: negativo)
+   (10,0)  0.67    ; RR_thigh_joint  (HFE)
+   (11,0) -1.30    ; RR_calf_joint   (KFE)
+}
+
+torqueLimitsTask
+{
+   (0,0)  33.5     ; HAA
+   (1,0)  33.5     ; HFE
+   (2,0)  33.5     ; KFE
+}
+
+frictionConeTask
+{
+  frictionCoefficient    0.4
+}
+
+swingLegTask
+{
+    kp                   350
+    kd                   37
+}
+
+weight
+{
+    swingLeg        200.0
+    baseAccel       10.0
+    contactForce    1e-3
+}
+
+optiPessiWbc
+{
+    kp_z            150.0
+    kd_z            15.0
+    kp_roll         100.0
+    kd_roll         10.0
+    kp_pitch        100.0
+    kd_pitch        10.0
+    kp_yaw          100.0
+    kd_yaw          10.0
+    z_nom           0.23
+}

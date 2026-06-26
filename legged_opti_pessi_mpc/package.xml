@@ -1,0 +1,36 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>legged_opti_pessi_mpc</name>
+  <version>0.0.0</version>
+  <description>Optimistic-Pessimistic MPC implementation using OCS2 and ROS 2 Humble</description>
+  <maintainer email="alejandro.barbi@studenti.unitn.it">user</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <build_depend>rosidl_default_generators</build_depend>
+  <exec_depend>rosidl_default_runtime</exec_depend>
+  <depend>geometry_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>ocs2_msgs</depend>
+
+  <depend>ocs2_core</depend>
+  <depend>ocs2_mpc</depend>
+  <depend>ocs2_sqp</depend>
+  <depend>ocs2_ros_interfaces</depend>
+  <depend>ocs2_centroidal_model</depend>
+  <depend>ocs2_pinocchio_interface</depend>
+  <depend>ocs2_legged_robot</depend>
+  <depend>pinocchio</depend>
+  <depend>rclcpp</depend>
+
+  <depend>unitree_go</depend>
+
+  <member_of_group>rosidl_interface_packages</member_of_group>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

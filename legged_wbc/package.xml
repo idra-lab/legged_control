@@ -8,11 +8,18 @@
     <license>BSD</license>
     <author email="liaoqiayuan@gmail.com">Qiayuan Liao</author>
 
-    <buildtool_depend>catkin</buildtool_depend>
+    <buildtool_depend>ament_cmake</buildtool_depend>
 
     <build_depend>cmake_clang_tools</build_depend>
-    <depend>roscpp</depend>
+
+    <build_depend>tf2</build_depend>
+    <depend>ocs2_sqp</depend>
+    <depend>ocs2_ipm</depend>
     <depend>ocs2_legged_robot</depend>
-    <depend>qpoases_catkin</depend>
+    <depend>qpoases_cmake</depend>
     <depend>pinocchio</depend>
+
+    <export>
+        <build_type>ament_cmake</build_type>
+    </export>
 </package>

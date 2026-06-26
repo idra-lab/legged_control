@@ -1,12 +1,16 @@
 //
-// Created by qiayuan on 2022/6/24.
+// Refactored for ROS 2 Control
 //
 
 #pragma once
 
-#include <controller_interface/multi_interface_controller.h>
-#include <hardware_interface/imu_sensor_interface.h>
-#include <legged_common/hardware_interface/ContactSensorInterface.h>
+#include <controller_interface/controller_interface.hpp>
+#include <hardware_interface/loaned_state_interface.hpp>
+#include <hardware_interface/loaned_command_interface.hpp>
+#include <hardware_interface/types/hardware_interface_type_values.hpp>
+#include <rclcpp/rclcpp.hpp>
+#include <std_msgs/msg/int16_multi_array.hpp>
+#include <ocs2_msgs/msg/mpc_observation.hpp>
 
 #include <ocs2_centroidal_model/CentroidalModelRbdConversions.h>
 #include <ocs2_core/misc/Benchmark.h>
@@ -24,18 +28,88 @@ namespace legged {
 using namespace ocs2;
 using namespace legged_robot;
 
-class LeggedController : public controller_interface::MultiInterfaceController<HybridJointInterface, hardware_interface::ImuSensorInterface,
-                                                                               ContactSensorInterface> {
+struct HybridJointHandle {
+  hardware_interface::LoanedStateInterface* positionState{nullptr};
+  hardware_interface::LoanedStateInterface* velocityState{nullptr};
+  hardware_interface::LoanedStateInterface* effortState{nullptr};
+  hardware_interface::LoanedCommandInterface* positionCmd{nullptr};
+  hardware_interface::LoanedCommandInterface* velocityCmd{nullptr};
+  hardware_interface::LoanedCommandInterface* kpCmd{nullptr};
+  hardware_interface::LoanedCommandInterface* kdCmd{nullptr};
+  hardware_interface::LoanedCommandInterface* effortCmd{nullptr};
+
+  double getPosition() const { return positionState->get_value(); }
+  double getVelocity() const { return velocityState->get_value(); }
+  double getEffort() const { return effortState->get_value(); }
+  void setCommand(double pos, double vel, double kp, double kd, double effort) {
+    positionCmd->set_value(pos);
+    velocityCmd->set_value(vel);
+    kpCmd->set_value(kp);
+    kdCmd->set_value(kd);
+    effortCmd->set_value(effort);
+  }
+};
+
+struct ImuSensorHandle {
+  std::vector<hardware_interface::LoanedStateInterface*> orientation; // size 4
+  std::vector<hardware_interface::LoanedStateInterface*> angularVelocity; // size 3
+  std::vector<hardware_interface::LoanedStateInterface*> linearAcceleration; // size 3
+  
+  const double* getOrientation() const {
+    static double ori[4];
+    for (size_t i = 0; i < 4; ++i) ori[i] = orientation[i]->get_value();
+    return ori;
+  }
+  const double* getAngularVelocity() const {
+    static double ang[3];
+    for (size_t i = 0; i < 3; ++i) ang[i] = angularVelocity[i]->get_value();
+    return ang;
+  }
+  const double* getLinearAcceleration() const {
+    static double lin[3];
+    for (size_t i = 0; i < 3; ++i) lin[i] = linearAcceleration[i]->get_value();
+    return lin;
+  }
+  const double* getOrientationCovariance() const {
+    static const double cov[9] = {0};
+    return cov;
+  }
+  const double* getAngularVelocityCovariance() const {
+    static const double cov[9] = {0};
+    return cov;
+  }
+  const double* getLinearAccelerationCovariance() const {
+    static const double cov[9] = {0};
+    return cov;
+  }
+};
+
+struct ContactSensorHandle {
+  hardware_interface::LoanedStateInterface* contactState{nullptr};
+  bool isContact() const {
+    if (contactState) {
+      return contactState->get_value() > 0.5;
+    }
+    return false;
+  }
+};
+
+class LeggedController : public controller_interface::ControllerInterface {
  public:
   LeggedController() = default;
   ~LeggedController() override;
-  bool init(hardware_interface::RobotHW* robot_hw, ros::NodeHandle& controller_nh) override;
-  void update(const ros::Time& time, const ros::Duration& period) override;
-  void starting(const ros::Time& time) override;
-  void stopping(const ros::Time& /*time*/) override { mpcRunning_ = false; }
+
+  controller_interface::CallbackReturn on_init() override;
+  controller_interface::CallbackReturn on_configure(const rclcpp_lifecycle::State& previous_state) override;
+  controller_interface::CallbackReturn on_activate(const rclcpp_lifecycle::State& previous_state) override;
+  controller_interface::CallbackReturn on_deactivate(const rclcpp_lifecycle::State& previous_state) override;
+  controller_interface::return_type update(const rclcpp::Time& time, const rclcpp::Duration& period) override;
+
+  controller_interface::InterfaceConfiguration command_interface_configuration() const override;
+  controller_interface::InterfaceConfiguration state_interface_configuration() const override;
 
  protected:
-  virtual void updateStateEstimation(const ros::Time& time, const ros::Duration& period);
+  virtual void updateStateEstimation(const rclcpp::Time& time, const rclcpp::Duration& period);
 
   virtual void setupLeggedInterface(const std::string& taskFile, const std::string& urdfFile, const std::string& referenceFile,
                                     bool verbose);
@@ -48,7 +122,7 @@ class LeggedController : public controller_interface::MultiInterfaceController<H
   std::shared_ptr<PinocchioEndEffectorKinematics> eeKinematicsPtr_;
   std::vector<HybridJointHandle> hybridJointHandles_;
   std::vector<ContactSensorHandle> contactHandles_;
-  hardware_interface::ImuSensorHandle imuSensorHandle_;
+  ImuSensorHandle imuSensorHandle_;
 
   // State Estimation
   SystemObservation currentObservation_;
@@ -67,7 +141,16 @@ class LeggedController : public controller_interface::MultiInterfaceController<H
   // Visualization
   std::shared_ptr<LeggedRobotVisualizer> robotVisualizer_;
   std::shared_ptr<LeggedSelfCollisionVisualization> selfCollisionVisualization_;
-  ros::Publisher observationPublisher_;
+  
+  // ROS 2 publishers and subscribers
+  rclcpp::Publisher<ocs2_msgs::msg::MpcObservation>::SharedPtr observationPublisher_;
+  rclcpp::Subscription<std_msgs::msg::Int16MultiArray>::SharedPtr contactSub_;
+
+  rclcpp::Node::SharedPtr ros2_node_;
+  rclcpp::executors::SingleThreadedExecutor::SharedPtr executor_;
+  std::thread spin_thread_;
+
+  contact_flag_t topicContacts_{};
 
  private:
   std::thread mpcThread_;

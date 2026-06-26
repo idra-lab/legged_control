@@ -1,4 +1,8 @@
-cmake_minimum_required(VERSION 3.1.3)
+cmake_minimum_required(VERSION 3.5)
 project(legged_control)
-find_package(catkin REQUIRED)
-catkin_metapackage()
+
+# Find ament_cmake instead of catkin
+find_package(ament_cmake REQUIRED)
+
+# Must be invoked at the end of an ament package
+ament_package()

@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<package format="2">
+    <name>qpoases_cmake</name>
+    <version>0.0.0</version>
+    <description>Cmake wrapper for qpoases.</description>
+    <maintainer email="liaoqiayuan@gmail.com">Qiayuan Liao</maintainer>
+
+    <license>See package</license>
+
+    <buildtool_depend>ament_cmake</buildtool_depend>
+
+    <export>
+        <build_type>ament_cmake</build_type>
+    </export>
+
+</package>
