@@ -159,9 +159,8 @@ hardware_interface::return_type LeggedHWSim::read(const rclcpp::Time & /*time*/,
   for (size_t i = 0; i < sim_joints_.size(); ++i) {
     if (!sim_joints_[i]) continue;   // ← null-check every entry
 
-    double position = sim_joints_[i]->Position(0);
-    hw_states_velocities_[i] = (position - hw_states_positions_[i]) / period.seconds();
-    hw_states_positions_[i] = position;
+    hw_states_positions_[i] = sim_joints_[i]->Position(0);
+    hw_states_velocities_[i] = sim_joints_[i]->GetVelocity(0);
     hw_states_torques_[i] = sim_joints_[i]->GetForce(0);
   }
 

@@ -80,6 +80,9 @@ if (cmake_clang_tools_FOUND)
     )
 endif (cmake_clang_tools_FOUND)
 
+add_executable(legged_precompile src/precompile.cpp)
+target_link_libraries(legged_precompile PUBLIC ${PROJECT_NAME})
+
 #############
 ## Install ##
 #############
@@ -89,6 +92,10 @@ install(TARGETS ${PROJECT_NAME}
         EXPORT ${PROJECT_NAME}
         ARCHIVE DESTINATION lib
         LIBRARY DESTINATION lib
+        RUNTIME DESTINATION bin
+        )
+
+install(TARGETS legged_precompile
         RUNTIME DESTINATION bin
         )
 

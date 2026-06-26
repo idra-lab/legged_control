@@ -30,10 +30,16 @@ namespace legged {
 controller_interface::CallbackReturn LeggedController::on_init() {
   auto node = this->get_node();
 
-  // Declare parameters
-  node->declare_parameter<std::string>("urdfFile", "");
-  node->declare_parameter<std::string>("taskFile", "");
-  node->declare_parameter<std::string>("referenceFile", "");
+  // Declare parameters safely
+  if (!node->has_parameter("urdfFile")) {
+    node->declare_parameter<std::string>("urdfFile", "");
+  }
+  if (!node->has_parameter("taskFile")) {
+    node->declare_parameter<std::string>("taskFile", "");
+  }
+  if (!node->has_parameter("referenceFile")) {
+    node->declare_parameter<std::string>("referenceFile", "");
+  }
 
   std::string urdfFile = node->get_parameter("urdfFile").as_string();
   std::string taskFile = node->get_parameter("taskFile").as_string();

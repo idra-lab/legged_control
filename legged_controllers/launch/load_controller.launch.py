@@ -91,21 +91,21 @@ def generate_launch_description():
     joint_state_broadcaster_spawner = Node(
         package='controller_manager',
         executable='spawner',
-        arguments=['joint_state_broadcaster', '--controller-manager', '/controller_manager'],
+        arguments=['joint_state_broadcaster', '--controller-manager', '/controller_manager', '--service-call-timeout', '120.0'],
         output='screen',
     )
 
     imu_sensor_broadcaster_spawner = Node(
         package='controller_manager',
         executable='spawner',
-        arguments=['imu_sensor_broadcaster', '--controller-manager', '/controller_manager'],
+        arguments=['imu_sensor_broadcaster', '--controller-manager', '/controller_manager', '--service-call-timeout', '120.0'],
         output='screen',
     )
 
     legged_controller_spawner = Node(
         package='controller_manager',
         executable='spawner',
-        arguments=['legged_controller', '--controller-manager', '/controller_manager'],
+        arguments=['legged_controller', '--controller-manager', '/controller_manager', '--service-call-timeout', '120.0'],
         output='screen',
         parameters=[{
             'urdfFile': PathJoinSubstitution(['/tmp/legged_control/', [robot_type, '.urdf']]),
