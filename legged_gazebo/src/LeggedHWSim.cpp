@@ -43,12 +43,14 @@ bool LeggedHWSim::initSim(
   for (const auto & joint_info : info_.joints) {
     auto sim_joint = model_->GetJoint(joint_info.name);
     if (!sim_joint) {
-      RCLCPP_ERROR(model_nh->get_logger(), "Joint %s not found in gazebo model simulation context!", joint_info.name.c_str());
-      return false;
+      RCLCPP_ERROR(model_nh->get_logger(),
+        "Joint '%s' not found in Gazebo model — check URDF joint names match SDF",
+        joint_info.name.c_str());
+      // Store null but keep going so we can see ALL missing joints
     }
     sim_joints_.push_back(sim_joint);
     cmdBuffer_[joint_info.name] = std::deque<HybridJointCommand>();
-  }
+}
 
   // Parse simulated actuator delay properties out of the ros2_control hardware parameters
   if (info_.hardware_parameters.find("delay") != info_.hardware_parameters.end()) {
@@ -73,14 +75,22 @@ bool LeggedHWSim::initSim(
   // "base_link" does not exist in this robot model at all.
   std::vector<std::string> imu_names = {"base_imu"};
   for (const auto & name : imu_names) {
-    auto linkPtr = model_->GetLink("base");
+    // CORREZIONE 1: Cerca direttamente il link dell'IMU effettivo ("base_imu")
+    auto linkPtr = model_->GetLink(name);
+    if (!linkPtr) {
+      linkPtr = model_->GetLink("base_inertia");
+    }
+    if (!linkPtr) {
+      linkPtr = model_->GetLink("base");
+    }
+
     if (linkPtr) {
       ImuData imu;
       imu.linkPtr_ = linkPtr;
       imu.name_ = name;
       imuDatas_.push_back(imu);
     } else {
-      RCLCPP_WARN(model_nh->get_logger(), "IMU link 'base' not found in Gazebo model — IMU data will not be available");
+      RCLCPP_WARN(model_nh->get_logger(), "IMU link '%s' not found in Gazebo model — IMU data will not be available", name.c_str());
     }
   }
 
@@ -144,8 +154,11 @@ std::vector<hardware_interface::CommandInterface> LeggedHWSim::export_command_in
 }
 
 hardware_interface::return_type LeggedHWSim::read(const rclcpp::Time & /*time*/, const rclcpp::Duration & period) {
-  // Read kinematic positions and derive simulator velocity tracking inputs
+  if (sim_joints_.empty()) return hardware_interface::return_type::OK;
+
   for (size_t i = 0; i < sim_joints_.size(); ++i) {
+    if (!sim_joints_[i]) continue;   // ← null-check every entry
+
     double position = sim_joints_[i]->Position(0);
     hw_states_velocities_[i] = (position - hw_states_positions_[i]) / period.seconds();
     hw_states_positions_[i] = position;
@@ -177,7 +190,12 @@ hardware_interface::return_type LeggedHWSim::read(const rclcpp::Time & /*time*/,
     state.second = 0.0;
   }
   if (contactManager_) {
-    for (const auto & contact : contactManager_->GetContacts()) {
+    // CORREZIONE 2: Usa GetContactCount() per scorrere in modo sicuro solo i contatti validi
+    unsigned int contact_count = contactManager_->GetContactCount();
+    const auto & contacts = contactManager_->GetContacts();
+
+    for (unsigned int i = 0; i < contact_count; ++i) {
+      const auto & contact = contacts[i];
       if (contact) {
         if (contact->collision1 && contact->collision1->GetLink()) {
           std::string linkName1 = contact->collision1->GetLink()->GetName();
@@ -199,30 +217,47 @@ hardware_interface::return_type LeggedHWSim::read(const rclcpp::Time & /*time*/,
 }
 
 hardware_interface::return_type LeggedHWSim::write(const rclcpp::Time & time, const rclcpp::Duration & /*period*/) {
+  if (sim_joints_.empty()) return hardware_interface::return_type::OK;
+
   for (size_t i = 0; i < info_.joints.size(); ++i) {
+    if (!sim_joints_[i]) continue;   // ← null-check every entry
+
     const std::string & name = info_.joints[i].name;
     auto & buffer = cmdBuffer_[name];
 
-    // Reset loop command handler queue parameters on runtime changes
     if (buffer.empty()) {
-      HybridJointCommand initial_cmd{.stamp_ = time, .posDes_ = hw_commands_positions_[i], .velDes_ = hw_commands_velocities_[i], .kp_ = hw_commands_kps_[i], .kd_ = hw_commands_kds_[i], .ff_ = hw_commands_feedforward_torques_[i]};
+      HybridJointCommand initial_cmd{
+        .stamp_ = time,
+        .posDes_ = hw_commands_positions_[i],
+        .velDes_ = hw_commands_velocities_[i],
+        .kp_ = hw_commands_kps_[i],
+        .kd_ = hw_commands_kds_[i],
+        .ff_ = hw_commands_feedforward_torques_[i]
+      };
       buffer.push_front(initial_cmd);
     }
 
-    // Retain commands lagging behind the specified artificial transmission delay period
-    while (buffer.size() > 1 && (buffer.back().stamp_ + rclcpp::Duration::from_seconds(delay_)) < time) {
+    while (buffer.size() > 1 &&
+           (buffer.back().stamp_ + rclcpp::Duration::from_seconds(delay_)) < time) {
       buffer.pop_back();
     }
 
-    HybridJointCommand current_cmd{.stamp_ = time, .posDes_ = hw_commands_positions_[i], .velDes_ = hw_commands_velocities_[i], .kp_ = hw_commands_kps_[i], .kd_ = hw_commands_kds_[i], .ff_ = hw_commands_feedforward_torques_[i]};
+    HybridJointCommand current_cmd{
+      .stamp_ = time,
+      .posDes_ = hw_commands_positions_[i],
+      .velDes_ = hw_commands_velocities_[i],
+      .kp_ = hw_commands_kps_[i],
+      .kd_ = hw_commands_kds_[i],
+      .ff_ = hw_commands_feedforward_torques_[i]
+    };
     buffer.push_front(current_cmd);
 
-    // Apply standard hybrid torque equations straight onto the joint forces
     const auto & cmd = buffer.back();
     double current_pos = sim_joints_[i]->Position(0);
     double current_vel = sim_joints_[i]->GetVelocity(0);
-    
-    double torque = cmd.kp_ * (cmd.posDes_ - current_pos) + cmd.kd_ * (cmd.velDes_ - current_vel) + cmd.ff_;
+    double torque = cmd.kp_ * (cmd.posDes_ - current_pos)
+                  + cmd.kd_ * (cmd.velDes_ - current_vel)
+                  + cmd.ff_;
     sim_joints_[i]->SetForce(0, torque);
   }
 
