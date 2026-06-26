@@ -136,6 +136,12 @@ def generate_launch_description():
         description='Robot type: [a1, aliengo, go1, laikago]'
     )
 
+    gui_arg = DeclareLaunchArgument(
+        'gui',
+        default_value='true',
+        description='Start Gazebo client (GUI)'
+    )
+
     # Gazebo — verbose=true so we can see plugin loading in the terminal
     gazebo_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -144,11 +150,13 @@ def generate_launch_description():
         launch_arguments={
             'world': os.path.join(legged_gazebo_dir, 'worlds', 'empty_world.world'),
             'verbose': 'true',
+            'gui': LaunchConfiguration('gui'),
         }.items(),
     )
 
     return LaunchDescription([
         robot_type_arg,
+        gui_arg,
         gazebo_launch,
         OpaqueFunction(function=launch_setup),
     ])
