@@ -35,16 +35,24 @@ void StateEstimateBase::updateJointStates(const vector_t& jointPos, const vector
 void StateEstimateBase::updateImu(const Eigen::Quaternion<scalar_t>& quat, const vector3_t& angularVelLocal,
                                   const vector3_t& linearAccelLocal, const matrix3_t& orientationCovariance,
                                   const matrix3_t& angularVelCovariance, const matrix3_t& linearAccelCovariance) {
-  quat_ = quat;
+  // Guard against a degenerate (zero-norm) quaternion. This can happen on the
+  // first update cycle before imu_sensor_broadcaster has published any data,
+  // in which case all orientation interfaces read 0 → norm = 0 → quatToZyx()
+  // returns NaN → ocs2 CppAD asserts !allFinite().
+  if (quat.norm() < 1e-6) {
+    quat_ = Eigen::Quaternion<scalar_t>::Identity();  // fall back to no rotation
+  } else {
+    quat_ = quat.normalized();
+  }
   angularVelLocal_ = angularVelLocal;
   linearAccelLocal_ = linearAccelLocal;
   orientationCovariance_ = orientationCovariance;
   angularVelCovariance_ = angularVelCovariance;
   linearAccelCovariance_ = linearAccelCovariance;
 
-  vector3_t zyx = quatToZyx(quat) - zyxOffset_;
+  vector3_t zyx = quatToZyx(quat_) - zyxOffset_;
   vector3_t angularVelGlobal = getGlobalAngularVelocityFromEulerAnglesZyxDerivatives<scalar_t>(
-      zyx, getEulerAnglesZyxDerivativesFromLocalAngularVelocity<scalar_t>(quatToZyx(quat), angularVelLocal));
+      zyx, getEulerAnglesZyxDerivativesFromLocalAngularVelocity<scalar_t>(quatToZyx(quat_), angularVelLocal));
   updateAngular(zyx, angularVelGlobal);
 }
 

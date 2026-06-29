@@ -54,12 +54,23 @@
         <xacro:legged_joint name="RH_HFE"/>
         <xacro:legged_joint name="RH_KFE"/>
 
-        <!-- NOTE: IMU and contact sensors are NOT declared here.
-             LeggedHWSim exports them dynamically from initSim() and
-             read(), but on_configure() runs before initSim(), so any
-             sensor declared here would be expected by resource_manager
-             but not yet exported → crash.
-             The imu_sensor_broadcaster reads from the /imu topic instead. -->
+        <!-- IMU sensor declaration.
+             initSim() runs BEFORE export_state_interfaces() in gazebo_ros2_control,
+             so imuDatas_ is already populated when the resource_manager claims these
+             interfaces. Without this block, imu_sensor_broadcaster has no state
+             interfaces to read and publishes all zeros. -->
+        <sensor name="base_imu">
+            <state_interface name="orientation.x"/>
+            <state_interface name="orientation.y"/>
+            <state_interface name="orientation.z"/>
+            <state_interface name="orientation.w"/>
+            <state_interface name="angular_velocity.x"/>
+            <state_interface name="angular_velocity.y"/>
+            <state_interface name="angular_velocity.z"/>
+            <state_interface name="linear_acceleration.x"/>
+            <state_interface name="linear_acceleration.y"/>
+            <state_interface name="linear_acceleration.z"/>
+        </sensor>
     </ros2_control>
 
     <!-- ===================================================================

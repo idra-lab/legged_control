@@ -27,6 +27,17 @@ hardware_interface::CallbackReturn LeggedHWSim::on_init(const hardware_interface
     hw_commands_feedforward_torques_.push_back(0.0);
   }
 
+  // Pre-allocate IMU data slots from the sensor declarations in the URDF <ros2_control> block.
+  // export_state_interfaces() is called BEFORE initSim(), so we must create entries here
+  // (with null linkPtr_) so the resource_manager gets valid pointer registrations.
+  // initSim() will later fill in the linkPtr_ for each entry.
+  for (const auto & sensor : info_.sensors) {
+    ImuData imu;
+    imu.name_ = sensor.name;
+    imu.linkPtr_ = nullptr;
+    imuDatas_.push_back(imu);
+  }
+
   return hardware_interface::CallbackReturn::SUCCESS;
 }
 
@@ -70,27 +81,21 @@ bool LeggedHWSim::initSim(
     RCLCPP_INFO(model_nh->get_logger(), "Link name: '%s'", link->GetName().c_str());
   }
 
-  // Parse IMU link context — root link is "base_inertia" (the actual
-  // inertial link). "base" is a virtual zero-mass link that Gazebo merges.
-  // "base_link" does not exist in this robot model at all.
-  std::vector<std::string> imu_names = {"base_imu"};
-  for (const auto & name : imu_names) {
-    // CORREZIONE 1: Cerca direttamente il link dell'IMU effettivo ("base_imu")
-    auto linkPtr = model_->GetLink(name);
+  // Attach Gazebo LinkPtrs to the pre-allocated imuDatas_ entries.
+  // on_init() already created the entries; here we just resolve the physics link.
+  for (auto & imu : imuDatas_) {
+    auto linkPtr = model_->GetLink(imu.name_);
     if (!linkPtr) {
       linkPtr = model_->GetLink("base_inertia");
     }
     if (!linkPtr) {
       linkPtr = model_->GetLink("base");
     }
-
     if (linkPtr) {
-      ImuData imu;
       imu.linkPtr_ = linkPtr;
-      imu.name_ = name;
-      imuDatas_.push_back(imu);
     } else {
-      RCLCPP_WARN(model_nh->get_logger(), "IMU link '%s' not found in Gazebo model — IMU data will not be available", name.c_str());
+      RCLCPP_WARN(model_nh->get_logger(),
+        "IMU link '%s' not found in Gazebo model — IMU data will be zeros", imu.name_.c_str());
     }
   }
 
