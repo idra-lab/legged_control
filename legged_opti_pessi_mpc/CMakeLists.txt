@@ -44,21 +44,21 @@ rosidl_get_typesupport_target(cpp_typesupport_target "${PROJECT_NAME}" "rosidl_t
 # ==========================================
 # 2. MPC Core Library
 # ==========================================
-add_library(opti_pessi_mpc_core SHARED
+add_library(legged_opti_pessi_mpc_core SHARED
   src/core/OptiPessiAugmentedDynamics.cpp
   src/core/OptiPessiCouplingConstraint.cpp
   src/core/OptiPessiAugmentedCost.cpp
   src/core/OptiPessiObstacleConstraint.cpp
 )
-target_include_directories(opti_pessi_mpc_core PUBLIC
+target_include_directories(legged_opti_pessi_mpc_core PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
 # Fixed: Removed keyword visibility modifier to enforce plain signature compatibility
-target_link_libraries(opti_pessi_mpc_core ${cpp_typesupport_target})
+target_link_libraries(legged_opti_pessi_mpc_core ${cpp_typesupport_target})
 
 # Fixed: Removed 'PUBLIC' keyword parameter
-ament_target_dependencies(opti_pessi_mpc_core
+ament_target_dependencies(legged_opti_pessi_mpc_core
   ocs2_core
   ocs2_mpc
 )
@@ -67,15 +67,15 @@ ament_target_dependencies(opti_pessi_mpc_core
 # ==========================================
 # 3. MPC Node Executable
 # ==========================================
-add_executable(opti_pessi_mpc_node src/nodes/legged_opti_pessi_mpc_node.cpp)
-target_include_directories(opti_pessi_mpc_node PRIVATE
+add_executable(legged_opti_pessi_mpc_node src/nodes/legged_opti_pessi_mpc_node.cpp)
+target_include_directories(legged_opti_pessi_mpc_node PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 # Fixed: Removed keyword visibility modifier
-target_link_libraries(opti_pessi_mpc_node opti_pessi_mpc_core ${cpp_typesupport_target})
+target_link_libraries(legged_opti_pessi_mpc_node legged_opti_pessi_mpc_core ${cpp_typesupport_target})
 
 # Fixed: Removed 'PRIVATE' keyword parameter
-ament_target_dependencies(opti_pessi_mpc_node
+ament_target_dependencies(legged_opti_pessi_mpc_node
   rclcpp
   ocs2_ros_interfaces
   ocs2_sqp
@@ -101,68 +101,68 @@ FetchContent_MakeAvailable(qpOASES)
 # ==========================================
 # 5. WBC Controller Node
 # ==========================================
-add_executable(wbc_controller_node
-  src/nodes/wbc_controller_node.cpp
-  src/core/OptiPessiWbc.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/../legged_wbc/src/WbcBase.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/../legged_wbc/src/HoQp.cpp
-)
+# add_executable(wbc_controller_node
+#   src/nodes/wbc_controller_node.cpp
+#   src/core/OptiPessiWbc.cpp
+#   ${CMAKE_CURRENT_SOURCE_DIR}/../legged_wbc/src/WbcBase.cpp
+#   ${CMAKE_CURRENT_SOURCE_DIR}/../legged_wbc/src/HoQp.cpp
+# )
 
-target_include_directories(wbc_controller_node PRIVATE
-  ${CMAKE_CURRENT_SOURCE_DIR}/include
-  ${CMAKE_CURRENT_SOURCE_DIR}/include/opti_pessi_control/nodes
-  ${CMAKE_CURRENT_SOURCE_DIR}/../legged_wbc/include
-  ${qpOASES_SOURCE_DIR}/include
-)
-# Fixed: Removed keyword visibility modifier
-target_link_libraries(wbc_controller_node qpOASES ${cpp_typesupport_target})
+# target_include_directories(wbc_controller_node PRIVATE
+#   ${CMAKE_CURRENT_SOURCE_DIR}/include
+#   ${CMAKE_CURRENT_SOURCE_DIR}/include/opti_pessi_control/nodes
+#   ${CMAKE_CURRENT_SOURCE_DIR}/../legged_wbc/include
+#   ${qpOASES_SOURCE_DIR}/include
+# )
+# # Fixed: Removed keyword visibility modifier
+# target_link_libraries(wbc_controller_node qpOASES ${cpp_typesupport_target})
 
-# Fixed: Removed 'PRIVATE' keyword parameter
-ament_target_dependencies(wbc_controller_node
-  rclcpp
-  ocs2_msgs
-  unitree_go
-  nav_msgs
-  std_msgs
-  pinocchio
-  ocs2_centroidal_model
-  ocs2_pinocchio_interface
-  ocs2_legged_robot
-)
+# # Fixed: Removed 'PRIVATE' keyword parameter
+# ament_target_dependencies(wbc_controller_node
+#   rclcpp
+#   ocs2_msgs
+#   unitree_go
+#   nav_msgs
+#   std_msgs
+#   pinocchio
+#   ocs2_centroidal_model
+#   ocs2_pinocchio_interface
+#   ocs2_legged_robot
+# )
 
 
 # ==========================================
 # 6. State Estimator Node
 # ==========================================
-add_executable(state_estimator_node src/nodes/state_estimator_node.cpp)
-target_include_directories(state_estimator_node PRIVATE
-  ${CMAKE_CURRENT_SOURCE_DIR}/include
-)
-# Fixed: Removed keyword visibility modifier
-target_link_libraries(state_estimator_node ${cpp_typesupport_target})
+# add_executable(state_estimator_node src/nodes/state_estimator_node.cpp)
+# target_include_directories(state_estimator_node PRIVATE
+#   ${CMAKE_CURRENT_SOURCE_DIR}/include
+# )
+# # Fixed: Removed keyword visibility modifier
+# target_link_libraries(state_estimator_node ${cpp_typesupport_target})
 
-# Fixed: Removed 'PRIVATE' keyword parameter
-ament_target_dependencies(state_estimator_node
-  rclcpp
-  nav_msgs
-  unitree_go
-)
+# # Fixed: Removed 'PRIVATE' keyword parameter
+# ament_target_dependencies(state_estimator_node
+#   rclcpp
+#   nav_msgs
+#   unitree_go
+# )
 
 
 # ==========================================
 # 7. Installation Configurations
 # ==========================================
 install(TARGETS
-  opti_pessi_mpc_core
+  legged_opti_pessi_mpc_core
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin
 )
 
 install(TARGETS
-  opti_pessi_mpc_node
-  wbc_controller_node
-  state_estimator_node
+  legged_opti_pessi_mpc_node
+  # wbc_controller_node
+  # state_estimator_node
   DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -172,7 +172,7 @@ install(DIRECTORY include/
 
 install(PROGRAMS
   scripts/visualize_mpc.py
-  scripts/state_estimator_mock.py
+  # scripts/state_estimator_mock.py
   scripts/mpc_interactor_gui.py
   scripts/mpc_to_lowcmd.py
   scripts/isaac_go2_bridge.py
@@ -185,6 +185,6 @@ install(DIRECTORY
 )
 
 ament_export_include_directories(include)
-ament_export_libraries(opti_pessi_mpc_core)
+ament_export_libraries(legged_opti_pessi_mpc_core)
 
 ament_package()

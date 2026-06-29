@@ -266,7 +266,6 @@ void OptiPessiMpcNode::mpcControlLoop() {
             mode_schedule_msg.mode_sequence.push_back(current_mode);
         }
     }
-
     policy_msg.mode_schedule = mode_schedule_msg;
     mpc_policy_pub_->publish(policy_msg);
 }
