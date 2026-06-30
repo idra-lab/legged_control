@@ -18,7 +18,7 @@ OptiPessiMpcNode::OptiPessiMpcNode() : Node("opti_pessi_mpc_node") {
     mpc_policy_pub_ = this->create_publisher<ocs2_msgs::msg::MpcFlattenedController>(
         "/legged_robot_mpc_policy", 10);
 
-    // 2. Sottoscrizioni
+    // 2. Sottoscrizioni (AGGIORNATO: Sottoscrizione a /odom come nav_msgs::msg::Odometry)
     robot_state_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
         "/odom", 10, std::bind(&OptiPessiMpcNode::robotStateCallback, this, std::placeholders::_1));
 
@@ -112,47 +112,55 @@ void OptiPessiMpcNode::goalCallback(const geometry_msgs::msg::Point::SharedPtr m
     mpc_solver_->getSolverPtr()->getReferenceManager().setTargetTrajectories(targetTrajectories);
 }
 
+// REFACTOR DIRETTO DELLA CALLBACK DI STATO
 void OptiPessiMpcNode::robotStateCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
     if (current_augmented_state_.size() != 20) {
         current_augmented_state_ = ocs2::vector_t::Zero(20);
     }
-    double qx = msg->pose.pose.orientation.x;
-    double qy = msg->pose.pose.orientation.y;
-    double qz = msg->pose.pose.orientation.z;
-    double qw = msg->pose.pose.orientation.w;
-    current_yaw_ = atan2(2.0 * (qw * qz + qx * qy), 1.0 - 2.0 * (qy * qy + qz * qz));
+    
+    // Extrazione orientamento (quaternion to yaw)
+    double x_q = msg->pose.pose.orientation.x;
+    double y_q = msg->pose.pose.orientation.y;
+    double z_q = msg->pose.pose.orientation.z;
+    double w_q = msg->pose.pose.orientation.w;
+    current_yaw_ = std::atan2(2.0 * (w_q * z_q + x_q * y_q), 1.0 - 2.0 * (y_q * y_q + z_q * z_q));
 
     // Scenario 1: Ottimista (Indici 0-9)
     current_augmented_state_[0] = msg->pose.pose.position.x;   // pos_x
     current_augmented_state_[1] = msg->pose.pose.position.y;   // pos_y
     current_augmented_state_[2] = current_yaw_;                // yaw (theta)
-    current_augmented_state_[3] = msg->twist.twist.linear.x;   // vel_x
-    current_augmented_state_[4] = msg->twist.twist.linear.y;   // vel_y
-    current_augmented_state_[5] = msg->twist.twist.angular.z;  // yaw_rate
-
+    
+    // Rotate local linear velocity (body frame) to global frame (world frame)
+    double v_local_x = msg->twist.twist.linear.x;
+    double v_local_y = msg->twist.twist.linear.y;
     double cos_yaw = std::cos(current_yaw_);
     double sin_yaw = std::sin(current_yaw_);
+    current_augmented_state_[3] = cos_yaw * v_local_x - sin_yaw * v_local_y;   // vel_x
+    current_augmented_state_[4] = sin_yaw * v_local_x + cos_yaw * v_local_y;   // vel_y
+    current_augmented_state_[5] = msg->twist.twist.angular.z;                  // yaw_rate
+
     double s_x = 0.1934;
 
-    current_augmented_state_[6] = msg->pose.pose.position.x + s_x * cos_yaw; // p0_x
+    current_augmented_state_[6] = msg->pose.pose.position.x + s_x * cos_yaw;  // p0_x
     current_augmented_state_[7] = msg->pose.pose.position.y + s_x * sin_yaw; // p0_y
-    current_augmented_state_[8] = msg->pose.pose.position.x - s_x * cos_yaw; // p1_x
+    current_augmented_state_[8] = msg->pose.pose.position.x - s_x * cos_yaw;  // p1_x
     current_augmented_state_[9] = msg->pose.pose.position.y - s_x * sin_yaw; // p1_y
 
     // Scenario 2: Pessimista (Indici 10-19)
-    current_augmented_state_[10] = msg->pose.pose.position.x;  // pos_x
-    current_augmented_state_[11] = msg->pose.pose.position.y;  // pos_y
-    current_augmented_state_[12] = current_yaw_;               // yaw (theta)
-    current_augmented_state_[13] = msg->twist.twist.linear.x;  // vel_x
-    current_augmented_state_[14] = msg->twist.twist.linear.y;  // vel_y
-    current_augmented_state_[15] = msg->twist.twist.angular.z; // yaw_rate
+    current_augmented_state_[10] = current_augmented_state_[0]; // pos_x
+    current_augmented_state_[11] = current_augmented_state_[1]; // pos_y
+    current_augmented_state_[12] = current_augmented_state_[2]; // yaw (theta)
+    current_augmented_state_[13] = current_augmented_state_[3]; // vel_x
+    current_augmented_state_[14] = current_augmented_state_[4]; // vel_y
+    current_augmented_state_[15] = current_augmented_state_[5]; // yaw_rate
 
     current_augmented_state_[16] = current_augmented_state_[6];
     current_augmented_state_[17] = current_augmented_state_[7];
     current_augmented_state_[18] = current_augmented_state_[8];
     current_augmented_state_[19] = current_augmented_state_[9];
 
-    current_time_ = msg->header.stamp.sec + msg->header.stamp.nanosec * 1e-9;
+    // Il tempo viene estratto direttamente dal timestamp dell'odometria
+    current_time_ = rclcpp::Time(msg->header.stamp).seconds();
     state_received_ = true;
 }
 

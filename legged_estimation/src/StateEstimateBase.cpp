@@ -69,7 +69,8 @@ void StateEstimateBase::updateLinear(const vector_t& pos, const vector_t& linear
 void StateEstimateBase::publishMsgs(const nav_msgs::msg::Odometry& odom) {
   rclcpp::Time time = odom.header.stamp;
   scalar_t publishRate = 200;
-  if (lastPub_ + rclcpp::Duration::from_seconds(1. / publishRate) < time) {
+  if (lastPub_.nanoseconds() == 0 || time.nanoseconds() < lastPub_.nanoseconds() ||
+      lastPub_.nanoseconds() + rclcpp::Duration::from_seconds(1. / publishRate).nanoseconds() < time.nanoseconds()) {
     lastPub_ = time;
     if (odomPub_->trylock()) {
       odomPub_->msg_ = odom;

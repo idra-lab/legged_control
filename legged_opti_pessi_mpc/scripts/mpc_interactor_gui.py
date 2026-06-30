@@ -7,8 +7,9 @@ os.environ['LIBGL_ALWAYS_SOFTWARE'] = '1'
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import PoseStamped, Point
-from nav_msgs.msg import Odometry  # <-- IMPORTANTE: Per leggere la vera odometria
 from ocs2_msgs.msg import MpcFlattenedController
+from nav_msgs.msg import Odometry
+from visualization_msgs.msg import Marker, MarkerArray  # <-- NUOVO: Per RViz
 from std_msgs.msg import Bool, String
 import pygame
 import sys
@@ -76,12 +77,13 @@ class MpcInteractorGUI(Node):
         self.obs_pub = self.create_publisher(Point, '/obstacle_pose', 10)
         self.goal_pub = self.create_publisher(Point, '/goal_pose', 10)
         
-        self.mpc_sub = self.create_subscription(MpcFlattenedController, '/legged_robot_mpc_policy', self.mpc_callback, 10)
+        # --- NUOVI PUBLISHER PER RViz E MOVE_BASE_SIMPLE ---
+        self.move_base_goal_pub = self.create_publisher(PoseStamped, '/move_base_simple/goal', 10)
+        self.rviz_traj_pub = self.create_publisher(MarkerArray, '/visualization_marker_array', 10)
         
-        # --- SOTTOSCRIZIONE AL FEEDBACK REALE DI ODOMETRIA ---
+        self.mpc_sub = self.create_subscription(MpcFlattenedController, '/legged_robot_mpc_policy', self.mpc_callback, 10)
         self.odom_sub = self.create_subscription(Odometry, '/odom', self.odom_callback, 10)
 
-        # self.is_running_wbc_pub = self.create_publisher(Bool, '/is_running_wbc', 10)
         self.robot_mode_pub = self.create_publisher(String, '/robot_mode', 10)
         
         # Coordinate reali misurate dal simulatore
@@ -99,10 +101,9 @@ class MpcInteractorGUI(Node):
         self.obs_max_vel = 0.5
         
         self.traj_optimistic = []
-        self.traj_pessimistic = []
         self.dragging_obstacle = False
         self.is_running = True
-        self.robot_mode = 'lie'  # 'lie', 'stand', 'walk'
+        self.robot_mode = 'lie'
         
         # Real-time joint gains
         self.kp_kd_pub = self.create_publisher(Point, '/joint_kp_kd', 10)
@@ -111,35 +112,101 @@ class MpcInteractorGUI(Node):
         self.dragging_kp = False
         self.dragging_kd = False
         
-        self.create_timer(0.02, self.update_loop) # Sincronizzato a 50Hz con l'MPC
+        self.create_timer(0.02, self.update_loop)
+
+        self.goal_pub_counter = 0
 
     def odom_callback(self, msg: Odometry):
-        """ Riceve la posizione fisica reale del robot da Isaac Sim """
+        """ Riceve la posizione fisica reale del robot dall'odometria """
         self.true_physics_x = msg.pose.pose.position.x
         self.true_physics_y = msg.pose.pose.position.y
-        
-        # Aggiorna le coordinate locali per il disegno Pygame
         self.robot_x = self.true_physics_x
         self.robot_y = self.true_physics_y
 
     def mpc_callback(self, msg: MpcFlattenedController):
-        """ Memorizza le traiettorie predette dall'MPC unicamente per disegnarle """
+        """ Memorizza ed elabora la traiettoria ottimale dell'MPC """
         self.traj_optimistic = []
         for s in msg.state_trajectory:
             if len(s.value) >= 11:
-                self.traj_optimistic.append((s.value[9], s.value[10]))
-        self.traj_pessimistic = []
+                self.traj_optimistic.append((s.value[9], s.value[10], s.value[6]))
         
-        # --- COMENTATO E RIMOSSO IL BUG DI TELEPORTAZIONE CINEMATICA ---
-        # Il robot Python non salta più in avanti anticipando la fisica reale!
+        if len(self.traj_optimistic) < 2:
+            return
+
+        # Incrementa il contatore a ogni chiamata (frequenza di ingresso: 50Hz)
+        self.goal_pub_counter += 1
+
+        # =========================================================================
+        # 1. PUBBLICAZIONE DEL PRIMO PUNTO DELLA TRAIETTORIA SU /move_base_simple/goal (A 10HZ)
+        # =========================================================================
+        # Esegui la pubblicazione solo 1 volta ogni 5 cicli (50Hz / 5 = 10Hz)
+        if self.goal_pub_counter >= 5:
+            self.goal_pub_counter = 0  # Resetta il contatore
+            
+            p0 = self.traj_optimistic[-2]
+            p1 = self.traj_optimistic[-1]
+            
+            first_x, first_y = p0[0], p0[1]
+            second_x, second_y = p1[0], p1[1]
+            
+            delta_x = second_x - first_x
+            delta_y = second_y - first_y
+            
+            if math.hypot(delta_x, delta_y) > 1e-4:
+                calculated_yaw = math.atan2(delta_y, delta_x)
+            else:
+                calculated_yaw = p0[2]
+
+            goal_msg = PoseStamped()
+            goal_msg.header.stamp = self.get_clock().now().to_msg()
+            goal_msg.header.frame_id = 'odom'
+            
+            goal_msg.pose.position.x = float(first_x)
+            goal_msg.pose.position.y = float(first_y)
+            goal_msg.pose.position.z = 0.0
+            
+            goal_msg.pose.orientation.x = 0.0
+            goal_msg.pose.orientation.y = 0.0
+            goal_msg.pose.orientation.z = float(math.sin(calculated_yaw / 2.0))
+            goal_msg.pose.orientation.w = float(math.cos(calculated_yaw / 2.0))
+            
+            self.move_base_goal_pub.publish(goal_msg)
+
+        # =========================================================================
+        # 2. PUBBLICAZIONE DELL'INTERA TRAIETTORIA COME VISUALIZATION MARKER ARRAY (A 50HZ)
+        # =========================================================================
+        marker_array = MarkerArray()
+        
+        line_marker = Marker()
+        line_marker.header.frame_id = "odom"
+        line_marker.header.stamp = self.get_clock().now().to_msg()
+        line_marker.ns = "mpc_predicted_trajectory"
+        line_marker.id = 0
+        line_marker.type = Marker.LINE_STRIP
+        line_marker.action = Marker.ADD
+        
+        line_marker.scale.x = 0.04  
+        line_marker.color.r = 0.0
+        line_marker.color.g = 1.0
+        line_marker.color.b = 0.0
+        line_marker.color.a = 1.0
+        line_marker.pose.orientation.w = 1.0
+
+        for pt in self.traj_optimistic:
+            p = Point()
+            p.x = float(pt[0])
+            p.y = float(pt[1])
+            p.z = 0.02
+            line_marker.points.append(p)
+            
+        marker_array.markers.append(line_marker)
+        self.rviz_traj_pub.publish(marker_array)
 
     def update_loop(self):
-        # Pubblica sempre il robot_mode corrente
         mode_msg = String()
         mode_msg.data = self.robot_mode
         self.robot_mode_pub.publish(mode_msg)
 
-        # Pubblica sempre i valori Kp e Kd correnti
         kp_kd_msg = Point()
         kp_kd_msg.x = float(self.kp)
         kp_kd_msg.y = float(self.kd)
@@ -190,50 +257,40 @@ def draw_buttons(screen, font_big, current_mode, mouse_pos):
         screen.blit(label, (lx, ly))
 
 def draw_sliders(screen, font, node, mouse_pos):
-    # Draw background panel card (Slate Dark Theme)
     panel_rect = pygame.Rect(530, 15, 250, 115)
     pygame.draw.rect(screen, (30, 41, 59), panel_rect, border_radius=10)
     pygame.draw.rect(screen, (71, 85, 105), panel_rect, 2, border_radius=10)
 
-    # Title
     title = font.render("PARAMETRI PID GIUNTI", True, (241, 245, 249))
     screen.blit(title, (545, 22))
 
-    # Kp Slider (Y = 62)
     kp_lbl = font.render("Kp", True, (148, 163, 184))
     screen.blit(kp_lbl, (545, 53))
     
-    # Track
     pygame.draw.line(screen, (71, 85, 105), (580, 62), (760, 62), 4)
     kp_x = val_to_x(node.kp, 80.0)
     pygame.draw.line(screen, (13, 148, 136), (580, 62), (kp_x, 62), 4)
     
-    # Knob
     kp_knob_rect = pygame.Rect(kp_x - 8, 62 - 8, 16, 16)
     is_hover = kp_knob_rect.collidepoint(mouse_pos) or node.dragging_kp
     knob_color = (20, 184, 166) if is_hover else (241, 245, 249)
     pygame.draw.circle(screen, knob_color, (kp_x, 62), 8)
     
-    # Value text
     kp_val_text = font.render(f"{node.kp:.1f}", True, (241, 245, 249))
     screen.blit(kp_val_text, (768, 53))
 
-    # Kd Slider (Y = 97)
     kd_lbl = font.render("Kd", True, (148, 163, 184))
     screen.blit(kd_lbl, (545, 88))
     
-    # Track
     pygame.draw.line(screen, (71, 85, 105), (580, 97), (760, 97), 4)
     kd_x = val_to_x(node.kd, 10.0)
     pygame.draw.line(screen, (13, 148, 136), (580, 97), (kd_x, 97), 4)
     
-    # Knob
     kd_knob_rect = pygame.Rect(kd_x - 8, 97 - 8, 16, 16)
     is_hover = kd_knob_rect.collidepoint(mouse_pos) or node.dragging_kd
     knob_color = (20, 184, 166) if is_hover else (241, 245, 249)
     pygame.draw.circle(screen, knob_color, (kd_x, 97), 8)
     
-    # Value text
     kd_val_text = font.render(f"{node.kd:.1f}", True, (241, 245, 249))
     screen.blit(kd_val_text, (768, 88))
 
@@ -256,7 +313,6 @@ def pygame_loop(node):
                 mx, my = pygame.mouse.get_pos()
                 handled = False
                 
-                # Check sliders click first
                 if 530 <= mx <= 780 and 45 <= my <= 75:
                     node.dragging_kp = True
                     node.kp = x_to_val(mx, 80.0)
@@ -267,7 +323,6 @@ def pygame_loop(node):
                     handled = True
                 
                 if not handled:
-                    # Controlla click sui pulsanti modalità
                     for idx, btn in enumerate(BUTTON_DEFS):
                         if get_button_rect(idx).collidepoint(mx, my):
                             node.robot_mode = btn['mode']
@@ -296,18 +351,14 @@ def pygame_loop(node):
                 elif node.dragging_kd:
                     node.kd = x_to_val(mx, 10.0)
 
-        # msg = Bool()
-        # msg.data = node.is_running
-        # node.is_running_wbc_pub.publish(msg)
-
         screen.fill((240, 240, 240))
         pygame.draw.line(screen, (200,200,200), (0, OFFSET_Y), (WIDTH, OFFSET_Y), 1)
         pygame.draw.line(screen, (200,200,200), (OFFSET_X, 0), (OFFSET_X, HEIGHT), 1)
 
-        clean_opt = clean_trajectory(node.traj_optimistic)
-        clean_pess = clean_trajectory(node.traj_pessimistic)
+        # Pulizia estrazione tuple (X, Y) per il disegno 2D su Pygame
+        pygame_points = [(p[0], p[1]) for p in node.traj_optimistic]
+        clean_opt = clean_trajectory(pygame_points)
 
-        draw_trajectory(screen, (255,100,100), clean_pess, 4, node)
         draw_trajectory(screen, (100,205,100), clean_opt, 3, node)
 
         ox, oy = to_pixels(node.obs_x, node.obs_y)
@@ -322,8 +373,8 @@ def pygame_loop(node):
         pygame.draw.circle(screen, (255,215,0), (rx, ry), 12)
         pygame.draw.circle(screen, (0,0,0), (rx, ry), 12, 2)
 
-        screen.blit(font.render("Fisica Reale Attiva", True, (50, 50, 50)), (20, 20))
-        screen.blit(font.render(f"Robot Reale (Odom): ({node.robot_x:.2f},{node.robot_y:.2f}) m", True, (0,0,0)), (20, HEIGHT-40))
+        screen.blit(font.render("Fisica Reale + RViz Output", True, (50, 50, 50)), (20, 20))
+        screen.blit(font.render(f"Robot Reale (Obs): ({node.robot_x:.2f},{node.robot_y:.2f}) m", True, (0,0,0)), (20, HEIGHT-40))
         screen.blit(font.render(f"Modalità: {node.robot_mode.upper()}", True, (80,80,80)), (20, HEIGHT-65))
 
         draw_buttons(screen, font_big, node.robot_mode, mouse_pos)
@@ -337,12 +388,10 @@ def main(args=None):
     rclpy.init(args=args)
     node = MpcInteractorGUI()
     
-    # Esegui lo spin di ROS 2 in un thread in background
     spin_thread = threading.Thread(target=rclpy.spin, args=(node,), daemon=True)
     spin_thread.start()
     
     try:
-        # Il loop di Pygame DEVE girare sul thread principale per gestire correttamente la finestra e gli eventi grafici
         pygame_loop(node)
     except KeyboardInterrupt:
         pass

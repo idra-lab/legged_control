@@ -33,7 +33,7 @@ find_package(ocs2_centroidal_model REQUIRED)
 find_package(ocs2_pinocchio_interface REQUIRED)
 find_package(ocs2_legged_robot REQUIRED)
 
-find_package(unitree_go REQUIRED)
+# find_package(unitree_go REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(pinocchio REQUIRED)
 

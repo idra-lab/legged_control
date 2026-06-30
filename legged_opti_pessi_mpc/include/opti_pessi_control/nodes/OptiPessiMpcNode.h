@@ -27,6 +27,7 @@
 #include <ocs2_msgs/msg/mode_schedule.hpp>
 #include <ocs2_msgs/msg/mpc_state.hpp>
 #include <ocs2_msgs/msg/mpc_input.hpp>
+#include <ocs2_msgs/msg/mpc_observation.hpp>
 
 // Custom problem components
 #include "opti_pessi_control/OptiPessiSharedState.h"
