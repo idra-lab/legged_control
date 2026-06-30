@@ -27,6 +27,10 @@ from ament_index_python.packages import get_package_share_directory
 
 
 def generate_launch_description():
+    # Prepend /opt/openrobots/lib so that all nodes can link to pinocchio
+    import os
+    os.environ['LD_LIBRARY_PATH'] = f"/opt/openrobots/lib:{os.environ.get('LD_LIBRARY_PATH', '')}"
+
     legged_controllers_dir = get_package_share_directory('legged_controllers')
 
     # -------------------------------------------------------------------------

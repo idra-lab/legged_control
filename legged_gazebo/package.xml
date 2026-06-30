@@ -12,9 +12,11 @@
 
     <depend>rclcpp</depend>
     <depend>legged_common</depend>
-    <depend>gazebo_dev</depend>
-    <depend>gazebo_ros</depend>
-    <depend>gazebo_ros2_control</depend>
+    <depend>ros_gz_sim</depend>
+    <depend>gz_ros2_control</depend>
+    <depend>simulation_interfaces</depend>
+    <depend>ros_gz_interfaces</depend>
+    <depend>gz_sim_vendor</depend>
 
     <export>
         <build_type>ament_cmake</build_type>

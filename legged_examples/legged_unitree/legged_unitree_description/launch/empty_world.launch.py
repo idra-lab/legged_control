@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""empty_world.launch.py — ROS 2 porting of empty_world.launch
+"""empty_world.launch.py — ROS 2 launch for Gazebo Harmonic
 
-Launches a Gazebo simulation with an empty world and spawns the Unitree robot.
-Uses gazebo_ros ROS 2 API and xacro Python API to generate the robot URDF.
+Launches Gazebo Harmonic (gz sim) with an empty world and spawns the Unitree
+robot using the ros_gz_sim 'create' node (replaces the old gazebo_ros
+spawn_entity.py).
 
 Key design decisions:
 - URDF is generated synchronously at launch-time (before any node starts) via
   OpaqueFunction + subprocess, so robot_description is always populated.
-- spawn_entity is wrapped in a polling loop that waits up to 120s for the
-  /spawn_entity service to appear, working around slow gzserver startups.
+- Model spawning is delegated to the ros_gz_sim 'create' node which reads the
+  robot_description topic published by robot_state_publisher.
 """
 import os
 import re
@@ -17,7 +18,6 @@ import yaml
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
-    ExecuteProcess,
     IncludeLaunchDescription,
     OpaqueFunction,
 )
@@ -28,6 +28,9 @@ from ament_index_python.packages import get_package_share_directory
 
 
 def launch_setup(context, *args, **kwargs):
+    # Prepend /opt/openrobots/lib so that nodes (and pluginlib dynamic loaders) can link to pinocchio
+    os.environ['LD_LIBRARY_PATH'] = f"/opt/openrobots/lib:{os.environ.get('LD_LIBRARY_PATH', '')}"
+
     robot_type_str = context.perform_substitution(LaunchConfiguration('robot_type'))
 
     legged_unitree_description_dir = get_package_share_directory('legged_unitree_description')
@@ -88,48 +91,66 @@ def launch_setup(context, *args, **kwargs):
         executable='robot_state_publisher',
         name='robot_state_publisher',
         output='screen',
-        parameters=[{'robot_description': robot_description_xml}],
+        parameters=[{
+            'robot_description': robot_description_xml,
+            'use_sim_time': True,
+        }],
     )
 
-    # spawn_entity wrapper: polls /spawn_entity until Gazebo is ready (up to
-    # 120s) before invoking spawn_entity.py.  This avoids the hard 30s timeout
-    # that was causing failures when gzserver took longer to start.
-    spawn_script = "\n".join([
-        "import subprocess, sys, time",
-        "print('[spawn_wait] Waiting for /spawn_entity service (up to 120 s)...')",
-        "for i in range(120):",
-        "    r = subprocess.run(['ros2', 'service', 'list'], capture_output=True, text=True)",
-        "    if '/spawn_entity' in r.stdout:",
-        "        print('[spawn_wait] /spawn_entity found — spawning robot!')",
-        "        break",
-        "    time.sleep(1)",
-        "else:",
-        "    print('[spawn_wait] ERROR: /spawn_entity did not appear after 120 s', file=sys.stderr)",
-        "    sys.exit(1)",
-        "subprocess.run([",
-        "    'ros2', 'run', 'gazebo_ros', 'spawn_entity.py',",
-        "    '-z', '0.5',",
-        "    '-topic', 'robot_description',",
-        f"    '-entity', '{robot_type_str}',",
-        "], check=True)",
-    ])
+    # Bridge Gazebo clock to ROS 2 /clock so all nodes using use_sim_time
+    # receive a valid simulation clock source.
+    clock_bridge = Node(
+        package='ros_gz_bridge',
+        executable='parameter_bridge',
+        name='clock_bridge',
+        arguments=['/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock'],
+        output='screen',
+    )
 
-    spawn_entity_action = ExecuteProcess(
-        cmd=['python3', '-c', spawn_script],
+    # Spawn robot using ros_gz_sim 'create' node (Gazebo Harmonic equivalent
+    # of the old gazebo_ros spawn_entity.py).
+    spawn_entity_action = Node(
+        package='ros_gz_sim',
+        executable='create',
+        arguments=[
+            '-name', robot_type_str,
+            '-topic', 'robot_description',
+            '-z', '0.5',
+        ],
         output='screen',
         name='spawn_urdf',
     )
 
+    # Determine if Gazebo should start with GUI or headless (server-only)
+    gui_val = context.perform_substitution(LaunchConfiguration('gui'))
+    ros_gz_sim_dir = get_package_share_directory('ros_gz_sim')
+    world_file = os.path.join(get_package_share_directory('legged_gazebo'), 'worlds', 'empty_world.world')
+
+    if gui_val.lower() == 'false':
+        gz_args = f'-v 4 -r -s {world_file}'
+    else:
+        gz_args = f'-v 4 -r {world_file}'
+
+    # Gazebo Harmonic — use gz_sim.launch.py from ros_gz_sim.
+    gazebo_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(ros_gz_sim_dir, 'launch', 'gz_sim.launch.py')
+        ),
+        launch_arguments={
+            'gz_args': gz_args,
+            'on_exit_shutdown': 'true',
+        }.items(),
+    )
+
     return [
+        gazebo_launch,
+        clock_bridge,
         robot_state_publisher_node,
         spawn_entity_action,
     ]
 
 
 def generate_launch_description():
-    legged_gazebo_dir = get_package_share_directory('legged_gazebo')
-    gazebo_ros_dir = get_package_share_directory('gazebo_ros')
-
     robot_type_arg = DeclareLaunchArgument(
         'robot_type',
         default_value='aliengo',
@@ -142,21 +163,8 @@ def generate_launch_description():
         description='Start Gazebo client (GUI)'
     )
 
-    # Gazebo — verbose=true so we can see plugin loading in the terminal
-    gazebo_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(gazebo_ros_dir, 'launch', 'gazebo.launch.py')
-        ),
-        launch_arguments={
-            'world': os.path.join(legged_gazebo_dir, 'worlds', 'empty_world.world'),
-            'verbose': 'true',
-            'gui': LaunchConfiguration('gui'),
-        }.items(),
-    )
-
     return LaunchDescription([
         robot_type_arg,
         gui_arg,
-        gazebo_launch,
         OpaqueFunction(function=launch_setup),
     ])
