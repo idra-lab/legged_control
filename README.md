@@ -45,17 +45,21 @@ https://user-images.githubusercontent.com/21256355/192135828-8fa7d9bb-9b4d-41f9-
 ### ROS 2 Jazzy
 Ensure you have `ros-jazzy-desktop` installed on Ubuntu 24.04, then add the following additional packages:
 ```bash
-sudo apt install ros-jazzy-controller-interface ros-jazzy-realtime-tools ros-jazzy-joint-state-broadcaster ros-jazzy-imu-sensor-broadcaster ros-jazzy-gazebo-ros2-control
+sudo apt install -y \
+ros-jazzy-controller-interface \
+ros-jazzy-hardware-interface \
+ros-jazzy-realtime-tools \
+ros-jazzy-joint-state-broadcaster \
+ros-jazzy-imu-sensor-broadcaster \
+ros-jazzy-gazebo-ros2-control
 ```
 
 ### Source code
 
 The source code is hosted on GitHub:
-
+Clone legged_control on your colcon_ws/src folder
 ```bash
-# Clone legged_control on your colcon_ws/src folder
-git clone [https://github.com/idra-lab/legged_control.git](https://github.com/idra-lab/legged_control.git)
-
+git clone https://github.com/idra-lab/legged_control.git
 ```
 
 ### OCS2
@@ -66,35 +70,27 @@ its dependencies following the step below.
 1. Install `pinocchio` and `coal` (formerly known as `hpp-fcl`) from robotpkg, following [these instructions to add the robotpkg PPA](https://stack-of-tasks.github.io/pinocchio/download.html)
 ```bash
 sudo apt install robotpkg-pinocchio robotpkg-coal
-
 ```
-
 
 The tested Pinocchio version is 3.9, which comes as default for Ubuntu 24.04
 2. Install extra dependencies:
 ```bash
 sudo apt install liburdfdom-dev liboctomap-dev libassimp-dev wget rsync curl liblcm-dev
-
 ```
 
 
 3. Clone OCS2 and the robotic assets.
 ```bash
-# Clone OCS2
-git clone [https://github.com/idra-lab/ocs2.git](https://github.com/idra-lab/ocs2.git)
+git clone https://github.com/idra-lab/ocs2.git -b ros2
 
-# Clone ocs2_robotic_assets
-git clone [https://github.com/leggedrobotics/ocs2_robotic_assets.git](https://github.com/leggedrobotics/ocs2_robotic_assets.git)   
-
+git clone https://github.com/leggedrobotics/ocs2_robotic_assets.git -b ros2
 ```
 
 
 4. Compile the `ocs2_legged_robot_ros` package with [colcon](https://colcon.readthedocs.io/en/released/)
 ```bash
-colcon build --symlink-install --packages-select ocs2_legged_robot_ros ocs2_self_collision_visualization --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo
-
+colcon build --symlink-install --packages-up-to ocs2_legged_robot_ros ocs2_self_collision_visualization --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo
 ```
-
 
 Ensure you can command the ANYmal as shown in
 the [document](https://leggedrobotics.github.io/ocs2/robotic_examples.html#legged-robot) and below.
@@ -105,23 +101,20 @@ the [document](https://leggedrobotics.github.io/ocs2/robotic_examples.html#legge
 Build the source code of `legged_control` by:
 
 ```bash
-colcon build --symlink-install --packages-select legged_controllers legged_unitree_description --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo
-
+colcon build --symlink-install --packages-up-to legged_controllers legged_unitree_description --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo
 ```
 
 Build the simulation (**DO NOT** run on the onboard computer)
 
 ```bash
-colcon build --symlink-install --packages-select legged_gazebo --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo
-
+colcon build --symlink-install --packages-up-to legged_gazebo --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo
 ```
 
 Build the hardware interface real robot. If you use your computer only for simulation, you **DO NOT** need to
 compile `legged_unitree_hw`.
 
 ```bash
-colcon build --symlink-install --packages-select legged_unitree_hw --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo
-
+colcon build --symlink-install --packages-up-to legged_unitree_hw --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo
 ```
 
 ## Quick Start
@@ -130,21 +123,18 @@ colcon build --symlink-install --packages-select legged_unitree_hw --cmake-args 
 
 ```bash
 export ROBOT_TYPE=aliengo
-
 ```
 
 2. Run the simulation with joystick support (if you have it):
 
 ```bash
 ros2 launch legged_unitree_description empty_world.launch.py
-
 ```
 
 Or on the robot hardware:
 
 ```bash
 ros2 launch legged_unitree_hw legged_unitree_hw.launch.py
-
 ```
 
 > [!TIP]
@@ -166,11 +156,16 @@ ros2 launch legged_unitree_hw legged_unitree_hw.launch.py
 > where `username` is your user name. Then log on and off for the changes to take effect.
 > If you want to revert this, you can simply remove yourself from the group or erase the file.
 
-3. Load the controller with the joypad:
+3. Load the controller without the joypad:
 
 ```bash
-ros2 launch legged_controllers load_controller.launch.py joy:=true
+ros2 launch legged_controllers load_controller.launch.py
+```
 
+4. Load the controller with the joypad:
+
+```bash
+ros2 run ocs2_legged_robot_ros legged_robot_gait_command --ros-args -p gaitCommandFile:=$HOME/RaNAV/src/legged_control/legged_controllers/config/aliengo/gait.info
 ```
 
 tested with an Xbox like joypad in which:

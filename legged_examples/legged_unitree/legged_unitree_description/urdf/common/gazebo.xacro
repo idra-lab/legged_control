@@ -74,12 +74,12 @@
     </ros2_control>
 
     <!-- ===================================================================
-         gazebo_ros2_control plugin
+         gz_ros2_control plugin (Gazebo Harmonic)
     =================================================================== -->
     <xacro:arg name="controllers_yaml" default="$(find legged_controllers)/config/controllers.yaml"/>
 
     <gazebo>
-        <plugin name="gazebo_ros2_control" filename="libgazebo_ros2_control.so">
+        <plugin name="gz_ros2_control::GazeboSimROS2ControlPlugin" filename="libgz_ros2_control-system.so">
             <parameters>$(arg controllers_yaml)</parameters>
         </plugin>
     </gazebo>

@@ -9,11 +9,14 @@ find_package(ament_cmake REQUIRED)
 # Find ROS 2 package dependencies individually
 find_package(rclcpp REQUIRED)
 find_package(legged_common REQUIRED)
-find_package(gazebo_ros REQUIRED)
-find_package(gazebo_ros2_control REQUIRED)
+find_package(simulation_interfaces REQUIRED)
+find_package(ros_gz_interfaces REQUIRED)
+find_package(gz_sim_vendor REQUIRED)
+find_package(gz-sim REQUIRED)
 
-# Find external non-ament Gazebo dev environment
-find_package(gazebo_dev REQUIRED)
+# UPDATED: Replaced Gazebo Classic packages with modern Gazebo Harmonic wrappers
+find_package(ros_gz_sim REQUIRED)
+find_package(gz_ros2_control REQUIRED)
 
 ###########
 ## Build ##
@@ -27,24 +30,20 @@ add_library(legged_hw_sim SHARED
 target_include_directories(legged_hw_sim PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
-        ${GAZEBO_INCLUDE_DIRS}
-        )
-
-# Link standard external Gazebo libraries using a keyword signature
-target_link_libraries(legged_hw_sim PUBLIC
-        ${GAZEBO_LIBRARIES}
         )
 
 # Fixed: Added the explicit PUBLIC keyword to match the signature above
+# UPDATED: Dependencies updated to target the new modern Gazebo components
 ament_target_dependencies(legged_hw_sim PUBLIC
         rclcpp
         legged_common
-        gazebo_ros
-        gazebo_ros2_control
+        ros_gz_sim
+        gz_ros2_control
         )
 
 # Register the plugin description file for pluginlib in ROS 2
-pluginlib_export_plugin_description_file(gazebo_ros2_control legged_hw_sim_plugins.xml)
+# UPDATED: Target package changed to gz_ros2_control
+pluginlib_export_plugin_description_file(gz_ros2_control legged_hw_sim_plugins.xml)
 
 #########################
 ###   CLANG TOOLING   ###
@@ -95,6 +94,8 @@ install(DIRECTORY worlds/
 ament_export_include_directories(include)
 ament_export_libraries(legged_hw_sim)
 ament_export_targets(legged_hw_sim)
-ament_export_dependencies(rclcpp legged_common gazebo_ros gazebo_ros2_control)
+
+# UPDATED: Updated exported dependencies to match the modern wrappers
+ament_export_dependencies(rclcpp legged_common ros_gz_sim gz_ros2_control)
 
 ament_package()

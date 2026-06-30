@@ -11,11 +11,20 @@
 #include <string>
 #include <memory>
 
-// ROS 2 and Gazebo Classic bindings
-#include <gazebo_ros2_control/gazebo_system_interface.hpp>
+// ROS 2 and Gazebo Harmonic bindings
+#include <gz_ros2_control/gz_system_interface.hpp>
 #include <hardware_interface/system_interface.hpp>
 #include <rclcpp/rclcpp.hpp>
-#include <gazebo/physics/physics.hh>
+
+// Gazebo Sim headers
+#include <gz/sim/System.hh>
+#include <gz/sim/Model.hh>
+#include <gz/sim/Joint.hh>
+#include <gz/sim/Link.hh>
+#include <gz/math/Vector3.hh>
+#include <sdf/JointAxis.hh>
+
+namespace sim = gz::sim;
 
 namespace legged {
 
@@ -25,7 +34,7 @@ struct HybridJointCommand {
 };
 
 struct ImuData {
-  gazebo::physics::LinkPtr linkPtr_;
+  sim::Link link_;
   std::string name_;
   double ori_[4] = {0.0, 0.0, 0.0, 1.0};
   double oriCov_[9] = {0.0};
@@ -35,7 +44,7 @@ struct ImuData {
   double linearAccCov_[9] = {0.0};
 };
 
-class LeggedHWSim : public gazebo_ros2_control::GazeboSystemInterface {
+class LeggedHWSim : public gz_ros2_control::GazeboSimSystemInterface {
  public:
   LeggedHWSim() = default;
   virtual ~LeggedHWSim() = default;
@@ -43,9 +52,10 @@ class LeggedHWSim : public gazebo_ros2_control::GazeboSystemInterface {
   // Gazebo-Specific Initialization lifecycle hook
   bool initSim(
     rclcpp::Node::SharedPtr & model_nh,
-    gazebo::physics::ModelPtr parent_model,
+    std::map<std::string, sim::Entity> & joints,
     const hardware_interface::HardwareInfo & hardware_info,
-    sdf::ElementPtr sdf) override;
+    sim::EntityComponentManager & _ecm,
+    unsigned int update_rate) override;
 
   // Standard ros2_control Lifecycle hooks
   hardware_interface::CallbackReturn on_init(const hardware_interface::HardwareInfo & system_info) override;
@@ -56,10 +66,12 @@ class LeggedHWSim : public gazebo_ros2_control::GazeboSystemInterface {
   hardware_interface::return_type write(const rclcpp::Time & time, const rclcpp::Duration & period) override;
 
  private:
-  gazebo::physics::ModelPtr model_;
-  gazebo::physics::ContactManager* contactManager_{nullptr};
+  sim::EntityComponentManager* ecm_{nullptr};
+  sim::Model model_;
 
-  std::vector<gazebo::physics::JointPtr> sim_joints_;
+  std::vector<sim::Joint> sim_joints_;
+  std::vector<gz::math::Vector3d> sim_joint_axes_;
+  std::vector<sdf::JointType> sim_joint_types_;
 
   // Command input buffers (populated by WBC controllers)
   std::vector<double> hw_commands_positions_;

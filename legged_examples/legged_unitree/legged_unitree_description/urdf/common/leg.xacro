@@ -197,6 +197,13 @@
             <material>Gazebo/DarkGrey</material>
             <kp value="1000000.0"/>
             <kd value="100.0"/>
+            <sensor name="${prefix}_foot_contact" type="contact">
+                <always_on>true</always_on>
+                <update_rate>100</update_rate>
+                <contact>
+                    <collision>${prefix}_FOOT_collision</collision>
+                </contact>
+            </sensor>
         </gazebo>
 
         <xacro:leg_transmission name="${prefix}"/>
