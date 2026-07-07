@@ -51,7 +51,12 @@ ros-jazzy-hardware-interface \
 ros-jazzy-realtime-tools \
 ros-jazzy-joint-state-broadcaster \
 ros-jazzy-imu-sensor-broadcaster \
-ros-jazzy-gazebo-ros2-control
+ros-jazzy-gazebo-ros2-control \
+```
+
+### Additional Packages
+```bash
+sudo apt install -y xterm
 ```
 
 ### Source code
@@ -128,10 +133,10 @@ export ROBOT_TYPE=aliengo
 2. Run the simulation with joystick support (if you have it):
 
 ```bash
-ros2 launch legged_unitree_description empty_world.launch.py
+ros2 launch legged_unitree_description empty_world_launch.xml
 ```
 
-Or on the robot hardware:
+Or on the robot hardware (not tested):
 
 ```bash
 ros2 launch legged_unitree_hw legged_unitree_hw.launch.py
@@ -159,13 +164,7 @@ ros2 launch legged_unitree_hw legged_unitree_hw.launch.py
 3. Load the controller without the joypad:
 
 ```bash
-ros2 launch legged_controllers load_controller.launch.py
-```
-
-4. Load the controller with the joypad:
-
-```bash
-ros2 run ocs2_legged_robot_ros legged_robot_gait_command --ros-args -p gaitCommandFile:=$HOME/RaNAV/src/legged_control/legged_controllers/config/aliengo/gait.info
+ros2 launch legged_controllers load_controller_launch.xml
 ```
 
 tested with an Xbox like joypad in which:
@@ -301,8 +300,3 @@ through whole body control and hierarchical optimization,” in IEEE-RAS Interna
 2016, pp. 558–564, doi: 10.1109/HUMANOIDS.2016.7803330.
 
 ***
-
-### Principali modifiche apportate:
-1. **Dipendenze di Sistema (`apt`)**: Sostituiti i pacchetti `ros-one-*` con `ros-jazzy-*`. Inoltre, in ROS 2 i controller di giunto e IMU generici sono stati mappati sui corrispettivi Broadcaster (`ros-jazzy-joint-state-broadcaster` e `ros-jazzy-imu-sensor-broadcaster`), e la simulazione usa `ros-jazzy-gazebo-ros2-control`.
-2. **Sistema di Build**: Sostituito `catkin build` con il comando standard di ROS 2 `colcon build --symlink-install`. Ho aggiunto anche il flag `--packages-select` per compilare selettivamente i moduli esattamente come faceva catkin.
-3. **Launch Files**: Aggiornati tutti i comandi di esempio da `roslaunch <package> <file>.launch` a `ros2 launch <package> <file>.launch.py`.
