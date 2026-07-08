@@ -55,6 +55,7 @@ ros-jazzy-gazebo-ros2-control \
 ```
 
 ### Additional Packages
+if on WSL
 ```bash
 sudo apt install -y xterm
 ```
@@ -164,8 +165,15 @@ ros2 launch legged_unitree_hw legged_unitree_hw.launch.py
 3. Load the controller without the joypad:
 
 ```bash
-ros2 launch legged_controllers load_controller_launch.xml
+ros2 launch legged_controllers load_controller_launch.xml 
 ```
+
+if on WSL 
+```bash
+ros2 launch legged_controllers load_controller_launch.xml terminal_prefix:='xterm -e'
+```
+
+The version with joypad doesn't work because there is no package in ocs2
 
 tested with an Xbox like joypad in which:
 
