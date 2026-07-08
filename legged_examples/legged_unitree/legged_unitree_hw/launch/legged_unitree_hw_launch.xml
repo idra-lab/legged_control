@@ -1,13 +1,13 @@
 <launch>
-    <arg name="robot_type" default="$(env ROBOT_TYPE)" description="Robot type: [a1, aliengo, go1, laikago]"/>
+  <arg name="robot_type" default="$(env ROBOT_TYPE)" description="Robot type: [a1, aliengo, go1, laikago]"/>
 
-    <let name="legged_robot_description" value="$(command 'xacro $(find-pkg-share legged_unitree_description)/urdf/robot.xacro robot_type:=$(var robot_type)')"/>
+  <let name="legged_robot_description" value="$(command 'xacro $(find-pkg-share legged_unitree_description)/urdf/robot.xacro robot_type:=$(var robot_type)')"/>
 
-    <node pkg="legged_common" exec="generate_urdf.sh" output="screen" name="generate_urdf" 
-        args="$(find-pkg-share legged_unitree_description)/urdf/robot.xacro $(var robot_type)">
-    </node>
+  <node pkg="legged_common" exec="generate_urdf.sh" output="screen" name="generate_urdf" 
+    args="$(find-pkg-share legged_unitree_description)/urdf/robot.xacro $(var robot_type)">
+  </node>
 
-    <let name="robot_type" value="$(var robot_type)"/>
+  <let name="robot_type" value="$(var robot_type)"/>
 
-    <include file="$(find-pkg-share legged_unitree_hw)/launch/$(var robot_type)_launch.xml"/>
+  <include file="$(find-pkg-share legged_unitree_hw)/launch/$(var robot_type)_launch.xml"/>
 </launch>

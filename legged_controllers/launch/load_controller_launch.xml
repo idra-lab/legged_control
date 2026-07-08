@@ -1,74 +1,74 @@
 <?xml version="1.0" ?>
 <launch>
-      <arg name="robot_type" default="aliengo" description="Robot type: [a1, aliengo, go1, laikago]"/>
-      <arg name="joy"                 default="false" description="Enable joystick teleoperation"/>
-      <arg name="rviz"                default="true"  description="Launch RViz2"/>
-      <arg name="description_name"    default="legged_robot_description"/>
-      <arg name="multiplot"           default="false"/>
+  <arg name="robot_type" default="aliengo" description="Robot type: [a1, aliengo, go1, laikago]"/>
+  <arg name="joy"                 default="false" description="Enable joystick teleoperation"/>
+  <arg name="rviz"                default="true"  description="Launch RViz2"/>
+  <arg name="description_name"    default="legged_robot_description"/>
+  <arg name="multiplot"           default="false"/>
 
-      <arg name="joy_dev" default="/dev/input/js0"/>
-      <arg name="teleop_config" default="$(find-pkg-share legged_controllers)/config/joy.yaml"/>
+  <arg name="joy_dev" default="/dev/input/js0"/>
+  <arg name="teleop_config" default="$(find-pkg-share legged_controllers)/config/joy.yaml"/>
 
-      <!-- make the files into global parameters -->
-      <let name="urdfFile" value="/tmp/legged_control/$(var robot_type).urdf"/>
-      <let name="taskFile" value="$(find-pkg-share legged_controllers)/config/$(var robot_type)/task.info"/>
-      <let name="referenceFile" value="$(find-pkg-share legged_controllers)/config/$(var robot_type)/reference.info"/>
-      <let name="gaitCommandFile" value="$(find-pkg-share legged_controllers)/config/$(var robot_type)/gait.info"/>
+  <!-- make the files into global parameters -->
+  <let name="urdfFile" value="/tmp/legged_control/$(var robot_type).urdf"/>
+  <let name="taskFile" value="$(find-pkg-share legged_controllers)/config/$(var robot_type)/task.info"/>
+  <let name="referenceFile" value="$(find-pkg-share legged_controllers)/config/$(var robot_type)/reference.info"/>
+  <let name="gaitCommandFile" value="$(find-pkg-share legged_controllers)/config/$(var robot_type)/gait.info"/>
 
-      <!-- Controller spawners (one per controller, as in load_controller.launch.py) -->
-      <node pkg="controller_manager" exec="spawner" name="joint_state_broadcaster_spawner" output="screen"
-            args="joint_state_broadcaster --controller-manager /controller_manager --service-call-timeout 120.0"/>
+  <!-- Controller spawners (one per controller, as in load_controller.launch.py) -->
+  <node pkg="controller_manager" exec="spawner" name="joint_state_broadcaster_spawner" output="screen"
+    args="joint_state_broadcaster --controller-manager /controller_manager --service-call-timeout 120.0"/>
 
-      <node pkg="controller_manager" exec="spawner" name="imu_sensor_broadcaster_spawner" output="screen"
-            args="imu_sensor_broadcaster --controller-manager /controller_manager --service-call-timeout 120.0"/>
+  <node pkg="controller_manager" exec="spawner" name="imu_sensor_broadcaster_spawner" output="screen"
+    args="imu_sensor_broadcaster --controller-manager /controller_manager --service-call-timeout 120.0"/>
 
-      <node pkg="controller_manager" exec="spawner" name="legged_controller_spawner" output="screen"
-            args="legged_controller --controller-manager /controller_manager --service-call-timeout 120.0">
-            <param name="urdfFile" value="$(var urdfFile)"/>
-            <param name="taskFile" value="$(var taskFile)"/>
-            <param name="referenceFile" value="$(var referenceFile)"/>
-            <param name="gaitCommandFile" value="$(var gaitCommandFile)"/>
-      </node>
+  <node pkg="controller_manager" exec="spawner" name="legged_controller_spawner" output="screen"
+    args="legged_controller --controller-manager /controller_manager --service-call-timeout 120.0">
+    <param name="urdfFile" value="$(var urdfFile)"/>
+    <param name="taskFile" value="$(var taskFile)"/>
+    <param name="referenceFile" value="$(var referenceFile)"/>
+    <param name="gaitCommandFile" value="$(var gaitCommandFile)"/>
+  </node>
 
-      <!-- If not using the joypad, keep using the old keyboard based program to select the gaits -->
-      <node unless="$(var joy)" pkg="ocs2_legged_robot_ros" exec="legged_robot_gait_command" name="legged_robot_gait_command" output="screen"
-            launch-prefix="xterm -e">
-            <param name="gaitCommandFile" value="$(var gaitCommandFile)"/>
-      </node>
+  <!-- If not using the joypad, keep using the old keyboard based program to select the gaits -->
+  <node unless="$(var joy)" pkg="ocs2_legged_robot_ros" exec="legged_robot_gait_command" name="legged_robot_gait_command" output="screen"
+    launch-prefix="xterm -e">
+    <param name="gaitCommandFile" value="$(var gaitCommandFile)"/>
+  </node>
 
-      <!-- If using the joypad, run a command that accepts joystick commands to switch between stance and trot gaits with a button press -->
-      <node if="$(var joy)" pkg="ocs2_legged_robot_ros" exec="legged_robot_gait_joy_command" name="legged_robot_gait_joy_command" output="screen">
-            <param name="gaitCommandFile" value="$(var gaitCommandFile)"/>
-      </node>
+  <!-- If using the joypad, run a command that accepts joystick commands to switch between stance and trot gaits with a button press -->
+  <node if="$(var joy)" pkg="ocs2_legged_robot_ros" exec="legged_robot_gait_joy_command" name="legged_robot_gait_joy_command" output="screen">
+    <param name="gaitCommandFile" value="$(var gaitCommandFile)"/>
+  </node>
 
-      <node pkg="legged_controllers" exec="legged_target_trajectories_publisher" name="legged_robot_target" output="screen">
-            <param name="taskFile" value="$(var taskFile)"/>
-            <param name="referenceFile" value="$(var referenceFile)"/>
-      </node>
+  <node pkg="legged_controllers" exec="legged_target_trajectories_publisher" name="legged_robot_target" output="screen">
+    <param name="taskFile" value="$(var taskFile)"/>
+    <param name="referenceFile" value="$(var referenceFile)"/>
+  </node>
 
-      <node if="$(var joy)" pkg="legged_controllers" exec="kill_node_sigint_service.py" name="kill_node_sigint" output="screen">
-            <param name="allow_kill" value="true"/>
-      </node>
+  <node if="$(var joy)" pkg="legged_controllers" exec="kill_node_sigint_service.py" name="kill_node_sigint" output="screen">
+    <param name="allow_kill" value="true"/>
+  </node>
 
-      <node if="$(var joy)" pkg="joy" exec="joy_node" name="joy_node" output="screen">
-            <param name="dev" value="$(var joy_dev)"/>
-            <param name="deadzone" value="1e-3"/>
-            <param name="autorepeat_rate" value="10.0"/>
-            <param name="coalesce_interval" value="0.05"/>
-      </node>
+  <node if="$(var joy)" pkg="joy" exec="joy_node" name="joy_node" output="screen">
+    <param name="dev" value="$(var joy_dev)"/>
+    <param name="deadzone" value="1e-3"/>
+    <param name="autorepeat_rate" value="10.0"/>
+    <param name="coalesce_interval" value="0.05"/>
+  </node>
 
-      <node if="$(var joy)" pkg="joy_teleop" exec="joy_teleop" name="joy_teleop" output="screen">
-            <param from="$(var teleop_config)"/>
-      </node>
+  <node if="$(var joy)" pkg="joy_teleop" exec="joy_teleop" name="joy_teleop" output="screen">
+    <param from="$(var teleop_config)"/>
+  </node>
 
-      <!-- rviz2 -->
-      <group if="$(var rviz)">
-            <arg name="rvizconfig" default="$(find-pkg-share legged_controllers)/config/config.rviz" />
-            <node pkg="rviz2" exec="rviz2" name="rviz" args="-d $(var rvizconfig)" output="screen"/>
-      </group>
+  <!-- rviz2 -->
+  <group if="$(var rviz)">
+    <arg name="rvizconfig" default="$(find-pkg-share legged_controllers)/config/config.rviz" />
+    <node pkg="rviz2" exec="rviz2" name="rviz" args="-d $(var rvizconfig)" output="screen"/>
+  </group>
 
-      <!-- multiplot -->
-      <group if="$(var multiplot)">
-            <include file="$(find-pkg-share ocs2_legged_robot_ros)/launch/multiplot.launch.py"/>
-      </group>
+  <!-- multiplot -->
+  <group if="$(var multiplot)">
+    <include file="$(find-pkg-share ocs2_legged_robot_ros)/launch/multiplot.launch.py"/>
+  </group>
 </launch>
