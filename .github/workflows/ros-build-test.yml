@@ -57,7 +57,10 @@ jobs:
           ros-jazzy-realtime-tools \
           ros-jazzy-joint-state-broadcaster \
           ros-jazzy-imu-sensor-broadcaster \
-          ros-jazzy-gz-ros2-control
+          ros-jazzy-simulation-interfaces \
+          ros-jazzy-ros-gz-interfaces \
+          ros-jazzy-gz-ros2-control \
+          ros-jazzy-ros-gz
         
     - name: Pinocchio from robotpkg
       run: |
@@ -89,7 +92,7 @@ jobs:
         rosdep update
         rosdep install --from-paths src --ignore-src -r -y
 
-    - name: Build Release
+    - name: Build Debug
       shell: bash
       run: |
         source /opt/ros/jazzy/setup.bash
