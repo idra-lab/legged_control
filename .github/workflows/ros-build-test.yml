@@ -51,6 +51,13 @@ jobs:
         apt upgrade -y
         apt install -y ros-jazzy-desktop
         apt install -y ros-jazzy-ros-base
+        apt install -y \
+          ros-jazzy-controller-interface \
+          ros-jazzy-hardware-interface \
+          ros-jazzy-realtime-tools \
+          ros-jazzy-joint-state-broadcaster \
+          ros-jazzy-imu-sensor-broadcaster \
+          ros-jazzy-gazebo-ros2-control
         
     - name: Pinocchio from robotpkg
       run: |
