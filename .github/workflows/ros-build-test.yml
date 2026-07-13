@@ -61,12 +61,12 @@ jobs:
         
     - name: Pinocchio from robotpkg
       run: |
+        apt install -qqy lsb-release
+        mkdir -p /etc/apt/keyrings
         curl http://robotpkg.openrobots.org/packages/debian/robotpkg.asc | tee /etc/apt/keyrings/robotpkg.asc
         echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/robotpkg.asc] http://robotpkg.openrobots.org/packages/debian/pub $(lsb_release -cs) robotpkg" | tee /etc/apt/sources.list.d/robotpkg.list
-        apt-get update
-        apt-get install -y robotpkg-coal robotpkg-pinocchio
-        echo "CMAKE_PREFIX_PATH=/opt/openrobots:${CMAKE_PREFIX_PATH}" >> $GITHUB_ENV
-        echo "LD_LIBRARY_PATH=/opt/openrobots/lib:${LD_LIBRARY_PATH}" >> $GITHUB_ENV
+        apt update
+        apt install robotpkg-pinocchio robotpkg-coal
 
     - name: Checkout dependencies
       run: |
