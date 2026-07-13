@@ -88,4 +88,4 @@ jobs:
       shell: bash
       run: |
         source /opt/ros/jazzy/setup.bash
-        colcon build --packages-up-to legged_controllers legged_unitree_description legged_gazebo legged_unitree_hw  
+        colcon build --packages-up-to legged_controllers legged_unitree_description legged_gazebo legged_unitree_hw --cmake-args -DCMAKE_BUILD_TYPE=Debug 
