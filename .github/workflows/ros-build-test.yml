@@ -2,9 +2,9 @@ name: Build and Test legged control
 
 on:
   push:
-    branches: [ ros-one-devel ]
+    branches: [ ros2-jazzy-devel ]
   pull_request:
-    branches: [ ros-one-devel ]
+    branches: [ ros2-jazzy-devel ]
 
 jobs:
   build:
@@ -30,18 +30,29 @@ jobs:
         apt-get update
         apt-get install -y git ninja-build liburdfdom-dev liboctomap-dev libassimp-dev liblcm-dev checkinstall wget rsync curl
 
-    - name: ROS One installation
+    - name: ROS Jazzy installation
       run: |
-        curl -sSL https://ros.packages.techfak.net/gpg.key -o /etc/apt/keyrings/ros-one-keyring.gpg
-        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/ros-one-keyring.gpg] https://ros.packages.techfak.net $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/ros1.list
-        apt-get update
-        apt-get install -y python3-rosdep python3-catkin-tools
-        rosdep init
-        echo "yaml https://ros.packages.techfak.net/ros-one.yaml one" | tee /etc/ros/rosdep/sources.list.d/1-ros-one.list
-        rosdep update
-        apt-get install -y ros-one-desktop
-        apt-get install -y ros-one-controller-interface ros-one-realtime-tools ros-one-joint-state-controller ros-one-imu-sensor-controller ros-one-gazebo-ros ros-one-gazebo-ros-control
-
+        locale
+        apt update
+        apt install locales
+        locale-gen en_US en_US.UTF-8
+        update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
+        export LANG=en_US.UTF-8
+        locale
+        apt install software-properties-common
+        add-apt-repository universe
+        apt update
+        export ROS_APT_SOURCE_VERSION=$(curl -s https://api.github.com/repos/ros-infrastructure/ros-apt-source/releases/latest | grep -F "tag_name" | awk -F'"' '{print $4}')
+        curl -L -o /tmp/ros2-apt-source.deb "https://github.com/ros-infrastructure/ros-apt-source/releases/download/${ROS_APT_SOURCE_VERSION}/ros2-apt-source_${ROS_APT_SOURCE_VERSION}.$(. /etc/os-release && echo ${UBUNTU_CODENAME:-${VERSION_CODENAME}})_all.deb"
+        dpkg -i /tmp/ros2-apt-source.deb
+        apt update
+        apt install ros-dev-tools
+        apt update
+        apt upgrade
+        apt install ros-jazzy-desktop
+        apt install ros-jazzy-ros-base
+        source /opt/ros/jazzy/setup.bash
+        
     - name: Pinocchio from robotpkg
       run: |
         curl http://robotpkg.openrobots.org/packages/debian/robotpkg.asc | tee /etc/apt/keyrings/robotpkg.asc
@@ -53,12 +64,12 @@ jobs:
 
     - name: Checkout dependencies
       run: |
-        git clone -b ros-one-devel https://github.com/idra-lab/ocs2.git src/ocs2
-        git clone https://github.com/leggedrobotics/ocs2_robotic_assets.git src/ocs2_robotic_assets
+        git clone -b ros2 https://github.com/idra-lab/ocs2.git src/ocs2
+        git clone -b ros2 https://github.com/leggedrobotics/ocs2_robotic_assets.git src/ocs2_robotic_assets
 
     - uses: actions/checkout@v4
       with: 
-        ref: ros-one-devel
+        ref: ros2-jazzy-devel
         path: src/legged_control 
 
     - name: Rosdep
@@ -69,7 +80,5 @@ jobs:
     - name: Build Release
       shell: bash
       run: |
-        source /opt/ros/one/setup.bash
-        catkin init
-        catkin config --cmake-args -DCMAKE_BUILD_TYPE=Release
-        catkin build legged_controllers legged_unitree_description legged_gazebo legged_unitree_hw  
+        source /opt/ros/jazzy/setup.bash
+        colcon build --packages-up-to legged_controllers legged_unitree_description legged_gazebo legged_unitree_hw  
