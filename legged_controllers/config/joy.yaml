@@ -1,42 +1,43 @@
-teleop:
-  walk:
-    type: topic
-    message_type: geometry_msgs/Twist
-    topic_name: cmd_vel
-    deadman_buttons: [ 4 ]
-    axis_mappings:
-      - axis: 0
-        target: linear.y
-        scale: 0.5
-      - axis: 1
-        target: linear.x
-        scale: 0.5
-      - axis: 3
-        target: angular.z
-        scale: 1.5
-        
-  standup:
-    type: topic
-    message_type: geometry_msgs/Twist
-    topic_name: cmd_vel
-    deadman_buttons: [ 0 ]
-    message_value:
-    - 
-      target: linear.z
-      value: 0.2
-    - 
-      target: linear.x
-      value: 0.0
-    -
-      target: linear.y
-      value: 0.0
-  
-  shutdown: 
+joy_teleop:
+  ros__parameters:
+
+    walk:
+      type: topic
+      interface_type: geometry_msgs/msg/Twist
+      topic_name: cmd_vel
+      deadman_buttons: [ 4 ]
+      axis_mappings:
+        linear-y:
+          axis: 0
+          scale: 0.5
+          offset: 0.0
+        linear-x:
+          axis: 1
+          scale: 0.5
+          offset: 0.0
+        angular-z:
+          axis: 3
+          scale: 1.5
+          offset: 0.0
+
+    standup:
+      type: topic
+      interface_type: geometry_msgs/msg/Twist
+      topic_name: cmd_vel
+      deadman_buttons: [ 0 ]
+      message_value:
+        linear-z:
+          value: 0.2
+        linear-x:
+          value: 0.0
+        linear-y:
+          value: 0.0
+
+    shutdown:
       type: service
       interface_type: legged_controllers/srv/KillNode
       service_name: /kill_node_sigint
       service_request:
         node_name: /legged_unitree_hw
-      buttons: [1]  
-    
-    
+      buttons: [1]
+
