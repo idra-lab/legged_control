@@ -3,8 +3,12 @@
 
   <let name="legged_robot_description" value="$(command 'xacro $(find-pkg-share legged_unitree_description)/urdf/robot.xacro robot_type:=$(var robot_type)')"/>
 
-  <node pkg="legged_common" exec="generate_urdf.sh" output="screen" name="generate_urdf" 
+  <node pkg="legged_common" exec="generate_urdf.sh" output="screen" name="generate_urdf"
     args="$(find-pkg-share legged_unitree_description)/urdf/robot.xacro $(var robot_type)">
+  </node>
+
+  <node pkg="robot_state_publisher" exec="robot_state_publisher" name="robot_state_publisher" output="screen">
+    <param name="robot_description" value="$(var legged_robot_description)"/>
   </node>
 
   <let name="robot_type" value="$(var robot_type)"/>
