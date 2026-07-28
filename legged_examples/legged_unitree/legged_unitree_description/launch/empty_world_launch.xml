@@ -1,0 +1,23 @@
+<launch>
+  <arg name="robot_type" default="aliengo" description="Robot type: [a1, aliengo, go1, laikago]"/>
+  <arg name="use_sim_time" default="true"/>
+
+  <let name="legged_robot_description" value="$(command 'xacro $(find-pkg-share legged_unitree_description)/urdf/robot.xacro robot_type:=$(var robot_type)')"/>
+
+  <node pkg="legged_common" exec="generate_urdf.sh" output="screen" name="generate_urdf" args="$(find-pkg-share legged_unitree_description)/urdf/robot.xacro $(var robot_type)"/>
+
+  <node pkg="robot_state_publisher" exec="robot_state_publisher" name="robot_state_publisher" output="screen">
+    <param name="robot_description" value="$(var legged_robot_description)"/>
+    <param name="use_sim_time" value="$(var use_sim_time)"/>
+  </node>
+
+  <include file="$(find-pkg-share ros_gz_sim)/launch/gz_sim.launch.py">
+    <arg name="gz_args" value="-r $(find-pkg-share legged_gazebo)/worlds/empty_world.world"/>
+  </include>
+
+  <node pkg="ros_gz_sim" exec="create" output="screen" name="spawn_urdf" 
+    args="-z 0.5 -topic robot_description -name $(var robot_type)"/>
+
+  <node pkg="ros_gz_bridge" exec="parameter_bridge" name="clock_bridge" output="screen"
+    args="/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock"/>
+</launch>
