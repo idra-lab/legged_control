@@ -92,9 +92,9 @@ jobs:
         rosdep update
         rosdep install --from-paths src --ignore-src -r -y
 
-    - name: Build Debug
+    - name: Build Release
       shell: bash
       run: |
         source /opt/ros/jazzy/setup.bash
         echo "CMAKE_PREFIX_PATH=$CMAKE_PREFIX_PATH"
-        colcon build --packages-up-to legged_controllers legged_unitree_description legged_gazebo legged_unitree_hw --cmake-args -DCMAKE_BUILD_TYPE=Debug 
+        colcon build --packages-up-to legged_controllers legged_unitree_description legged_gazebo legged_unitree_hw --cmake-args -DCMAKE_BUILD_TYPE=Release 
