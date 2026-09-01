@@ -1,0 +1,45 @@
+; Scenario S2 -- patrolling obstacle sweeping a 2 m corridor in y about its starting position.
+; Mirrors opti-pessi-mpc/aliengo_conf_S2.py.
+
+goal
+{
+  (0,0)  1.0
+  (1,0)  0.2
+}
+
+obstacles
+{
+  numObstacles  1
+  radius        0.2
+  maxSpeed      1.0
+
+  positions
+  {
+    (0,0)  0.1
+    (0,1)  1.0
+  }
+}
+
+plant
+{
+  movement
+  {
+    [0]  patrol
+  }
+  speed
+  {
+    [0]  0.5
+  }
+  direction
+  {
+    (0,0)  0.0
+    (0,1) -1.0
+  }
+}
+
+simulation
+{
+  simTime        20.0
+  goalTolerance  0.1
+  figName        "mpc_sim_5_"
+}

@@ -1,0 +1,47 @@
+; Scenario S3 -- obstacle orbiting the goal at constant speed.
+; The orbit radius and initial phase are derived from the starting position and the goal.
+; plant.direction is unused by the circle law but must still be present.
+; Mirrors opti-pessi-mpc/aliengo_conf_S3.py.
+
+goal
+{
+  (0,0)  1.0
+  (1,0)  0.2
+}
+
+obstacles
+{
+  numObstacles  1
+  radius        0.2
+  maxSpeed      1.0
+
+  positions
+  {
+    (0,0)  0.1
+    (0,1)  1.0
+  }
+}
+
+plant
+{
+  movement
+  {
+    [0]  circle
+  }
+  speed
+  {
+    [0]  0.45
+  }
+  direction
+  {
+    (0,0)  0.0
+    (0,1) -1.0
+  }
+}
+
+simulation
+{
+  simTime        20.0
+  goalTolerance  0.1
+  figName        "mpc_sim_4_"
+}

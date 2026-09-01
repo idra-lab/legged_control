@@ -1,0 +1,50 @@
+; Scenario S1 -- static obstacle.
+; The obstacle does not move, but the OCP still assumes it may move at up to obstacles.maxSpeed.
+; Mirrors opti-pessi-mpc/aliengo_conf_S1.py.
+
+goal
+{
+  (0,0)  1.0
+  (1,0)  0.2
+}
+
+obstacles
+{
+  numObstacles  1
+  radius        0.2   ; r_obs [m]
+  maxSpeed      1.0   ; v_obs [m/s] -- the bound the pessimistic branch is robust against
+
+  ; Measured centres at t = 0, one row per obstacle.
+  positions
+  {
+    (0,0)  0.1
+    (0,1)  1.0
+  }
+}
+
+; Ground-truth obstacle motion. Unknown to the OCP; only the current centre is ever observed.
+; Note plant.speed is well below obstacles.maxSpeed -- that gap is exactly what Opti-Pessi exploits
+; over a classic robust MPC, which would plan against the inflated disk along its whole trajectory.
+plant
+{
+  movement
+  {
+    [0]  straight
+  }
+  speed
+  {
+    [0]  0.0
+  }
+  direction
+  {
+    (0,0)  0.0
+    (0,1) -1.0
+  }
+}
+
+simulation
+{
+  simTime        20.0
+  goalTolerance  0.1
+  figName        "mpc_sim_0_"
+}

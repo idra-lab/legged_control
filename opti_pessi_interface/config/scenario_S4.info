@@ -1,0 +1,47 @@
+; Scenario S4 -- antagonist obstacle that chases the robot.
+; This is the hardest case and the one used for the Python-vs-C++ parity check in compare_s4/.
+; plant.direction is unused by the antagonist law but must still be present.
+; Mirrors opti-pessi-mpc/aliengo_conf_S4.py.
+
+goal
+{
+  (0,0)  1.0
+  (1,0)  0.2
+}
+
+obstacles
+{
+  numObstacles  1
+  radius        0.2
+  maxSpeed      1.0
+
+  positions
+  {
+    (0,0)  0.3
+    (0,1)  0.8
+  }
+}
+
+plant
+{
+  movement
+  {
+    [0]  antagonist
+  }
+  speed
+  {
+    [0]  0.2
+  }
+  direction
+  {
+    (0,0)  0.0
+    (0,1) -1.0
+  }
+}
+
+simulation
+{
+  simTime        30.0
+  goalTolerance  0.1
+  figName        "mpc_sim_2_"
+}

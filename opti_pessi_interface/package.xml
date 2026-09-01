@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>opti_pessi_interface</name>
+  <version>0.0.0</version>
+  <description>
+    OCS2 formulation of the Optimistic-Pessimistic MPC for dynamic obstacle avoidance: a 3D linear
+    inverted pendulum with yaw, variable-duration diagonal-trot footsteps, and two coupled predicted
+    trajectories sharing their first input. C++ port of opti-pessi-mpc, structured after
+    legged_interface.
+  </description>
+  <maintainer email="alejandro.enrique.barbi@gmail.com">abarbi</maintainer>
+  <license>BSD</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>ocs2_core</depend>
+  <depend>ocs2_oc</depend>
+  <depend>ocs2_ipm</depend>
+  <depend>ocs2_mpc</depend>
+  <depend>ocs2_robotic_tools</depend>
+  <depend>eigen3_cmake_module</depend>
+  <depend>boost</depend>
+
+  <test_depend>ament_cmake_gtest</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

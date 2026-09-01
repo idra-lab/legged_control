@@ -1,0 +1,125 @@
+; Opti-Pessi MPC -- robot model, cost, limits, horizon and solver settings.
+; Ported 1:1 from opti-pessi-mpc/aliengo_conf.py (Unitree Aliengo).
+; Scenario-specific data (goal, obstacles, simulation) lives in config/scenario_S*.info.
+
+model
+{
+  comHeight            0.38    ; h, locked CoM height [m]
+  gravity              9.81    ; g [m/s^2]
+  mass                 24.24   ; m [kg]
+  inertia              1.048   ; I about the vertical axis [kg m^2]
+  frictionCoefficient  0.8     ; mu, rubber on asphalt
+}
+
+; Body-frame hip offsets [m], rows in the order FL, FR, RL, RR.
+; These are the measured values, not the URDF ones (the reference overrides the URDF too).
+hipOffsets
+{
+  (0,0)  0.2407   ; FL x
+  (0,1)  0.134    ; FL y
+  (1,0)  0.2407   ; FR x
+  (1,1) -0.134    ; FR y
+  (2,0) -0.2407   ; RL x
+  (2,1)  0.134    ; RL y
+  (3,0) -0.2407   ; RR x
+  (3,1) -0.134    ; RR y
+}
+
+cost
+{
+  wc        1.0     ; CoM position error to the goal
+  wdc       2.0     ; CoM velocity magnitude (regularization toward standstill)
+  wp        0.5     ; foothold distance to the nominal hip
+  wa        0.5     ; CoP centering, (alpha - 1/2)^2
+  wdt       1e-2    ; contact-phase duration, (dt - dtCost0)^2
+  wtheta    0.0     ; heading alignment -- algebraically zero, kept for 1:1 fidelity
+  wdtheta   2.0     ; yaw rate
+}
+
+limits
+{
+  alphaReduction  0.1    ; CoP margin: alpha in [eps, 1-eps], keeps both feet loaded
+  dtMin           0.2    ; [s]
+  dtMax           0.35   ; [s]
+  dtCost0         0.35   ; preferred contact-phase duration [s]
+  footHipMax      0.1    ; foot-to-hip reachability radius [m]
+  dcxMax          1.5    ; body-frame longitudinal speed [m/s]
+  dcyMax          0.45   ; body-frame lateral speed [m/s]
+  dthetaMax       0.8    ; yaw rate [rad/s]
+}
+
+horizon
+{
+  N  6   ; contact phases; with dt in [0.2, 0.35] s this is a 1.2-2.1 s lookahead
+}
+
+; Measured 10-dof robot state the simulation starts from:
+; [cx, cy, theta, dcx, dcy, dtheta, p0x, p0y, p1x, p1y].
+; The stance feet (last four) are overwritten at t=0 with the nominal FR/RL hip positions.
+initialState
+{
+  (0,0)  -0.8   ; cx
+  (1,0)  -0.5   ; cy
+  (2,0)   0.0   ; theta
+  (3,0)   0.0   ; dcx
+  (4,0)   0.0   ; dcy
+  (5,0)   0.0   ; dtheta
+  (6,0)   0.0   ; p0x
+  (7,0)   0.0   ; p0y
+  (8,0)   0.0   ; p1x
+  (9,0)   0.0   ; p1y
+}
+
+; Interior-point multiple shooting.
+;
+; dt = 1.0 and integratorType EULER are LOAD-BEARING, not tuning: OCS2 "time" is the knot index,
+; and OptiPessiDynamicsAD::systemFlowMap returns lipMap(x,u) - x, so an Euler step of length 1
+; reproduces the exact discrete LIP map. The real phase duration is the decision variable dt.
+; See include/opti_pessi_interface/definitions.h.
+ipm
+{
+  dt                             1.0
+  integratorType                 EULER
+  ipmIteration                   500
+  deltaTol                       1e-4
+  costTol                        1e-4
+  g_min                          1e-4
+  g_max                          1e6
+  useFeedbackPolicy              false
+  createValueFunction            false
+  computeLagrangeMultipliers     false
+  initialBarrierParameter        1e-2
+  targetBarrierParameter         1e-4
+  nThreads                       1
+  printSolverStatus              false
+  printSolverStatistics          false
+  printLinesearch                false
+}
+
+; Not read by ocs2::ipm::loadSettings; loaded separately by OptiPessiInterface.
+; The hyperplane variables enter the collision rows bilinearly, so the QP Hessian is routinely
+; singular and needs primal regularization.
+hpipm
+{
+  reg_prim  1e2
+}
+
+mpc
+{
+  timeHorizon                  6.0
+  solutionTimeWindow          -1
+  coldStart                    false
+  debugPrint                   false
+  mpcDesiredFrequency         -1
+  mrtDesiredFrequency         100
+}
+
+rollout
+{
+  AbsTolODE                    1e-5
+  RelTolODE                    1e-3
+  timeStep                     1.0
+  integratorType               ODE45
+  maxNumStepsPerSecond         10000
+  checkNumericalStability      false
+}

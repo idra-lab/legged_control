@@ -1,0 +1,45 @@
+; Scenario S4 with a short horizon, used only by testS4ClosedLoop.
+; Identical to scenario_S4.info except simulation.simTime, which is cut from 30 s to 8 s.
+
+goal
+{
+  (0,0)  1.0
+  (1,0)  0.2
+}
+
+obstacles
+{
+  numObstacles  1
+  radius        0.2
+  maxSpeed      1.0
+
+  positions
+  {
+    (0,0)  0.3
+    (0,1)  0.8
+  }
+}
+
+plant
+{
+  movement
+  {
+    [0]  antagonist
+  }
+  speed
+  {
+    [0]  0.2
+  }
+  direction
+  {
+    (0,0)  0.0
+    (0,1) -1.0
+  }
+}
+
+simulation
+{
+  simTime        8.0
+  goalTolerance  0.1
+  figName        "mpc_sim_2_test_"
+}
