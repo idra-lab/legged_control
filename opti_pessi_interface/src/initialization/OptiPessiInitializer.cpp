@@ -70,11 +70,8 @@ void seedHyperplanes(vector_t& input, int hyperplaneOffset, const OptiPessiModel
     const scalar_t b = -maxProjection;
 
     const int base = hyperplaneOffset + kHyperplaneVarsPerObs * j;
-    const scalar_t phi = std::atan2(a(1), a(0));
-    input(base + Hyperplane::PHI_MID) = phi;
-    input(base + Hyperplane::PHI_LAND) = phi;
-    input(base + Hyperplane::B_MID) = b;
-    input(base + Hyperplane::B_LAND) = b;
+    input(base + Hyperplane::PHI) = std::atan2(a(1), a(0));
+    input(base + Hyperplane::B) = b;
   }
 }
 

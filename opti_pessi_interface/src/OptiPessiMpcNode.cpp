@@ -105,6 +105,11 @@ int main(int argc, char** argv) {
     solveTimeStatistics(result.solveTimes, mean, stddev, p95);
     std::printf("Solve time [mean, std, p95]: %.4f %.4f %.4f s\n", mean, stddev, p95);
     std::printf("Simulated time:        %.3f s\n", result.inputTrajectory.row(RobotU::DT).sum());
+    std::printf("Steps on a relaxed keep-out (pessiScale < 1): %d\n", result.relaxedSteps);
+    std::printf("Steps where every solve failed (fallback):    %d\n", result.fallbackSteps);
+    if (result.relaxedSteps > 0 || result.fallbackSteps > 0) {
+      std::cout << "  NOTE: those steps are not robust to the full v_obstacle bound.\n";
+    }
 
     dumpTrajectories(params, result);
     return 0;

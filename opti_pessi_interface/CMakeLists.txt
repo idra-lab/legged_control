@@ -27,8 +27,10 @@ add_library(${PROJECT_NAME} SHARED
   src/OptiPessiInterface.cpp
   src/dynamics/OptiPessiDynamicsAD.cpp
   src/cost/OptiPessiCost.cpp
+  src/constraint/InputBoundsConstraint.cpp
   src/constraint/StageInequalityConstraint.cpp
   src/constraint/TerminalCopConstraint.cpp
+  src/constraint/TerminalObstacleConstraint.cpp
   src/constraint/FirstInputConsensusConstraint.cpp
   src/initialization/OptiPessiInitializer.cpp
   src/simulation/ObstaclePlant.cpp

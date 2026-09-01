@@ -44,7 +44,19 @@ struct RobotX {
   static constexpr int P0Y = 7;
   static constexpr int P1X = 8;
   static constexpr int P1Y = 9;
-  static constexpr int DIM = 10;
+  /**
+   * Footholds of the PREVIOUS contact phase, carried along so that the reference's reachability
+   * condition "the feet you are standing on must still be reachable once the CoM has moved"
+   * (ocp_quadruped.py:118-121, p_i measured against base i+1) can be written at the knot where both
+   * quantities live, instead of being composed with the dynamics. They are a pure copy -- see
+   * lipMap -- so they cost nothing in conditioning. Dropping this family lets the robot stride far
+   * harder than the reference: max speed 1.53 m/s against the reference's 0.88 m/s.
+   */
+  static constexpr int PP0X = 10;
+  static constexpr int PP0Y = 11;
+  static constexpr int PP1X = 12;
+  static constexpr int PP1Y = 13;
+  static constexpr int DIM = 14;
 };
 
 /** Per-branch robot input layout (R^8). The first four entries are the NEXT footholds. */
@@ -78,14 +90,12 @@ struct RobotU {
  * solve of scenario S4 and the closed loop degrades from there. With the angle form the cheat does
  * not exist, and the norm equality (and its constraint block) disappears entirely.
  */
-constexpr int kHyperplaneVarsPerObs = 4;
+constexpr int kHyperplaneVarsPerObs = 2;
 
 /** Offsets within one obstacle's hyperplane block. */
 struct Hyperplane {
-  static constexpr int PHI_MID = 0;
-  static constexpr int PHI_LAND = 1;
-  static constexpr int B_MID = 2;
-  static constexpr int B_LAND = 3;
+  static constexpr int PHI = 0;
+  static constexpr int B = 1;
 };
 
 /** Augmented state: optimistic branch || pessimistic branch || elapsed-time clock. */

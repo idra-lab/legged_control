@@ -115,6 +115,11 @@ Vec lipMap(const Vec& x, const Vec& u, typename Vec::Scalar w, typename Vec::Sca
   xNext(RobotX::P0Y) = p0n(1);
   xNext(RobotX::P1X) = p1n(0);
   xNext(RobotX::P1Y) = p1n(1);
+  // This phase's stance feet become the next phase's "previous" feet -- a pure copy.
+  xNext(RobotX::PP0X) = p0(0);
+  xNext(RobotX::PP0Y) = p0(1);
+  xNext(RobotX::PP1X) = p1(0);
+  xNext(RobotX::PP1Y) = p1(1);
   return xNext;
 }
 

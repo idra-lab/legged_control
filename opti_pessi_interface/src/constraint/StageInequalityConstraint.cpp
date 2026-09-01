@@ -6,18 +6,50 @@ namespace opti_pessi {
 
 namespace {
 
-/** 8 input bounds + 2 friction cones + 3 velocity bounds + 8 reachability/separation. */
-constexpr int kRobotInequalities = 21;
+/**
+ * KNOT-LOCAL TRANSCRIPTION -- read this before changing anything here.
+ *
+ * Every row below is a function of the state at THIS knot and the input at this knot. Nothing is
+ * composed with the dynamics.
+ *
+ * The reference implementation instead re-derived the next state as lipMap(x_i, u_i) inside each
+ * constraint, because the Python original writes its bounds on x[:, i+1] and OCS2's stage-constraint
+ * API only sees (t, x_i, u_i). Both express the same feasible set -- the shooting defect forces
+ * x_{i+1} = lipMap(x_i, u_i) at any solution -- but they are wildly different optimization problems:
+ * composing with the dynamics pushes cosh/sinh of the decision variable dt, products with alpha, and
+ * the absolute world position through every Jacobian the QP sees. The resulting Hessian is so badly
+ * conditioned that the solver needed hpipm reg_prim ~ 1e2 to take a step at all, and still converged
+ * to points with cost ~1e6.
+ *
+ * Multiple shooting already carries x_{i+1} as a decision variable, so the constraint can simply be
+ * imposed at the knot where the quantity lives -- which is exactly what CasADi's transcription does,
+ * and why it converges where the composed form does not. Bounds that the Python writes on knot i+1
+ * are therefore written here on knot i and imposed over knots 1..N.
+ */
 
-/** Per obstacle: (4 hips + 1 obstacle) mid-step + (4 hips + 2 feet + 1 obstacle) landing. */
-constexpr int kCollisionInequalitiesPerObstacle = 12;
+/**
+ * 3 velocity/yaw-rate bounds + 8 reachability rows: the current stance feet AND the previous stance
+ * feet, each {distance to own hip, left/right side}, all measured against THIS knot's base. The
+ * previous-foot family is the reference's "planted feet must remain reachable once the CoM has
+ * moved" (ocp_quadruped.py:118-121); it is what actually limits stride length, and hence top speed.
+ */
+constexpr int kPathRowsPerBranch = 11;
 
-/** Parameters: 12 hips-and-signs + 2 per obstacle centre + 1 pessimistic scale. */
+/** Per obstacle: 4 hips + 2 stance feet on the safe side, plus the obstacle on the far side. */
+constexpr int kCollisionRowsPerObstacle = 7;
+
+/**
+ * Parameters: hip offsets and left/right signs for THIS knot's stance pair and for the previous
+ * knot's stance pair (the trot alternates), then the obstacle centres and the pessimistic scale.
+ */
 constexpr int kHipsAndSignsDim = 12;
 
+int rowsPerBranch(const OptiPessiModelParameters& params) {
+  return kPathRowsPerBranch + kCollisionRowsPerObstacle * params.numObstacles();
+}
+
 int stageInequalityCount(const OptiPessiModelParameters& params) {
-  const int perBranch = kRobotInequalities + kCollisionInequalitiesPerObstacle * params.numObstacles();
-  return 2 * perBranch;  // optimistic + pessimistic
+  return 2 * rowsPerBranch(params);  // optimistic + pessimistic
 }
 
 int parameterDim(const OptiPessiModelParameters& params) {
@@ -25,117 +57,82 @@ int parameterDim(const OptiPessiModelParameters& params) {
 }
 
 /**
- * Hip offsets of the current and next stance pairs plus their left/right signs, so the AD library
+ * Hip offsets of THIS knot's stance pair plus their left/right signs, so the generated AD library
  * stays gait-agnostic and only the parameter vector changes as the trot alternates.
  */
 vector_t hipsAndSignsParameters(const OptiPessiModelParameters& params, const OptiPessiReferenceManager& referenceManager, int i) {
-  const auto current = gaitPair(referenceManager.getGaitOffset() + i);
-  const auto next = gaitPair(referenceManager.getGaitOffset() + i + 1);
+  const auto stance = gaitPair(referenceManager.getGaitOffset() + i);
+  const auto previous = gaitPair(referenceManager.getGaitOffset() + i - 1);
   vector_t p(kHipsAndSignsDim);
-  p.segment(0, 2) = hipOf(params, current[0]);
-  p.segment(2, 2) = hipOf(params, current[1]);
-  p.segment(4, 2) = hipOf(params, next[0]);
-  p.segment(6, 2) = hipOf(params, next[1]);
-  p(8) = isLeft(current[0]) ? 1.0 : -1.0;
-  p(9) = isLeft(current[1]) ? 1.0 : -1.0;
-  p(10) = isLeft(next[0]) ? 1.0 : -1.0;
-  p(11) = isLeft(next[1]) ? 1.0 : -1.0;
+  p.segment(0, 2) = hipOf(params, stance[0]);
+  p.segment(2, 2) = hipOf(params, stance[1]);
+  p(4) = isLeft(stance[0]) ? 1.0 : -1.0;
+  p(5) = isLeft(stance[1]) ? 1.0 : -1.0;
+  p.segment(6, 2) = hipOf(params, previous[0]);
+  p.segment(8, 2) = hipOf(params, previous[1]);
+  p(10) = isLeft(previous[0]) ? 1.0 : -1.0;
+  p(11) = isLeft(previous[1]) ? 1.0 : -1.0;
   return p;
 }
 
-/** Robot inequalities of a single branch. All entries are written in the form g >= 0. */
+/** Velocity/yaw-rate bounds and foot reachability, all evaluated at this knot. Rows are g >= 0. */
 template <typename Vec>
-void appendRobotInequalities(Vec& g, int& idx, const Vec& x, const Vec& u, const Vec& xNext, const OptiPessiModelParameters& params,
-                             const Vec& hipsAndSigns) {
+void appendPathRows(Vec& g, int& idx, const Vec& x, const OptiPessiModelParameters& params, const Vec& hipsAndSigns) {
   using Scalar = typename Vec::Scalar;
   using Vec2 = Eigen::Matrix<Scalar, 2, 1>;
 
-  const Scalar epsAlpha = Scalar(params.alphaReduction);
-  const Scalar alpha = u(RobotU::ALPHA);
-  const Scalar dt = u(RobotU::DT);
-  const Scalar beta = u(RobotU::BETA);
-  const Scalar gamma = u(RobotU::GAMMA);
-
-  // Input bounds.
-  g(idx++) = alpha - epsAlpha;
-  g(idx++) = Scalar(1) - epsAlpha - alpha;
-  g(idx++) = beta;
-  g(idx++) = Scalar(1) - beta;
-  g(idx++) = gamma;
-  g(idx++) = Scalar(1) - gamma;
-  g(idx++) = dt - Scalar(params.dtMin);
-  g(idx++) = Scalar(params.dtMax) - dt;
-
-  // Circular friction cones. Normal loads are split by alpha: fn0 = alpha*m*g, fn1 = (1-alpha)*m*g.
-  // Normalized by the squared cone limit so all rows of g have comparable magnitude.
-  const Vec2 c(x(RobotX::CX), x(RobotX::CY));
-  const Vec2 p0(x(RobotX::P0X), x(RobotX::P0Y));
-  const Vec2 p1(x(RobotX::P1X), x(RobotX::P1Y));
-  Vec2 f0, f1;
-  computeTangentialForces(c, p0, p1, alpha, beta, gamma, Scalar(params.omega()), Scalar(params.mass), f0, f1);
-  const Scalar fn0 = alpha * Scalar(params.frictionCoefficient) * Scalar(params.mass) * Scalar(params.gravity);
-  const Scalar fn1 = (Scalar(1) - alpha) * Scalar(params.frictionCoefficient) * Scalar(params.mass) * Scalar(params.gravity);
-  const Scalar fn0sq = fn0 * fn0 + Scalar(1e-3);
-  const Scalar fn1sq = fn1 * fn1 + Scalar(1e-3);
-  g(idx++) = Scalar(1) - (f0(0) * f0(0) + f0(1) * f0(1)) / fn0sq;
-  g(idx++) = Scalar(1) - (f1(0) * f1(0) + f1(1) * f1(1)) / fn1sq;
-
-  // Velocity bounds at knot i+1, expressed in the body frame of knot i.
+  // CoM velocity box in this knot's own body frame, plus the yaw-rate bound.
   const Scalar theta = x(RobotX::TH);
-  const Vec2 dcNext(xNext(RobotX::DCX), xNext(RobotX::DCY));
-  const Vec2 dcBody = applyR01(theta, dcNext);
+  const Vec2 dc(x(RobotX::DCX), x(RobotX::DCY));
+  const Vec2 dcBody = applyR01(theta, dc);
   g(idx++) = Scalar(params.dcxMax) * Scalar(params.dcxMax) - dcBody(0) * dcBody(0);
   g(idx++) = Scalar(params.dcyMax) * Scalar(params.dcyMax) - dcBody(1) * dcBody(1);
-  g(idx++) = Scalar(params.dthetaMax) * Scalar(params.dthetaMax) - xNext(RobotX::DTH) * xNext(RobotX::DTH);
+  g(idx++) = Scalar(params.dthetaMax) * Scalar(params.dthetaMax) - x(RobotX::DTH) * x(RobotX::DTH);
 
-  // Foot reachability and left/right separation, all in the body frame of the NEXT base pose.
-  const Vec2 cN(xNext(RobotX::CX), xNext(RobotX::CY));
-  const Scalar thN = xNext(RobotX::TH);
+  // Stance feet must be within reach of their own hips, and on the correct side of the body axis.
+  const Vec2 c(x(RobotX::CX), x(RobotX::CY));
   const Vec2 hip0(hipsAndSigns(0), hipsAndSigns(1));
   const Vec2 hip1(hipsAndSigns(2), hipsAndSigns(3));
-  const Vec2 hip0Next(hipsAndSigns(4), hipsAndSigns(5));
-  const Vec2 hip1Next(hipsAndSigns(6), hipsAndSigns(7));
-  const Scalar side0 = hipsAndSigns(8);
-  const Scalar side1 = hipsAndSigns(9);
-  const Scalar side0Next = hipsAndSigns(10);
-  const Scalar side1Next = hipsAndSigns(11);
+  const Scalar side0 = hipsAndSigns(4);
+  const Scalar side1 = hipsAndSigns(5);
   const Scalar rHipSq = Scalar(params.footHipMax) * Scalar(params.footHipMax);
 
-  auto reach = [&](const Vec2& pWorld, const Vec2& hipBody, const Scalar& side) {
-    const Vec2 pBody = applyR01(thN, pWorld - cN);
-    const Vec2 e = pBody - hipBody;
+  auto reach = [&](const Vec2& footWorld, const Vec2& hipBody, const Scalar& side) {
+    const Vec2 footBody = applyR01(theta, footWorld - c);
+    const Vec2 e = footBody - hipBody;
     g(idx++) = rHipSq - e.dot(e);
-    g(idx++) = side * pBody(1);
+    g(idx++) = side * footBody(1);
   };
-  const Vec2 p0Next(xNext(RobotX::P0X), xNext(RobotX::P0Y));
-  const Vec2 p1Next(xNext(RobotX::P1X), xNext(RobotX::P1Y));
-  reach(p0, hip0, side0);
-  reach(p1, hip1, side1);
-  reach(p0Next, hip0Next, side0Next);
-  reach(p1Next, hip1Next, side1Next);
+  reach(Vec2(x(RobotX::P0X), x(RobotX::P0Y)), hip0, side0);
+  reach(Vec2(x(RobotX::P1X), x(RobotX::P1Y)), hip1, side1);
+
+  // The feet the robot was standing on during the previous phase must still be within reach of the
+  // base it has now moved to. This is what caps stride length.
+  const Vec2 prevHip0(hipsAndSigns(6), hipsAndSigns(7));
+  const Vec2 prevHip1(hipsAndSigns(8), hipsAndSigns(9));
+  reach(Vec2(x(RobotX::PP0X), x(RobotX::PP0Y)), prevHip0, hipsAndSigns(10));
+  reach(Vec2(x(RobotX::PP1X), x(RobotX::PP1Y)), prevHip1, hipsAndSigns(11));
 }
 
 /**
- * Separating-hyperplane certificate: every hip (and optionally the two next feet) must lie in
- * a^T y + b <= 0, while the obstacle centre must satisfy a^T o + b >= dMin. Together with
- * ||a|| = 1 this proves the convex hull of the robot points is at least dMin from the centre.
+ * Separating-hyperplane certificate at this knot: every hip and both stance feet must lie in
+ * a^T y + b <= 0 while the obstacle centre satisfies a^T o + b >= dMin. With a = (cos phi, sin phi)
+ * the unit-norm condition holds identically, so this proves the robot's convex hull clears the disk
+ * of radius dMin about the centre.
  */
 template <typename Vec, typename Scalar>
-void appendCollisionInequalities(Vec& g, int& idx, const Eigen::Matrix<Scalar, 2, 1>& com, const Scalar& theta,
-                                 const Eigen::Matrix<Scalar, 2, 1>& a, const Scalar& b, const Eigen::Matrix<Scalar, 2, 1>& o,
-                                 const Scalar& dMin, const OptiPessiModelParameters& params, bool withFeet,
-                                 const Eigen::Matrix<Scalar, 2, 1>& p0, const Eigen::Matrix<Scalar, 2, 1>& p1) {
+void appendCollisionRows(Vec& g, int& idx, const Eigen::Matrix<Scalar, 2, 1>& com, const Scalar& theta,
+                         const Eigen::Matrix<Scalar, 2, 1>& p0, const Eigen::Matrix<Scalar, 2, 1>& p1,
+                         const Eigen::Matrix<Scalar, 2, 1>& a, const Scalar& b, const Eigen::Matrix<Scalar, 2, 1>& o,
+                         const Scalar& dMin, const OptiPessiModelParameters& params) {
   using Vec2 = Eigen::Matrix<Scalar, 2, 1>;
   for (int f = 0; f < 4; ++f) {
     const auto& hipOffset = params.hipOffsets[static_cast<size_t>(f)];
     const Vec2 hip(Scalar(hipOffset(0)), Scalar(hipOffset(1)));
-    const Vec2 hipWorld = com + applyR(theta, hip);
-    g(idx++) = -(a.dot(hipWorld) + b);
+    g(idx++) = -(a.dot(com + applyR(theta, hip)) + b);
   }
-  if (withFeet) {
-    g(idx++) = -(a.dot(p0) + b);
-    g(idx++) = -(a.dot(p1) + b);
-  }
+  g(idx++) = -(a.dot(p0) + b);
+  g(idx++) = -(a.dot(p1) + b);
   g(idx++) = a.dot(o) + b - dMin - Scalar(1e-3);
 }
 
@@ -149,6 +146,14 @@ StageInequalityConstraint::StageInequalityConstraint(OptiPessiModelParameters pa
   numConstraints_ = static_cast<size_t>(stageInequalityCount(params_));
   initialize(static_cast<size_t>(params_.stateDim()), static_cast<size_t>(params_.inputDim()),
              static_cast<size_t>(parameterDim(params_)), "opti_pessi_stage_inequality", libraryFolder, recompile, true);
+}
+
+bool StageInequalityConstraint::isActive(scalar_t time) const {
+  // Knot 0 is pinned to the measurement. Constraining it would make the whole OCP infeasible
+  // whenever the robot is measured even slightly outside its own bounds, which is exactly the
+  // situation in which the controller most needs to produce an answer. The reference writes these
+  // bounds on knot i+1 for i = 0..N-1, i.e. knots 1..N, for the same reason.
+  return time >= 0.5;
 }
 
 vector_t StageInequalityConstraint::getParameters(scalar_t time, const ocs2::PreComputation&) const {
@@ -178,59 +183,33 @@ ocs2::ad_vector_t StageInequalityConstraint::constraintFunction(ocs2::ad_scalar_
 
   const int numObstacles = params_.numObstacles();
   const Vec hipsAndSigns = parameters.head(kHipsAndSignsDim);
-  const Scalar w = Scalar(params_.omega());
-  const Scalar mass = Scalar(params_.mass);
-  const Scalar inertia = Scalar(params_.inertia);
+  const Scalar pessiScale = parameters(kHipsAndSignsDim + 2 * numObstacles);
 
-  // uBranch is the compact per-branch input: [u(8), hyperplanes(6 * numObstacles)].
-  auto appendBranch = [&](const Vec& x, const Vec& uBranch, const Scalar& keepOutGrowth) {
-    const Vec xNext = lipMap(x, uBranch, w, mass, inertia);
-    appendRobotInequalities(g, idx, x, uBranch, xNext, params_, hipsAndSigns);
+  auto appendBranch = [&](const Vec& x, int hyperplaneOffset, const Scalar& keepOutGrowth) {
+    appendPathRows(g, idx, x, params_, hipsAndSigns);
 
     const Vec2 c(x(RobotX::CX), x(RobotX::CY));
     const Scalar theta = x(RobotX::TH);
-    const Vec2 cN(xNext(RobotX::CX), xNext(RobotX::CY));
-    const Scalar thN = xNext(RobotX::TH);
-    const Vec2 cMid = Scalar(0.5) * (c + cN);
-    const Scalar thMid = Scalar(0.5) * (theta + thN);
-    const Vec2 p0Next(xNext(RobotX::P0X), xNext(RobotX::P0Y));
-    const Vec2 p1Next(xNext(RobotX::P1X), xNext(RobotX::P1Y));
+    const Vec2 p0(x(RobotX::P0X), x(RobotX::P0Y));
+    const Vec2 p1(x(RobotX::P1X), x(RobotX::P1Y));
 
-    const int hyperplaneOffset = RobotU::DIM;
     for (int j = 0; j < numObstacles; ++j) {
       const int base = hyperplaneOffset + kHyperplaneVarsPerObs * j;
-      // Unit normals by construction -- see the note on kHyperplaneVarsPerObs in definitions.h.
-      const Scalar phiMid = uBranch(base + Hyperplane::PHI_MID);
-      const Scalar phiLand = uBranch(base + Hyperplane::PHI_LAND);
-      const Vec2 aMid(wrapCos(phiMid), wrapSin(phiMid));
-      const Vec2 aLand(wrapCos(phiLand), wrapSin(phiLand));
-      const Scalar bMid = uBranch(base + Hyperplane::B_MID);
-      const Scalar bLand = uBranch(base + Hyperplane::B_LAND);
+      const Scalar phi = input(base + Hyperplane::PHI);
+      const Vec2 a(wrapCos(phi), wrapSin(phi));  // unit by construction
+      const Scalar b = input(base + Hyperplane::B);
       const Vec2 o(parameters(kHipsAndSignsDim + 2 * j), parameters(kHipsAndSignsDim + 2 * j + 1));
       const Scalar dMin = Scalar(params_.obstacleRadius) + keepOutGrowth;
-      appendCollisionInequalities(g, idx, cMid, thMid, aMid, bMid, o, dMin, params_, false, p0Next, p1Next);
-      appendCollisionInequalities(g, idx, cN, thN, aLand, bLand, o, dMin, params_, true, p0Next, p1Next);
+      appendCollisionRows(g, idx, c, theta, p0, p1, a, b, o, dMin, params_);
     }
   };
 
-  // Elapsed pessimistic time at the END of this interval: clock at knot i plus this interval's dt.
+  // The clock holds the pessimistic elapsed time already accumulated up to this knot, which is what
+  // inflates the worst-case reachable disk. The optimistic branch sees the frozen disk.
   const Scalar elapsed = state(CLOCK_INDEX);
-  const Scalar dtPessi = input(RobotU::DIM + RobotU::DT);
-  const Scalar pessiScale = parameters(kHipsAndSignsDim + 2 * numObstacles);
-
-  const int hyperplaneBlock = kHyperplaneVarsPerObs * numObstacles;
-  Vec uOpti(RobotU::DIM + hyperplaneBlock);
-  uOpti.head(RobotU::DIM) = input.head(RobotU::DIM);
-  uOpti.tail(hyperplaneBlock) = input.segment(optiHyperplaneOffset(), hyperplaneBlock);
-
-  Vec uPessi(RobotU::DIM + hyperplaneBlock);
-  uPessi.head(RobotU::DIM) = input.segment(RobotU::DIM, RobotU::DIM);
-  uPessi.tail(hyperplaneBlock) = input.segment(pessiHyperplaneOffset(numObstacles), hyperplaneBlock);
-
-  // Optimistic: frozen obstacle disk. Pessimistic: worst-case reachable disk.
-  appendBranch(state.head(RobotX::DIM), uOpti, Scalar(0));
-  appendBranch(state.segment(RobotX::DIM, RobotX::DIM), uPessi,
-               pessiScale * Scalar(params_.obstacleMaxSpeed) * (elapsed + dtPessi));
+  appendBranch(state.head(RobotX::DIM), optiHyperplaneOffset(), Scalar(0));
+  appendBranch(state.segment(RobotX::DIM, RobotX::DIM), pessiHyperplaneOffset(numObstacles),
+               pessiScale * Scalar(params_.obstacleMaxSpeed) * elapsed);
 
   return g;
 }

@@ -7,8 +7,10 @@
 #include <ocs2_oc/rollout/RolloutSettings.h>
 
 #include "opti_pessi_interface/constraint/FirstInputConsensusConstraint.h"
+#include "opti_pessi_interface/constraint/InputBoundsConstraint.h"
 #include "opti_pessi_interface/constraint/StageInequalityConstraint.h"
 #include "opti_pessi_interface/constraint/TerminalCopConstraint.h"
+#include "opti_pessi_interface/constraint/TerminalObstacleConstraint.h"
 #include "opti_pessi_interface/cost/OptiPessiCost.h"
 #include "opti_pessi_interface/dynamics/OptiPessiDynamicsAD.h"
 #include "opti_pessi_interface/initialization/OptiPessiInitializer.h"
@@ -68,9 +70,17 @@ void OptiPessiInterface::setupOptimalControlProblem(const std::string& libraryFo
   problemPtr_->finalCostPtr->add("finalCost",
                                  std::make_unique<OptiPessiFinalCost>(params_, *referenceManagerPtr_, libraryFolder, recompile));
 
-  // Hard inequalities: bounds, friction cones, reachability, separating hyperplanes (both branches).
+  // Hard inequalities, both branches. Split so the input bounds and friction cones stay active at
+  // knot 0 while the path constraints (which knot 0 cannot influence) start at knot 1.
+  problemPtr_->inequalityConstraintPtr->add("inputBounds",
+                                            std::make_unique<InputBoundsConstraint>(params_, libraryFolder, recompile));
   problemPtr_->inequalityConstraintPtr->add(
-      "stageInequality", std::make_unique<StageInequalityConstraint>(params_, *referenceManagerPtr_, libraryFolder, recompile));
+      "pathConstraints", std::make_unique<StageInequalityConstraint>(params_, *referenceManagerPtr_, libraryFolder, recompile));
+
+  // The hyperplane collision constraint cannot reach the final knot (no input there), so the far end
+  // of the horizon gets a conservative circular keep-out instead.
+  problemPtr_->finalInequalityConstraintPtr->add(
+      "terminalObstacle", std::make_unique<TerminalObstacleConstraint>(params_, *referenceManagerPtr_, libraryFolder, recompile));
 
   // Equalities: terminal CoP equilibrium and non-anticipativity. There is deliberately no
   // ||a|| = 1 constraint -- the hyperplane normals are parameterized by angle, so it holds

@@ -64,10 +64,10 @@ TEST(ConfigLoading, TaskFileMatchesPythonReference) {
   EXPECT_DOUBLE_EQ(hipOf(p, Foot::RR)(0), -0.2407);
   EXPECT_DOUBLE_EQ(hipOf(p, Foot::RR)(1), -0.134);
 
-  // Augmented dimensions: 2 branches of 10 states + clock, 2 branches of 8 inputs + 4 hyperplane
-  // variables per obstacle per branch (phiMid, phiLand, bMid, bLand).
-  EXPECT_EQ(p.stateDim(), 21);
-  EXPECT_EQ(p.inputDim(), 2 * 8 + 2 * 4 * 1);
+  // Augmented dimensions: 2 branches of 14 states (10 physical + 4 previous footholds) + clock,
+  // and 2 branches of 8 inputs + 2 hyperplane variables (phi, b) per obstacle per branch.
+  EXPECT_EQ(p.stateDim(), 2 * 14 + 1);
+  EXPECT_EQ(p.inputDim(), 2 * 8 + 2 * 2 * 1);
 }
 
 TEST(ConfigLoading, ScenarioS1IsStaticObstacle) {

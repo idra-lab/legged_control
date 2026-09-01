@@ -35,8 +35,9 @@ TEST(LipStep, MatchesExactDiscretization) {
   const scalar_t inertia = 1.048;
   const scalar_t dt = 0.25;
 
-  vector_t x(RobotX::DIM);
-  x << 0.1, -0.2, 0.3, 0.4, -0.05, 0.1, 0.0, 0.05, 0.2, -0.05;
+  vector_t x = vector_t::Zero(RobotX::DIM);
+  x.head(10) << 0.1, -0.2, 0.3, 0.4, -0.05, 0.1, 0.0, 0.05, 0.2, -0.05;
+  x.segment(RobotX::PP0X, 4) = x.segment(RobotX::P0X, 4);
   vector_t u(RobotU::DIM);
   u << 0.15, 0.02, 0.22, -0.03, 0.4, dt, 0.3, 0.7;
 
@@ -69,6 +70,9 @@ TEST(LipStep, MatchesExactDiscretization) {
   EXPECT_NEAR(xn(RobotX::P0Y), u(RobotU::P0Y), 1e-12);
   EXPECT_NEAR(xn(RobotX::P1X), u(RobotU::P1X), 1e-12);
   EXPECT_NEAR(xn(RobotX::P1Y), u(RobotU::P1Y), 1e-12);
+  // The previous-foothold slots are a pure copy of this phase's stance feet.
+  EXPECT_NEAR(xn(RobotX::PP0X), x(RobotX::P0X), 1e-12);
+  EXPECT_NEAR(xn(RobotX::PP1Y), x(RobotX::P1Y), 1e-12);
 }
 
 TEST(LipStep, PureTranslationHasClosedForm) {
@@ -92,10 +96,10 @@ TEST(LipStep, PureTranslationHasClosedForm) {
 TEST(LipStep, AugmentedStepAdvancesBothBranchesAndClock) {
   const OptiPessiModelParameters params = testParameters();
 
-  vector_t xOpti(RobotX::DIM);
-  xOpti << 0.1, -0.2, 0.3, 0.4, -0.05, 0.1, 0.0, 0.05, 0.2, -0.05;
-  vector_t xPessi(RobotX::DIM);
-  xPessi << -0.1, 0.2, -0.3, 0.2, 0.05, -0.1, 0.05, 0.0, -0.05, 0.2;
+  vector_t xOpti = vector_t::Zero(RobotX::DIM);
+  xOpti.head(10) << 0.1, -0.2, 0.3, 0.4, -0.05, 0.1, 0.0, 0.05, 0.2, -0.05;
+  vector_t xPessi = vector_t::Zero(RobotX::DIM);
+  xPessi.head(10) << -0.1, 0.2, -0.3, 0.2, 0.05, -0.1, 0.05, 0.0, -0.05, 0.2;
 
   vector_t x = vector_t::Zero(AUG_STATE_DIM);
   x.segment(0, RobotX::DIM) = xOpti;
@@ -119,8 +123,8 @@ TEST(LipStep, AugmentedStepAdvancesBothBranchesAndClock) {
 }
 
 TEST(LipStep, PackInitialStateDuplicatesBothBranches) {
-  vector_t robotState(RobotX::DIM);
-  robotState << 0.1, -0.2, 0.3, 0.4, -0.05, 0.1, 0.0, 0.05, 0.2, -0.05;
+  vector_t robotState = vector_t::Zero(RobotX::DIM);
+  robotState.head(10) << 0.1, -0.2, 0.3, 0.4, -0.05, 0.1, 0.0, 0.05, 0.2, -0.05;
 
   const vector_t x = packInitialState(robotState);
   ASSERT_EQ(x.size(), AUG_STATE_DIM);

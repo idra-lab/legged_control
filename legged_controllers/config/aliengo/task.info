@@ -317,3 +317,28 @@ kalmanFilter
     footSensorNoiseVelocity     0.1
     footHeightSensorNoise       0.01
 }
+
+; OptiPessi Settings
+optiPessiMPC
+{
+    N           6
+    w_c         1
+    w_c_d       2
+    w_theta_d   2
+    w_p         0.5
+    w_alpha     0.5
+    w_dt        0.01
+}
+
+optiPessiDynamics
+{
+    alpha_min   0.1
+    alpha_max   0.9
+    delta_p_max 0.1
+    dt_min      0.2
+    dt_max      0.35
+    mu          0.8
+    c_d_x_max   1.5
+    c_d_y_max   0.45
+    theta_d_max 0.8
+}

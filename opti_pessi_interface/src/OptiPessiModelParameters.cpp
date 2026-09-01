@@ -119,7 +119,7 @@ OptiPessiModelParameters loadOptiPessiModelParameters(const std::string& taskFil
     throw std::runtime_error("[OptiPessiModelParameters] horizon.N must be at least 2.");
   }
 
-  p.initialState.setZero(RobotX::DIM);
+  p.initialState.setZero(OptiPessiModelParameters::kMeasuredStateDim);
   ocs2::loadData::loadEigenMatrix(taskFile, "initialState", p.initialState);
   if (verbose) {
     std::cerr << " #### 'initialState': " << p.initialState.transpose() << "\n";
