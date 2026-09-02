@@ -124,7 +124,7 @@ template <typename Vec, typename Scalar>
 void appendCollisionRows(Vec& g, int& idx, const Eigen::Matrix<Scalar, 2, 1>& com, const Scalar& theta,
                          const Eigen::Matrix<Scalar, 2, 1>& p0, const Eigen::Matrix<Scalar, 2, 1>& p1,
                          const Eigen::Matrix<Scalar, 2, 1>& a, const Scalar& b, const Eigen::Matrix<Scalar, 2, 1>& o,
-                         const Scalar& dMin, const OptiPessiModelParameters& params) {
+                         const Scalar& dMin, const Scalar& slack, const OptiPessiModelParameters& params) {
   using Vec2 = Eigen::Matrix<Scalar, 2, 1>;
   for (int f = 0; f < 4; ++f) {
     const auto& hipOffset = params.hipOffsets[static_cast<size_t>(f)];
@@ -133,7 +133,9 @@ void appendCollisionRows(Vec& g, int& idx, const Eigen::Matrix<Scalar, 2, 1>& co
   }
   g(idx++) = -(a.dot(p0) + b);
   g(idx++) = -(a.dot(p1) + b);
-  g(idx++) = a.dot(o) + b - dMin - Scalar(1e-3);
+
+  // Usa direttamente la variabile 'slack' ricevuta come parametro della funzione:
+  g(idx++) = a.dot(o) + b - dMin + slack - Scalar(1e-3);
 }
 
 }  // namespace
@@ -185,7 +187,7 @@ ocs2::ad_vector_t StageInequalityConstraint::constraintFunction(ocs2::ad_scalar_
   const Vec hipsAndSigns = parameters.head(kHipsAndSignsDim);
   const Scalar pessiScale = parameters(kHipsAndSignsDim + 2 * numObstacles);
 
-  auto appendBranch = [&](const Vec& x, int hyperplaneOffset, const Scalar& keepOutGrowth) {
+  auto appendBranch = [&](const Vec& x, int hyperplaneOffset, const Scalar& keepOutGrowth, bool useSlack) {
     appendPathRows(g, idx, x, params_, hipsAndSigns);
 
     const Vec2 c(x(RobotX::CX), x(RobotX::CY));
@@ -200,16 +202,19 @@ ocs2::ad_vector_t StageInequalityConstraint::constraintFunction(ocs2::ad_scalar_
       const Scalar b = input(base + Hyperplane::B);
       const Vec2 o(parameters(kHipsAndSignsDim + 2 * j), parameters(kHipsAndSignsDim + 2 * j + 1));
       const Scalar dMin = Scalar(params_.obstacleRadius) + keepOutGrowth;
-      appendCollisionRows(g, idx, c, theta, p0, p1, a, b, o, dMin, params_);
+
+      // Only the pessimistic (inflated) disk may be relaxed; the optimistic branch keeps the hard row.
+      const Scalar slack = useSlack ? input(pessiSlackOffset(numObstacles) + j) : Scalar(0);
+      appendCollisionRows(g, idx, c, theta, p0, p1, a, b, o, dMin, slack, params_);
     }
   };
 
   // The clock holds the pessimistic elapsed time already accumulated up to this knot, which is what
   // inflates the worst-case reachable disk. The optimistic branch sees the frozen disk.
   const Scalar elapsed = state(CLOCK_INDEX);
-  appendBranch(state.head(RobotX::DIM), optiHyperplaneOffset(), Scalar(0));
+  appendBranch(state.head(RobotX::DIM), optiHyperplaneOffset(), Scalar(0), false);
   appendBranch(state.segment(RobotX::DIM, RobotX::DIM), pessiHyperplaneOffset(numObstacles),
-               pessiScale * Scalar(params_.obstacleMaxSpeed) * elapsed);
+               pessiScale * Scalar(params_.obstacleMaxSpeed) * elapsed, true);
 
   return g;
 }

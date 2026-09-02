@@ -84,7 +84,7 @@ def main(argv):
     plt.legend()
     if save_results:
         plt_ut.saveFigure(fig_name + "opti_pessi")
-    plt.show()
+    # plt.show()
     return 0
 
 

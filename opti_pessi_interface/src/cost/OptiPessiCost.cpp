@@ -65,7 +65,6 @@ vector_t OptiPessiStageCost::getParameters(scalar_t time, const ocs2::TargetTraj
 
 ocs2::ad_scalar_t OptiPessiStageCost::costFunction(ocs2::ad_scalar_t, const ocs2::ad_vector_t& state, const ocs2::ad_vector_t& input,
                                                    const ocs2::ad_vector_t& parameters) const {
-  // Optimistic branch only.
   using Scalar = ocs2::ad_scalar_t;
   const ocs2::ad_vector_t xOpti = state.head(RobotX::DIM);
   const Scalar alpha = input(RobotU::ALPHA);
@@ -73,6 +72,20 @@ ocs2::ad_scalar_t OptiPessiStageCost::costFunction(ocs2::ad_scalar_t, const ocs2
   Scalar cost = oneBranchStateCost(xOpti, parameters, params_);
   cost += Scalar(params_.wa) * (alpha - Scalar(0.5)) * (alpha - Scalar(0.5));
   cost += Scalar(params_.wdt) * (dt - Scalar(params_.dtCost0)) * (dt - Scalar(params_.dtCost0));
+
+  // Penalizza lo slack pessimista per ogni ostacolo
+  const int numObstacles = params_.numObstacles();
+  const int slackBase = pessiSlackOffset(numObstacles);
+
+  const Scalar w_slack_linear = Scalar(1e4);
+  const Scalar w_slack_quad   = Scalar(1e5);
+
+  for (int j = 0; j < numObstacles; ++j) {
+    const Scalar slack = input(slackBase + j);
+    // Usiamo il quadrato per garantire derivate continue in CppAD ed evitare costi negativi
+    cost += w_slack_linear * slack + w_slack_quad * slack * slack;
+  }
+
   return cost;
 }
 

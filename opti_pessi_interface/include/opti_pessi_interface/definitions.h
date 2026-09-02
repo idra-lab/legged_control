@@ -92,6 +92,11 @@ struct RobotU {
  */
 constexpr int kHyperplaneVarsPerObs = 2;
 
+constexpr int kSlackVarsPerObs = 1;
+inline int pessiSlackOffset(int numObstacles) {
+  return 2 * RobotU::DIM + 2 * kHyperplaneVarsPerObs * numObstacles;
+}
+
 /** Offsets within one obstacle's hyperplane block. */
 struct Hyperplane {
   static constexpr int PHI = 0;
@@ -106,7 +111,7 @@ constexpr int CLOCK_INDEX = 2 * RobotX::DIM;
 
 /** Augmented input: u_opti || u_pessi || hyperplanes(opti) || hyperplanes(pessi). */
 inline int augInputDim(int numObstacles) {
-  return 2 * RobotU::DIM + 2 * kHyperplaneVarsPerObs * numObstacles;
+  return 2 * RobotU::DIM + 2 * kHyperplaneVarsPerObs * numObstacles + kSlackVarsPerObs * numObstacles;
 }
 
 /** Offset of the optimistic branch's hyperplane block inside the augmented input. */
