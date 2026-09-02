@@ -41,7 +41,7 @@ plant
 
 simulation
 {
-  simTime        50.0
+  simTime        30.0
   goalTolerance  0.01
   figName        "mpc_sim_4_"
 }
