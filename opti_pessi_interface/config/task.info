@@ -40,8 +40,8 @@ limits
 {
   alphaReduction  0.1    ; CoP margin: alpha in [eps, 1-eps], keeps both feet loaded
   dtMin           0.2    ; [s]
-  dtMax           0.35   ; [s]
-  dtCost0         0.35   ; preferred contact-phase duration [s]
+  dtMax           0.25   ; [s]
+  dtCost0         0.25   ; preferred contact-phase duration [s]
   footHipMax      0.1    ; foot-to-hip reachability radius [m]
   dcxMax          1.5    ; body-frame longitudinal speed [m/s]
   dcyMax          0.45   ; body-frame lateral speed [m/s]
@@ -90,7 +90,7 @@ ipm
   computeLagrangeMultipliers     false
   initialBarrierParameter        1e-2
   targetBarrierParameter         1e-4
-  nThreads                       1
+  nThreads                       4
   printSolverStatus              false
   printSolverStatistics          false
   printLinesearch                false
@@ -106,10 +106,10 @@ hpipm
 
 mpc
 {
-  timeHorizon                  6.0
+  timeHorizon                  4.0
   solutionTimeWindow          -1
   coldStart                    false
-  debugPrint                   true
+  debugPrint                   false
   mpcDesiredFrequency         -1
   mrtDesiredFrequency         100
 }

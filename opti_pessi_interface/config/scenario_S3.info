@@ -17,7 +17,7 @@ obstacles
 
   positions
   {
-    (0,0)  0.1
+    (0,0)  0.0
     (0,1)  1.0
   }
 }
@@ -30,7 +30,7 @@ plant
   }
   speed
   {
-    [0]  0.45
+    [0]  0.375
   }
   direction
   {
@@ -42,6 +42,6 @@ plant
 simulation
 {
   simTime        20.0
-  goalTolerance  0.1
-  figName        "mpc_sim_4_"
+  goalTolerance  0.01
+  figName        "mpc_sim_3_"
 }
