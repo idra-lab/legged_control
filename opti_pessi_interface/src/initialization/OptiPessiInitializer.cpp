@@ -69,9 +69,14 @@ void seedHyperplanes(vector_t& input, int hyperplaneOffset, const OptiPessiModel
     }
     const scalar_t b = -maxProjection;
 
+    // Both planes get the same seed: at the initial guess the mid-step and landing poses coincide,
+    // and the solver separates them from there.
     const int base = hyperplaneOffset + kHyperplaneVarsPerObs * j;
-    input(base + Hyperplane::PHI) = std::atan2(a(1), a(0));
-    input(base + Hyperplane::B) = b;
+    const scalar_t phi = std::atan2(a(1), a(0));
+    input(base + Hyperplane::MID_PHI) = phi;
+    input(base + Hyperplane::MID_B) = b;
+    input(base + Hyperplane::LAND_PHI) = phi;
+    input(base + Hyperplane::LAND_B) = b;
   }
 }
 

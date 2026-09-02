@@ -56,7 +56,19 @@ struct RobotX {
   static constexpr int PP0Y = 11;
   static constexpr int PP1X = 12;
   static constexpr int PP1Y = 13;
-  static constexpr int DIM = 14;
+  /**
+   * CoM and yaw of the PREVIOUS contact phase, carried for exactly the same reason as the previous
+   * footholds above: the reference's MID-STEP collision constraint is imposed at the pose halfway
+   * along interval i, (c_i + c_{i+1})/2 (ocp_quadruped.py:519-520), which needs two knots. Composing
+   * with the dynamics to get c_{i+1} is what this transcription exists to avoid, so the midpoint is
+   * instead formed from the previous knot and this one, (c^- + c)/2, and imposed over knots 1..N.
+   * That is the same family of midpoints, shifted one index -- exactly the device already used for
+   * PP0/PP1. Pure copies in lipMap, so they cost nothing in conditioning.
+   */
+  static constexpr int PCX = 14;
+  static constexpr int PCY = 15;
+  static constexpr int PTH = 16;
+  static constexpr int DIM = 17;
 };
 
 /** Per-branch robot input layout (R^8). The first four entries are the NEXT footholds. */
@@ -76,7 +88,11 @@ struct RobotU {
  * Separating-hyperplane decision variables per obstacle, carried in the INPUT vector so the solver
  * treats them as free variables with no extra machinery.
  *
- * Layout: [phiMid, phiLand, bMid, bLand].
+ * Layout: [phiMid, bMid, phiLand, bLand] -- two independent planes per obstacle per knot, matching
+ * the reference's a = variable(4*n_obs, N), b = variable(2*n_obs, N). The mid-step plane separates
+ * the hips at the half-way pose; the landing plane separates the hips AND both stance feet at the
+ * knot pose. Without the mid-step plane the robot is unconstrained between knots, i.e. for up to
+ * dtMax = 0.35 s per phase.
  *
  * The unit normal is parameterized by ANGLE, a = (cos phi, sin phi), rather than carried as a free
  * 2-vector with a separate ||a|| = 1 equality. The two are the same set, but the angle form makes
@@ -90,17 +106,36 @@ struct RobotU {
  * solve of scenario S4 and the closed loop degrades from there. With the angle form the cheat does
  * not exist, and the norm equality (and its constraint block) disappears entirely.
  */
-constexpr int kHyperplaneVarsPerObs = 2;
+constexpr int kHyperplaneVarsPerObs = 4;
 
-constexpr int kSlackVarsPerObs = 1;
-inline int pessiSlackOffset(int numObstacles) {
-  return 2 * RobotU::DIM + 2 * kHyperplaneVarsPerObs * numObstacles;
-}
+/**
+ * NO SLACK VARIABLE LIVES HERE -- read this before adding one back.
+ *
+ * A per-obstacle slack s_j was once carried in the input, relaxing the pessimistic keep-out row to
+ * a.o + b - dMin + s >= 0 with a cost penalty of 1e4*s + 1e5*s^2. It ended runs. The row is coupled
+ * to the robot through -(a.y + b) >= 0, so shrinking s means growing b, and growing b pushes the
+ * robot's own half-space away from the obstacle. Against wc = 1.0 on CoM position error, a 1e5
+ * weight on s makes flying the CoM tens of metres CHEAPER than carrying 0.2 m of slack: the solver
+ * duly launched the plan (cy = 0.01, 1.6, 3.9, 7.6, 14.1, 24.9, 44.4, 77.7 on consecutive steps,
+ * dt pinned at dtMax throughout) and the cost ladder ran to 1e10.
+ *
+ * It is also redundant. IpmSolver is a primal-dual interior point method: it already carries a
+ * slack and a dual per hard inequality, governed by a barrier parameter that is driven to zero on a
+ * schedule, with fraction-to-boundary line search and complementarity control. A hand-rolled slack
+ * inside the decision vector gets none of that -- just a fixed 1e5 quadratic that never decreases
+ * and permanently wrecks the Hessian conditioning.
+ *
+ * If the keep-out genuinely has to be softened, the levers are the pessiScale continuation in
+ * ClosedLoopSimulation.cpp and OptimalControlProblem::softConstraintPtr with a RelaxedBarrierPenalty
+ * (bounded gradient by construction). Not this.
+ */
 
-/** Offsets within one obstacle's hyperplane block. */
+/** Offsets within one obstacle's hyperplane block: two independent (phi, b) planes. */
 struct Hyperplane {
-  static constexpr int PHI = 0;
-  static constexpr int B = 1;
+  static constexpr int MID_PHI = 0;
+  static constexpr int MID_B = 1;
+  static constexpr int LAND_PHI = 2;
+  static constexpr int LAND_B = 3;
 };
 
 /** Augmented state: optimistic branch || pessimistic branch || elapsed-time clock. */
@@ -111,7 +146,7 @@ constexpr int CLOCK_INDEX = 2 * RobotX::DIM;
 
 /** Augmented input: u_opti || u_pessi || hyperplanes(opti) || hyperplanes(pessi). */
 inline int augInputDim(int numObstacles) {
-  return 2 * RobotU::DIM + 2 * kHyperplaneVarsPerObs * numObstacles + kSlackVarsPerObs * numObstacles;
+  return 2 * RobotU::DIM + 2 * kHyperplaneVarsPerObs * numObstacles;
 }
 
 /** Offset of the optimistic branch's hyperplane block inside the augmented input. */

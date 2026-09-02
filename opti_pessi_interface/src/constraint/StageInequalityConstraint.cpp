@@ -35,8 +35,12 @@ namespace {
  */
 constexpr int kPathRowsPerBranch = 11;
 
-/** Per obstacle: 4 hips + 2 stance feet on the safe side, plus the obstacle on the far side. */
-constexpr int kCollisionRowsPerObstacle = 7;
+/**
+ * Per obstacle, two independent separating planes (see definitions.h):
+ *   mid-step: 4 hips on the safe side + the obstacle on the far side       = 5
+ *   landing:  4 hips + 2 stance feet on the safe side + the obstacle       = 7
+ */
+constexpr int kCollisionRowsPerObstacle = 12;
 
 /**
  * Parameters: hip offsets and left/right signs for THIS knot's stance pair and for the previous
@@ -121,21 +125,27 @@ void appendPathRows(Vec& g, int& idx, const Vec& x, const OptiPessiModelParamete
  * of radius dMin about the centre.
  */
 template <typename Vec, typename Scalar>
-void appendCollisionRows(Vec& g, int& idx, const Eigen::Matrix<Scalar, 2, 1>& com, const Scalar& theta,
-                         const Eigen::Matrix<Scalar, 2, 1>& p0, const Eigen::Matrix<Scalar, 2, 1>& p1,
-                         const Eigen::Matrix<Scalar, 2, 1>& a, const Scalar& b, const Eigen::Matrix<Scalar, 2, 1>& o,
-                         const Scalar& dMin, const Scalar& slack, const OptiPessiModelParameters& params) {
+void appendHipRows(Vec& g, int& idx, const Eigen::Matrix<Scalar, 2, 1>& com, const Scalar& theta,
+                   const Eigen::Matrix<Scalar, 2, 1>& a, const Scalar& b, const OptiPessiModelParameters& params) {
   using Vec2 = Eigen::Matrix<Scalar, 2, 1>;
   for (int f = 0; f < 4; ++f) {
     const auto& hipOffset = params.hipOffsets[static_cast<size_t>(f)];
     const Vec2 hip(Scalar(hipOffset(0)), Scalar(hipOffset(1)));
     g(idx++) = -(a.dot(com + applyR(theta, hip)) + b);
   }
-  g(idx++) = -(a.dot(p0) + b);
-  g(idx++) = -(a.dot(p1) + b);
+}
 
-  // Usa direttamente la variabile 'slack' ricevuta come parametro della funzione:
-  g(idx++) = a.dot(o) + b - dMin + slack - Scalar(1e-3);
+/**
+ * The obstacle centre must clear the plane by dMin.
+ *
+ * Hard -- see the slack note in definitions.h for why this row is not softened with a decision
+ * variable. The reference uses the SAME dMin for the mid-step and the landing plane of an interval
+ * (mpc_formulation.md sec. 7.2), so both callers pass the same value.
+ */
+template <typename Vec, typename Scalar>
+void appendObstacleRow(Vec& g, int& idx, const Eigen::Matrix<Scalar, 2, 1>& a, const Scalar& b,
+                       const Eigen::Matrix<Scalar, 2, 1>& o, const Scalar& dMin) {
+  g(idx++) = a.dot(o) + b - dMin - Scalar(1e-3);
 }
 
 }  // namespace
@@ -187,7 +197,7 @@ ocs2::ad_vector_t StageInequalityConstraint::constraintFunction(ocs2::ad_scalar_
   const Vec hipsAndSigns = parameters.head(kHipsAndSignsDim);
   const Scalar pessiScale = parameters(kHipsAndSignsDim + 2 * numObstacles);
 
-  auto appendBranch = [&](const Vec& x, int hyperplaneOffset, const Scalar& keepOutGrowth, bool useSlack) {
+  auto appendBranch = [&](const Vec& x, int hyperplaneOffset, const Scalar& keepOutGrowth) {
     appendPathRows(g, idx, x, params_, hipsAndSigns);
 
     const Vec2 c(x(RobotX::CX), x(RobotX::CY));
@@ -195,26 +205,42 @@ ocs2::ad_vector_t StageInequalityConstraint::constraintFunction(ocs2::ad_scalar_
     const Vec2 p0(x(RobotX::P0X), x(RobotX::P0Y));
     const Vec2 p1(x(RobotX::P1X), x(RobotX::P1Y));
 
+    // Mid-step pose: halfway between the PREVIOUS knot and this one. See RobotX::PCX in
+    // definitions.h for why the midpoint is formed backwards instead of towards knot i+1.
+    const Vec2 cPrev(x(RobotX::PCX), x(RobotX::PCY));
+    const Scalar thetaPrev = x(RobotX::PTH);
+    const Vec2 cMid = Scalar(0.5) * (cPrev + c);
+    const Scalar thetaMid = Scalar(0.5) * (thetaPrev + theta);
+
     for (int j = 0; j < numObstacles; ++j) {
       const int base = hyperplaneOffset + kHyperplaneVarsPerObs * j;
-      const Scalar phi = input(base + Hyperplane::PHI);
-      const Vec2 a(wrapCos(phi), wrapSin(phi));  // unit by construction
-      const Scalar b = input(base + Hyperplane::B);
       const Vec2 o(parameters(kHipsAndSignsDim + 2 * j), parameters(kHipsAndSignsDim + 2 * j + 1));
       const Scalar dMin = Scalar(params_.obstacleRadius) + keepOutGrowth;
 
-      // Only the pessimistic (inflated) disk may be relaxed; the optimistic branch keeps the hard row.
-      const Scalar slack = useSlack ? input(pessiSlackOffset(numObstacles) + j) : Scalar(0);
-      appendCollisionRows(g, idx, c, theta, p0, p1, a, b, o, dMin, slack, params_);
+      // Mid-step plane: hips only, at the half-way pose (reference: collision_avoidance without p).
+      const Scalar phiMid = input(base + Hyperplane::MID_PHI);
+      const Vec2 aMid(wrapCos(phiMid), wrapSin(phiMid));  // unit by construction
+      const Scalar bMid = input(base + Hyperplane::MID_B);
+      appendHipRows(g, idx, cMid, thetaMid, aMid, bMid, params_);
+      appendObstacleRow(g, idx, aMid, bMid, o, dMin);
+
+      // Landing plane: hips AND both stance feet, at this knot's pose.
+      const Scalar phiLand = input(base + Hyperplane::LAND_PHI);
+      const Vec2 aLand(wrapCos(phiLand), wrapSin(phiLand));
+      const Scalar bLand = input(base + Hyperplane::LAND_B);
+      appendHipRows(g, idx, c, theta, aLand, bLand, params_);
+      g(idx++) = -(aLand.dot(p0) + bLand);
+      g(idx++) = -(aLand.dot(p1) + bLand);
+      appendObstacleRow(g, idx, aLand, bLand, o, dMin);
     }
   };
 
   // The clock holds the pessimistic elapsed time already accumulated up to this knot, which is what
   // inflates the worst-case reachable disk. The optimistic branch sees the frozen disk.
   const Scalar elapsed = state(CLOCK_INDEX);
-  appendBranch(state.head(RobotX::DIM), optiHyperplaneOffset(), Scalar(0), false);
+  appendBranch(state.head(RobotX::DIM), optiHyperplaneOffset(), Scalar(0));
   appendBranch(state.segment(RobotX::DIM, RobotX::DIM), pessiHyperplaneOffset(numObstacles),
-               pessiScale * Scalar(params_.obstacleMaxSpeed) * elapsed, true);
+               pessiScale * Scalar(params_.obstacleMaxSpeed) * elapsed);
 
   return g;
 }

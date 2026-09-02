@@ -73,6 +73,11 @@ TEST(LipStep, MatchesExactDiscretization) {
   // The previous-foothold slots are a pure copy of this phase's stance feet.
   EXPECT_NEAR(xn(RobotX::PP0X), x(RobotX::P0X), 1e-12);
   EXPECT_NEAR(xn(RobotX::PP1Y), x(RobotX::P1Y), 1e-12);
+  // The previous-pose slots are a pure copy of this phase's CoM and yaw, which is what makes the
+  // mid-step collision plane expressible at a single knot.
+  EXPECT_NEAR(xn(RobotX::PCX), x(RobotX::CX), 1e-12);
+  EXPECT_NEAR(xn(RobotX::PCY), x(RobotX::CY), 1e-12);
+  EXPECT_NEAR(xn(RobotX::PTH), x(RobotX::TH), 1e-12);
 }
 
 TEST(LipStep, PureTranslationHasClosedForm) {

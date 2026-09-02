@@ -73,18 +73,9 @@ ocs2::ad_scalar_t OptiPessiStageCost::costFunction(ocs2::ad_scalar_t, const ocs2
   cost += Scalar(params_.wa) * (alpha - Scalar(0.5)) * (alpha - Scalar(0.5));
   cost += Scalar(params_.wdt) * (dt - Scalar(params_.dtCost0)) * (dt - Scalar(params_.dtCost0));
 
-  // Penalizza lo slack pessimista per ogni ostacolo
-  const int numObstacles = params_.numObstacles();
-  const int slackBase = pessiSlackOffset(numObstacles);
-
-  const Scalar w_slack_linear = Scalar(1e4);
-  const Scalar w_slack_quad   = Scalar(1e5);
-
-  for (int j = 0; j < numObstacles; ++j) {
-    const Scalar slack = input(slackBase + j);
-    // Usiamo il quadrato per garantire derivate continue in CppAD ed evitare costi negativi
-    cost += w_slack_linear * slack + w_slack_quad * slack * slack;
-  }
+  // No keep-out slack penalty here -- see the slack note in definitions.h. Every term above is
+  // O(1)-weighted (wc = 1, wdc = 2, wp = 0.5, wa = 0.5, wdt = 1e-2); a 1e5 penalty alongside them
+  // does not soften a constraint, it buys a different optimum.
 
   return cost;
 }

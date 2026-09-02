@@ -80,7 +80,7 @@ ipm
 {
   dt                             1.0
   integratorType                 EULER
-  ipmIteration                   500
+  ipmIteration                   100
   deltaTol                       1e-4
   costTol                        1e-4
   g_min                          1e-4
@@ -109,7 +109,7 @@ mpc
   timeHorizon                  6.0
   solutionTimeWindow          -1
   coldStart                    false
-  debugPrint                   false
+  debugPrint                   true
   mpcDesiredFrequency         -1
   mrtDesiredFrequency         100
 }

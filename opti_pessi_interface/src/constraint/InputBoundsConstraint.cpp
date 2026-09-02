@@ -13,8 +13,7 @@ constexpr int kRowsPerBranch = 10;
 
 InputBoundsConstraint::InputBoundsConstraint(OptiPessiModelParameters params, const std::string& libraryFolder, bool recompile)
     : ocs2::StateInputConstraintCppAd(ocs2::ConstraintOrder::Linear), params_(std::move(params)) {
-  // optimistic + pessimistic, plus one non-negativity row per pessimistic slack variable
-  numConstraints_ = static_cast<size_t>(2 * kRowsPerBranch + params_.numObstacles());
+  numConstraints_ = static_cast<size_t>(2 * kRowsPerBranch);  // optimistic + pessimistic
   initialize(static_cast<size_t>(params_.stateDim()), static_cast<size_t>(params_.inputDim()), 0, "opti_pessi_input_bounds",
              libraryFolder, recompile, true);
 }
@@ -62,13 +61,6 @@ ocs2::ad_vector_t InputBoundsConstraint::constraintFunction(ocs2::ad_scalar_t, c
 
   appendBranch(state.head(RobotX::DIM), input.head(RobotU::DIM));
   appendBranch(state.segment(RobotX::DIM, RobotX::DIM), input.segment(RobotU::DIM, RobotU::DIM));
-
-  // Slack variables live once in the augmented input (not per branch): s_j >= 0.
-  const int numObstacles = params_.numObstacles();
-  const int slackBase = pessiSlackOffset(numObstacles);
-  for (int j = 0; j < numObstacles; ++j) {
-    g(idx++) = input(slackBase + j);
-  }
 
   return g;
 }

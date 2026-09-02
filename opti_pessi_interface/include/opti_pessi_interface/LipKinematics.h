@@ -120,6 +120,11 @@ Vec lipMap(const Vec& x, const Vec& u, typename Vec::Scalar w, typename Vec::Sca
   xNext(RobotX::PP0Y) = p0(1);
   xNext(RobotX::PP1X) = p1(0);
   xNext(RobotX::PP1Y) = p1(1);
+  // Likewise this phase's pose becomes the next phase's "previous" pose, so the mid-step collision
+  // constraint can be written knot-locally as the midpoint of (c^-, c). Also a pure copy.
+  xNext(RobotX::PCX) = c(0);
+  xNext(RobotX::PCY) = c(1);
+  xNext(RobotX::PTH) = theta;
   return xNext;
 }
 
