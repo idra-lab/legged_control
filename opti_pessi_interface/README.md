@@ -52,10 +52,56 @@ CFG=install/opti_pessi_interface/share/opti_pessi_interface/config
 ./install/opti_pessi_interface/lib/opti_pessi_interface/opti_pessi_interface_mpc \
     $CFG/task.info $CFG/scenario_S4.info /tmp/ocs2/opti_pessi_interface
 # add --no-recompile to reuse the generated CppAD libraries, --quiet to silence per-step output
+# add --solver ipm|sqp to pick the backend, and --rti for SQP real-time iteration
 ```
 
 The node writes `x_quad_*.npy`, `u_*.npy` and `y_obs_*.npy` into the working directory; plot them
 with `python/plot_mpc.py <taskFile> <scenarioFile>`.
+
+## Solver backends
+
+`--solver ipm` (default) and `--solver sqp` are not interchangeable, and the difference is not a
+tuning detail.
+
+`ocs2::SqpSolver` assembles its QP from dynamics, cost and state-input **equalities** only. Every
+inequality row it computes is discarded before the QP is built, and its own `inequalityConstraintMu`
+setting is loaded but never read. Selecting the SQP backend therefore makes
+`setupOptimalControlProblem` register the path, collision, friction and box rows a *second* time as
+relaxed-barrier soft constraints (`sqp.relaxedBarrier` in `task.info`) — that copy is what steers the
+SQP iterate. Feasibility under SQP is approximate. The hard rows stay registered under both backends
+so the closed loop can still measure the true violation of the step it is about to apply.
+
+The two also need opposite HPIPM regularization, so each reads its own: `hpipm.reg_prim = 1e1` for
+IPM (its Hessian is indefinite because the hyperplane angles enter the collision rows through
+`cos`/`sin` of a decision variable) and `sqp.hpipm.reg_prim = 1e-6` for SQP (its QP is nearly
+unconstrained, and a large diagonal shift destroys it — with `1e1` every QP came back
+`HPIPM flag 1: maximum number of iterations reached`).
+
+Measured on S1 (`N = 2`, 20 s, identical config, freshly generated CppAD libraries, quiet runs,
+deterministic run to run; goal tolerance is 0.01 m):
+
+| backend | steps | collision | min. goal distance | solve time (mean) | fallback | relaxed |
+| --- | --- | --- | --- | --- | --- | --- |
+| `--solver ipm` | 70 | no | **0.010 m** (reaches goal) | 0.043 s | 0 | 0 |
+| `--solver sqp` | 97 | no | 0.020 m | 0.045 s | 4 | 14 |
+| `--solver sqp --rti` | 56 | **yes** | 0.428 m | 0.0023 s | 54 | 0 |
+
+`--solver sqp` at the configured 10 iterations is a genuine cross-check: it gets to within 0.02 m at
+the same wall-clock cost as the IPM, at the price of 4 fallback steps and 14 steps that had to relax
+the keep-out, i.e. steps that are *not* robust to the full `v_obs` bound.
+
+**RTI is wired and correct, and on this problem it does not work.** One Newton step per control step
+against soft-only inequalities never reaches a feasible iterate, so the applied-step gate rejects
+96 % of solves, the capture-point fallback ends up driving the robot, and S1 ends in a collision. It
+was not left untuned: `mu ∈ {1e-4, 1e-2, 1e-1, 1}` × `delta ∈ {1e-3, 1e-2, 1e-1}` all land in the
+same regime, and adding the textbook converged initialization solve at step 0 made it worse rather
+than better — a step-0-converged plan is a plan for the keep-out disk at `T = 0`, and a single
+iteration per step cannot track that disk as it inflates.
+
+Use `--solver ipm` for anything that matters. `--rti` is a speed reference (19× faster per solve) and
+a starting point if someone wants to make it work; the first thing to try is giving the pessimistic
+keep-out rows an exact-penalty (L1) term instead of a barrier, so one Newton step can actually move
+the iterate onto the feasible side.
 
 ## Two things that look wrong but are not
 
@@ -95,34 +141,30 @@ and constraint; that is now `OptiPessiReferenceManager`, consumed by `const&` th
 `getParameters(...)` hooks, matching how `legged_interface` constraints consume
 `SwitchedModelReferenceManager`.
 
-## Known gap: the closed loop stops early
+## Closed: the loop no longer stops early
 
-**The Python reference drives S4 for the full 30 s. This port stops after ~2.7 s (8 steps), and so do
-S1–S3 (~2.2 s).** No collision occurs; the loop stops because the solver stops producing usable
-solutions and the saturated fallback input is rejected as physically insane.
+This section used to document a gap — the Python reference drove S4 for the full 30 s while this
+port stopped after ~2.7 s (8 steps), with the pessimistic branch near-infeasible at the far knots
+and the IPM's linesearch collapsing to a zero step.
 
-This is *not* a transcription error, and it is not introduced here — the
-`legged_optipessi_interface` binary this package was restructured from reproduces the same
-trajectory step for step and stops at the same point. (Its `compare_s4/cpp/` dump showing a full 30 s
-run came from an older build; the current source does not even compile.)
+**That is fixed by the step-by-step transcription.** Carrying the previous phase in the state made
+every row knot-local but pushed the family that caps stride length onto quantities the applied input
+could no longer influence; recomputing `x_{i+1} = lipMap(x_i, u_i)` inside the rows instead — the way
+`ocp_quadruped.py` writes them — puts them back on the state the step actually produces, and makes
+interval 0 constrainable. S4 now runs the full 30 s (181 steps, `--solver ipm`) with no collision, no
+step on a relaxed keep-out, and a single fallback step.
 
-Diagnosis, from `StageInequalityConstraint` evaluated on the initializer rollout: at the S4 start the
-*only* violated rows are the pessimistic branch's obstacle-separation rows at knots 3–5, growing by
-exactly `Δt · v_obs = 0.35` per knot. With `v_obstacle = 1.0 m/s` and a 6-phase horizon the
-worst-case disk inflates to ≈ 2.1 m while the obstacle starts 1.7 m away, so the pessimistic branch
-is near-infeasible at the far knots. The problem is still feasible — the pessimistic branch only has
-to flee — but a standing-still guess is far from that, and the open-loop LIP is too unstable to nudge
-into feasibility (biasing the initializer diverges immediately). IPOPT absorbs this with its
-restoration phase; the HPIPM-based IPM has none, its linesearch collapses to a zero step size, and
-the accepted iterate drifts until the velocity bound is violated by 3–4×.
+The conditioning cost that motivated the knot-local form is real and is paid through
+`hpipm.reg_prim = 1e1`; it did not turn out to be the binding constraint.
 
-Directions worth trying, roughly in order of expected payoff:
+`testS4ClosedLoop.DISABLED_CompletesTheFullScenarioLikeTheReference` encodes the target and is worth
+re-enabling — note it needs `config/scenario_S4_test.info`, which is not in the repo, so
+`testS4ClosedLoop` currently fails at construction for that separate reason.
 
-* an elastic/restoration mode — soften the pessimistic collision rows with a heavily penalized slack
-  so the solver always has a feasible point to work from;
-* a shorter horizon or a smaller assumed `v_obstacle`, so the worst-case disk stays inside the
-  reachable region (this changes the guarantee, so it is a modelling decision, not a fix);
-* seeding the pessimistic branch from a dedicated retreat plan rather than from the optimistic guess.
+### Regenerate the CppAD libraries after changing the formulation
 
-`testS4ClosedLoop.DISABLED_CompletesTheFullScenarioLikeTheReference` encodes the target; enable it
-once this is resolved.
+`--no-recompile` reuses whatever is in the library folder, and the generated code bakes in the model
+constants *and* the shape of every cost/constraint term. A folder left over from an earlier
+formulation silently produces a different closed loop: measured on S1, a reused folder gave 82 steps
+stopping 0.245 m from the goal where a regenerated one gave 70 steps reaching it (0.010 m), same
+binary, same config. When in doubt, point `libraryFolder` at a fresh path.

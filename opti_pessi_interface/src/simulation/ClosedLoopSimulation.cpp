@@ -183,7 +183,7 @@ scalar_t appliedConstraintViolation(const ocs2::OptimalControlProblem& problem, 
   return worst;
 }
 
-SolveOutcome extractSolve(ocs2::IpmSolver& solver, const ocs2::OptimalControlProblem& problem,
+SolveOutcome extractSolve(ocs2::SolverBase& solver, const ocs2::OptimalControlProblem& problem,
                           const OptiPessiModelParameters& params, const vector_t& robotState, bool verbose) {
   SolveOutcome out;
   const scalar_t finalTime = static_cast<scalar_t>(params.N);
@@ -266,7 +266,8 @@ SolveOutcome extractSolve(ocs2::IpmSolver& solver, const ocs2::OptimalControlPro
 
 }  // namespace
 
-ClosedLoopResult runClosedLoopSimulation(OptiPessiInterface& interface, ocs2::IpmSolver& solver, bool verbose) {
+ClosedLoopResult runClosedLoopSimulation(OptiPessiInterface& interface, ocs2::SolverBase& solver, bool verbose,
+                                         bool realTimeIteration) {
   const OptiPessiModelParameters& params = interface.modelParameters();
   auto referenceManagerPtr = interface.getOptiPessiReferenceManagerPtr();
   const scalar_t finalTime = interface.finalTime();
@@ -298,6 +299,16 @@ ClosedLoopResult runClosedLoopSimulation(OptiPessiInterface& interface, ocs2::Ip
   bool collision = false;
   bool haveWarmStart = false;
   ocs2::PrimalSolution warmStart;
+
+  // NO RTI INITIALIZATION SOLVE -- it was tried and it is worse.
+  //
+  // The textbook remedy for RTI's cold first step is to converge step 0 (here:
+  // SqpSolver::setSqpIterationOverride(sqpIteration) for the first solve, cleared afterwards) so the
+  // single-step sequence starts on the manifold. Measured on S1 it made the run WORSE, not better:
+  // without it the loop ran 108 steps collision-free, with it the loop collided at step 22. A
+  // converged step-0 plan is a plan for the pessimistic keep-out at T = 0; one Newton step per
+  // control step cannot keep up with that disk as it inflates, so the better the start, the further
+  // the iterate has fallen behind by the time the obstacle matters.
 
   const scalar_t goalToleranceSq = params.goalTolerance * params.goalTolerance;
   auto goalDistanceSq = [&](int step) {
@@ -340,7 +351,8 @@ ClosedLoopResult runClosedLoopSimulation(OptiPessiInterface& interface, ocs2::Ip
     scalar_t acceptedScale = 1.0;
 
     // 2. A bad warm start can poison the solve; retry cold at the nominal scale.
-    if (!outcome.planTrustworthy() && haveWarmStart) {
+    //    Skipped under RTI: one solve per control step is the contract.
+    if (!realTimeIteration && !outcome.planTrustworthy() && haveWarmStart) {
       const SolveOutcome cold = attempt(1.0, nullptr);
       if (cold.planTrustworthy() || (!outcome.ok && cold.ok)) {
         outcome = cold;
@@ -355,7 +367,9 @@ ClosedLoopResult runClosedLoopSimulation(OptiPessiInterface& interface, ocs2::Ip
     // first input and warm-starting from it walks the closed loop into a state the LIP cannot
     // recover from. Solving a relaxed problem instead yields a feasible plan and a usable warm
     // start, at the cost of robustness -- which is measured and reported, never hidden.
-    if (!outcome.planTrustworthy()) {
+    //
+    // Skipped under RTI for the same reason as the cold retry: it costs up to five extra solves.
+    if (!realTimeIteration && !outcome.planTrustworthy()) {
       SolveOutcome best;
       scalar_t bestScale = 0.0;
       const ocs2::PrimalSolution* guess = nullptr;
@@ -455,7 +469,14 @@ ClosedLoopResult runClosedLoopSimulation(OptiPessiInterface& interface, ocs2::Ip
     // applicable plan, as the CasADi reference does unconditionally) was tried on S4 and changed
     // nothing -- the warm-started solves came back with a horizon defect of 12.77, were rejected,
     // and the run ended at the identical step with the identical collision.
-    if (outcome.planTrustworthy()) {
+    //
+    // Under RTI the rule inverts: the iterate is ALWAYS shifted and reused, trustworthy or not.
+    // A real-time iteration is one Newton step of a sequence that converges along the closed loop;
+    // throwing the step away because it is not yet feasible restarts that sequence from scratch
+    // every control step, which is the one thing the scheme cannot afford.
+    const bool keepWarmStart =
+        outcome.planTrustworthy() || (realTimeIteration && !outcome.solution.stateTrajectory_.empty());
+    if (keepWarmStart) {
       warmStart = shiftPrimalSolution(outcome.solution, successorState);
       haveWarmStart = true;
     } else {

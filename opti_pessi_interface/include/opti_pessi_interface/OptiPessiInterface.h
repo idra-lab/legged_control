@@ -10,9 +10,11 @@
 #include <ocs2_oc/oc_problem/OptimalControlProblem.h>
 #include <ocs2_oc/rollout/TimeTriggeredRollout.h>
 #include <ocs2_robotic_tools/common/RobotInterface.h>
+#include <ocs2_sqp/SqpSettings.h>
 
 #include "opti_pessi_interface/OptiPessiModelParameters.h"
 #include "opti_pessi_interface/OptiPessiReferenceManager.h"
+#include "opti_pessi_interface/SolverBackend.h"
 #include "opti_pessi_interface/definitions.h"
 
 namespace opti_pessi {
@@ -26,9 +28,10 @@ namespace opti_pessi {
  * pessimistic one that carries no cost but must stay feasible against the worst-case reachable
  * disk -- coupled by u_0^opti = u_0^pessi. See mpc_formulation.md and definitions.h.
  *
- * This class owns the problem, not the solver: construct an ocs2::IpmSolver from
- * ipmSettings() / getOptimalControlProblem() / getInitializer(), the same way LeggedController
- * constructs its SqpMpc from LeggedInterface.
+ * This class owns the problem, not the solver: call makeSolver(interface, backend, rti) (see
+ * SolverBackend.h), or construct an ocs2::IpmSolver / ocs2::SqpSolver by hand from
+ * ipmSettings() / sqpSettings() / getOptimalControlProblem() / getInitializer(), the same way
+ * LeggedController constructs its SqpMpc from LeggedInterface.
  */
 class OptiPessiInterface : public ocs2::RobotInterface {
  public:
@@ -44,7 +47,13 @@ class OptiPessiInterface : public ocs2::RobotInterface {
 
   ~OptiPessiInterface() override = default;
 
-  void setupOptimalControlProblem(const std::string& libraryFolder, bool recompile);
+  /**
+   * Builds the OCP. The backend is part of the problem, not just of the solver: with
+   * SolverBackend::Sqp the inequality terms are ALSO registered as relaxed-barrier soft constraints,
+   * because ocs2::SqpSolver drops hard inequalities before assembling its QP. See SolverBackend.h.
+   */
+  void setupOptimalControlProblem(const std::string& libraryFolder, bool recompile,
+                                  SolverBackend backend = SolverBackend::Ipm);
 
   void setupReferenceManager(const OptiPessiModelParameters& params);
 
@@ -56,7 +65,11 @@ class OptiPessiInterface : public ocs2::RobotInterface {
   std::shared_ptr<OptiPessiReferenceManager> getOptiPessiReferenceManagerPtr() const { return referenceManagerPtr_; }
 
   const ocs2::ipm::Settings& ipmSettings() const { return ipmSettings_; }
+  const ocs2::sqp::Settings& sqpSettings() const { return sqpSettings_; }
   const ocs2::mpc::Settings& mpcSettings() const { return mpcSettings_; }
+
+  /** The backend setupOptimalControlProblem() was called with. */
+  SolverBackend solverBackend() const { return backend_; }
   const ocs2::rollout::Settings& rolloutSettings() const { return rolloutSettings_; }
   const ocs2::RolloutBase& getRollout() const { return *rolloutPtr_; }
 
@@ -76,8 +89,15 @@ class OptiPessiInterface : public ocs2::RobotInterface {
   OptiPessiModelParameters params_;
 
   ocs2::ipm::Settings ipmSettings_;
+  ocs2::sqp::Settings sqpSettings_;
   ocs2::mpc::Settings mpcSettings_;
   ocs2::rollout::Settings rolloutSettings_;
+
+  /** Relaxed-barrier parameters used only when the SQP backend softens the inequality rows. */
+  scalar_t barrierMu_ = 1e-2;
+  scalar_t barrierDelta_ = 1e-3;
+
+  SolverBackend backend_ = SolverBackend::Ipm;
 
   std::unique_ptr<ocs2::OptimalControlProblem> problemPtr_;
   std::shared_ptr<OptiPessiReferenceManager> referenceManagerPtr_;

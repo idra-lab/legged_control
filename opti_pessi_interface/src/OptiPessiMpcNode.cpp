@@ -4,9 +4,8 @@
 #include <iostream>
 #include <string>
 
-#include <ocs2_ipm/IpmSolver.h>
-
 #include "opti_pessi_interface/OptiPessiInterface.h"
+#include "opti_pessi_interface/SolverBackend.h"
 #include "opti_pessi_interface/simulation/ClosedLoopSimulation.h"
 #include "opti_pessi_interface/simulation/NpyIo.h"
 
@@ -48,10 +47,15 @@ void dumpTrajectories(const OptiPessiModelParameters& params, const ClosedLoopRe
 }
 
 void printUsage(const char* argv0) {
-  std::cerr << "Usage: " << argv0 << " <taskFile> <scenarioFile> [libraryFolder] [--no-recompile] [--quiet]\n"
+  std::cerr << "Usage: " << argv0 << " <taskFile> <scenarioFile> [libraryFolder] [--solver ipm|sqp] [--rti]"
+            << " [--no-recompile] [--quiet]\n"
             << "  taskFile       config/task.info\n"
             << "  scenarioFile   config/scenario_S4.info\n"
             << "  libraryFolder  CppAD library folder (default /tmp/ocs2/opti_pessi_interface)\n"
+            << "  --solver       ipm (default, hard inequalities) or sqp (relaxed-barrier soft\n"
+            << "                 inequalities -- SqpSolver's QP has no inequality rows)\n"
+            << "  --rti          SQP only: one Newton step per control step, always warm-started,\n"
+            << "                 no cold retry and no keep-out continuation (real-time iteration)\n"
             << "  --no-recompile reuse the CppAD libraries already in libraryFolder\n";
 }
 
@@ -68,6 +72,8 @@ int main(int argc, char** argv) {
   std::string libraryFolder = "/tmp/ocs2/opti_pessi_interface";
   bool recompile = true;
   bool verbose = true;
+  SolverBackend backend = SolverBackend::Ipm;
+  bool realTimeIteration = false;
 
   for (int i = 3; i < argc; ++i) {
     const std::string arg = argv[i];
@@ -75,6 +81,20 @@ int main(int argc, char** argv) {
       recompile = false;
     } else if (arg == "--quiet") {
       verbose = false;
+    } else if (arg == "--rti") {
+      realTimeIteration = true;
+    } else if (arg == "--solver") {
+      if (i + 1 >= argc) {
+        printUsage(argv[0]);
+        return 1;
+      }
+      try {
+        backend = solverBackendFromString(argv[++i]);
+      } catch (const std::exception& e) {
+        std::cerr << e.what() << "\n";
+        printUsage(argv[0]);
+        return 1;
+      }
     } else if (arg.rfind("--", 0) == 0) {
       printUsage(argv[0]);
       return 1;
@@ -83,18 +103,27 @@ int main(int argc, char** argv) {
     }
   }
 
+  if (realTimeIteration && backend != SolverBackend::Sqp) {
+    std::cerr << "--rti applies to the SQP backend only; the IPM's barrier schedule needs its outer "
+                 "iterations. Add --solver sqp.\n";
+    return 1;
+  }
+
   try {
     OptiPessiInterface interface(optipessiFile, scenarioFile, libraryFolder, recompile, verbose);
     std::cout << "Built the Opti-Pessi optimal control problem: stateDim=" << interface.stateDim()
               << " inputDim=" << interface.inputDim() << " numObstacles=" << interface.numObstacles() << "\n";
 
-    interface.setupOptimalControlProblem(libraryFolder, recompile);
+    interface.setupOptimalControlProblem(libraryFolder, recompile, backend);
 
-    ocs2::IpmSolver solver(interface.ipmSettings(), interface.getOptimalControlProblem(), interface.getInitializer());
-    solver.setReferenceManager(interface.getReferenceManagerPtr());
+    const auto solverPtr = makeSolver(interface, backend, realTimeIteration);
 
-    std::cout << "\nSimulating Opti-Pessi MPC\n";
-    const ClosedLoopResult result = runClosedLoopSimulation(interface, solver, verbose);
+    std::cout << "\nSimulating Opti-Pessi MPC  [solver=" << toString(backend) << (realTimeIteration ? ", RTI" : "") << "]\n";
+    if (backend == SolverBackend::Sqp) {
+      std::cout << "  NOTE: SqpSolver drops hard inequalities; the path/collision/friction/box rows are\n"
+                   "        enforced through relaxed-barrier soft constraints, so feasibility is approximate.\n";
+    }
+    const ClosedLoopResult result = runClosedLoopSimulation(interface, *solverPtr, verbose, realTimeIteration);
     const auto& params = interface.modelParameters();
 
     std::cout << "\nCollision:             " << (result.collision ? "yes" : "no") << "\n";
