@@ -13,4 +13,11 @@
             The basic legged controller with cheat state estimator
         </description>
     </class>
+
+    <class name="legged/OptiPessiController" type="legged::OptiPessiController"
+           base_class_type="controller_interface::ControllerInterface">
+        <description>
+            Drives legged_wbc from an Opti-Pessi LIP plan through opti_pessi_wbc_bridge.
+        </description>
+    </class>
 </library>

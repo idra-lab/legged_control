@@ -1,5 +1,9 @@
 #include "opti_pessi_interface/OptiPessiInterface.h"
 
+#include <iostream>
+#include <stdexcept>
+
+#include <boost/filesystem.hpp>
 #include <boost/property_tree/info_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 
@@ -25,39 +29,47 @@ namespace {
  * hyperplane angles enter the collision rows through cos/sin of a decision variable, so the Hessian
  * is routinely indefinite.
  */
-void loadHpipmSettings(const std::string& taskFile, ocs2::ipm::Settings& settings, bool verbose) {
+void loadHpipmSettings(const std::string& optipessiFile, ocs2::ipm::Settings& settings, bool verbose) {
   boost::property_tree::ptree pt;
-  boost::property_tree::read_info(taskFile, pt);
+  boost::property_tree::read_info(optipessiFile, pt);
   settings.hpipmSettings.reg_prim = 1e-6;
   ocs2::loadData::loadPtreeValue(pt, settings.hpipmSettings.reg_prim, "hpipm.reg_prim", verbose);
 }
 
 }  // namespace
 
-OptiPessiInterface::OptiPessiInterface(const std::string& taskFile, const std::string& scenarioFile,
+OptiPessiInterface::OptiPessiInterface(const std::string& optipessiFile, const std::string& scenarioFile,
                                        const std::string& libraryFolder, bool recompile, bool verbose) {
-  params_ = loadOptiPessiModelParameters(taskFile, scenarioFile, verbose);
+  
+  // check that optipessi file exists
+  boost::filesystem::path optipessiFilePath(optipessiFile);
+  if (boost::filesystem::exists(optipessiFilePath)) {
+    std::cerr << "[OptiPessiInterface] Loading task file: " << optipessiFilePath << std::endl;
+  } else {
+    throw std::invalid_argument("[OptiPessiInterface] Task file not found: " + optipessiFilePath.string());
+  }
 
-  ipmSettings_ = ocs2::ipm::loadSettings(taskFile, "ipm", verbose);
-  loadHpipmSettings(taskFile, ipmSettings_, verbose);
-  mpcSettings_ = ocs2::mpc::loadSettings(taskFile, "mpc", verbose);
-  rolloutSettings_ = ocs2::rollout::loadSettings(taskFile, "rollout", verbose);
+  // check that scenario file exists
+  boost::filesystem::path scenarioFilePath(scenarioFile);
+  if (boost::filesystem::exists(scenarioFilePath)) {
+    std::cerr << "[OptiPessiInterface] Loading scenario file: " << scenarioFilePath << std::endl;
+  } else {
+    throw std::invalid_argument("[OptiPessiInterface] Scenario file not found: " + scenarioFilePath.string());
+  }
+  
+  params_ = loadOptiPessiModelParameters(optipessiFile, scenarioFile, verbose);
 
-  setupOptimalControlProblem(libraryFolder, recompile);
+  ipmSettings_ = ocs2::ipm::loadSettings(optipessiFile, "ipm", verbose);
+  loadHpipmSettings(optipessiFile, ipmSettings_, verbose);
+  mpcSettings_ = ocs2::mpc::loadSettings(optipessiFile, "mpc", verbose);
+  rolloutSettings_ = ocs2::rollout::loadSettings(optipessiFile, "rollout", verbose);
+
+  // setupOptimalControlProblem(libraryFolder, recompile);
 }
 
 void OptiPessiInterface::setupOptimalControlProblem(const std::string& libraryFolder, bool recompile) {
-  // Reference manager: goal, measured obstacles, trot parity, retry homotopy knobs.
-  referenceManagerPtr_ = std::make_shared<OptiPessiReferenceManager>(params_);
-
-  // OCS2 requires a target trajectory even though the cost tracks the goal through the reference
-  // manager rather than through TargetTrajectories. Provide a constant one over the whole horizon.
-  vector_t xRef = vector_t::Zero(params_.stateDim());
-  xRef.head(2) = params_.goal;
-  xRef.segment(RobotX::DIM, 2) = params_.goal;
-  const vector_t uRef = vector_t::Zero(params_.inputDim());
-  referenceManagerPtr_->setTargetTrajectories(
-      ocs2::TargetTrajectories({0.0, finalTime()}, {xRef, xRef}, {uRef, uRef}));
+  
+  setupReferenceManager(params_);
 
   problemPtr_ = std::make_unique<ocs2::OptimalControlProblem>();
 
@@ -95,6 +107,22 @@ void OptiPessiInterface::setupOptimalControlProblem(const std::string& libraryFo
 
   // Initialization
   initializerPtr_ = std::make_unique<OptiPessiInitializer>(params_, *referenceManagerPtr_);
+}
+
+// Note the parameter is deliberately named `params`, not `params_`: a parameter shadowing the
+// member of the same name makes it impossible to tell at a glance which one the body reads.
+void OptiPessiInterface::setupReferenceManager(const OptiPessiModelParameters& params) {
+  // Reference manager: goal, measured obstacles, trot parity, retry homotopy knobs.
+  referenceManagerPtr_ = std::make_shared<OptiPessiReferenceManager>(params);
+
+  // OCS2 requires a target trajectory even though the cost tracks the goal through the reference
+  // manager rather than through TargetTrajectories. Provide a constant one over the whole horizon.
+  vector_t xRef = vector_t::Zero(params.stateDim());
+  xRef.head(2) = params.goal;
+  xRef.segment(RobotX::DIM, 2) = params.goal;
+  const vector_t uRef = vector_t::Zero(params.inputDim());
+  referenceManagerPtr_->setTargetTrajectories(
+      ocs2::TargetTrajectories({0.0, finalTime()}, {xRef, xRef}, {uRef, uRef}));
 }
 
 }  // namespace opti_pessi

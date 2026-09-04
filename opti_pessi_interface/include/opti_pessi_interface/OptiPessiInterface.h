@@ -46,6 +46,8 @@ class OptiPessiInterface : public ocs2::RobotInterface {
 
   void setupOptimalControlProblem(const std::string& libraryFolder, bool recompile);
 
+  void setupReferenceManager(const OptiPessiModelParameters& params);
+
   const ocs2::OptimalControlProblem& getOptimalControlProblem() const override { return *problemPtr_; }
   const ocs2::Initializer& getInitializer() const override { return *initializerPtr_; }
   std::shared_ptr<ocs2::ReferenceManagerInterface> getReferenceManagerPtr() const override { return referenceManagerPtr_; }

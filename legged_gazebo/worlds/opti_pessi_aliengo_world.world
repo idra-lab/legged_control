@@ -1,0 +1,101 @@
+<?xml version="1.0" ?>
+<sdf version="1.9">
+    <world name="default">
+        <!-- Task 14: Gazebo bring-up for the Opti-Pessi bridge at real-time factor 0.2.
+             This is a DEDICATED COPY of empty_world.world with only the <physics> block
+             changed. legged_controllers/launch/aliengo_gazebo.launch.py selects between this
+             file and empty_world.world with its `optipessi` argument (true -> this file, RTF
+             0.2; false -> empty_world.world, RTF 1.0), decided in that one launch file so the
+             physics rate and the controller choice can never disagree. It is intentionally a
+             separate file from empty_world.world (still used unmodified by
+             legged_unitree_description's a1/go1/aliengo demos via empty_world_launch.xml, and
+             by aliengo_gazebo.launch.py itself when optipessi:=false) so that slowing down the
+             Opti-Pessi bring-up does not silently change the real-time factor of every other
+             Gazebo demo in this workspace.
+
+             Target real time factor is the product of max_step_size and real_time_update_rate:
+                 0.001 * 200 = 0.2
+             Negative real_time_update_rate would mean "run as fast as possible" -- not used here
+             because the whole point of Task 14 is to run intentionally slower than real time:
+             the Opti-Pessi background solver (Task 13) averages ~0.97 s wall-clock per solve
+             against a ~0.2-0.25 s contact phase, so it needs extra wall-clock time per unit of
+             sim time to keep up. legged/LeggedController's OCS2 MPC does not have this
+             constraint and runs at RTF 1.0 (empty_world.world) instead. -->
+        <physics name="default_physics" default="true" type="dart">
+            <max_step_size>0.001</max_step_size>
+            <real_time_factor>0.2</real_time_factor>
+            <real_time_update_rate>200</real_time_update_rate>
+        </physics>
+
+        <!-- Required systems for gz_ros2_control -->
+        <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+        <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
+        <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
+        <plugin filename="gz-sim-contact-system" name="gz::sim::systems::Contact"/>
+        <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+            <render_engine>ogre2</render_engine>
+        </plugin>
+
+        <!-- A global light source -->
+        <light type="directional" name="sun">
+            <cast_shadows>true</cast_shadows>
+            <pose>0 0 10 0 0 0</pose>
+            <diffuse>0.8 0.8 0.8 1</diffuse>
+            <specular>0.2 0.2 0.2 1</specular>
+            <attenuation>
+                <range>1000</range>
+                <constant>0.9</constant>
+                <linear>0.01</linear>
+                <quadratic>0.001</quadratic>
+            </attenuation>
+            <direction>-0.5 0.1 -0.9</direction>
+        </light>
+
+        <!-- A ground plane -->
+        <model name="ground_plane">
+            <static>true</static>
+            <link name="link">
+                <collision name="collision">
+                    <geometry>
+                        <plane>
+                            <normal>0 0 1</normal>
+                            <size>100 100</size>
+                        </plane>
+                    </geometry>
+                    <surface>
+                        <friction>
+                            <ode>
+                                <mu>100</mu>
+                                <mu2>50</mu2>
+                            </ode>
+                        </friction>
+                        <contact>
+                            <ode>
+                                <soft_cfm>0</soft_cfm>
+                                <soft_erp>0.2</soft_erp>
+                                <kp>1e+13</kp>
+                                <kd>1</kd>
+                                <max_vel>0.01</max_vel>
+                                <min_depth>0.001</min_depth>
+                            </ode>
+                        </contact>
+                    </surface>
+                </collision>
+                <visual name="visual">
+                    <cast_shadows>false</cast_shadows>
+                    <geometry>
+                        <plane>
+                            <normal>0 0 1</normal>
+                            <size>100 100</size>
+                        </plane>
+                    </geometry>
+                    <material>
+                        <ambient>0.8 0.8 0.8 1</ambient>
+                        <diffuse>0.8 0.8 0.8 1</diffuse>
+                        <specular>0.8 0.8 0.8 1</specular>
+                    </material>
+                </visual>
+            </link>
+        </model>
+    </world>
+</sdf>

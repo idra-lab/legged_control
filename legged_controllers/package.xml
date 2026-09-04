@@ -24,10 +24,24 @@
     <depend>ocs2_self_collision_visualization</depend>
     <depend>angles</depend>
     <depend>std_msgs</depend>
+    <depend>opti_pessi_interface</depend>
+    <depend>opti_pessi_wbc_bridge</depend>
 
     <exec_depend>rosidl_default_runtime</exec_depend>
     <exec_depend>rclpy</exec_depend>
     <exec_depend>controller_manager</exec_depend>
+
+    <!-- Task 14: opti_pessi_aliengo.launch.py bring-up dependencies (legged_common already
+         a <depend> above, covers its generate_urdf.sh exec too). -->
+    <exec_depend>legged_unitree_description</exec_depend>
+    <exec_depend>legged_gazebo</exec_depend>
+    <exec_depend>xacro</exec_depend>
+    <exec_depend>robot_state_publisher</exec_depend>
+    <exec_depend>joint_state_broadcaster</exec_depend>
+    <exec_depend>imu_sensor_broadcaster</exec_depend>
+    <exec_depend>ros_gz_sim</exec_depend>
+    <exec_depend>ros_gz_bridge</exec_depend>
+    <exec_depend>rviz2</exec_depend>
 
     <member_of_group>rosidl_interface_packages</member_of_group>
 

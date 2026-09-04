@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<package format="2">
+    <name>opti_pessi_wbc_bridge</name>
+    <version>0.0.0</version>
+    <description>Adapts the Opti-Pessi LIP plan into the centroidal reference legged_wbc consumes</description>
+    <maintainer email="alejandro.enrique.barbi@gmail.com">Alejandro Barbi</maintainer>
+    <license>BSD</license>
+
+    <buildtool_depend>ament_cmake</buildtool_depend>
+
+    <depend>ocs2_core</depend>
+    <depend>ocs2_centroidal_model</depend>
+    <depend>ocs2_pinocchio_interface</depend>
+    <depend>ocs2_legged_robot</depend>
+    <depend>opti_pessi_interface</depend>
+    <depend>pinocchio</depend>
+
+    <test_depend>ament_cmake_gtest</test_depend>
+
+    <export>
+        <build_type>ament_cmake</build_type>
+    </export>
+</package>

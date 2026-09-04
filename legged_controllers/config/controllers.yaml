@@ -11,6 +11,16 @@ controller_manager:
     legged_controller:
       type: legged/LeggedController
 
+    # Task 14: registered alongside legged_controller so aliengo_gazebo.launch.py can load BOTH
+    # controllers into the controller_manager (one active, one --inactive, chosen by that launch's
+    # `optipessi` argument) without a second controllers.yaml. ros2_control refuses to activate two
+    # controllers that claim the same command interfaces, so exactly one of legged_controller /
+    # opti_pessi_controller is ever active at a time -- the other sits `inactive`/configured, and
+    # `ros2 control switch_controllers --deactivate <one> --activate <other>` can swap stacks at
+    # runtime without restarting Gazebo.
+    opti_pessi_controller:
+      type: legged/OptiPessiController
+
 imu_sensor_broadcaster:
   ros__parameters:
     sensor_name: base_imu

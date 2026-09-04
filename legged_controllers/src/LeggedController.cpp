@@ -6,6 +6,8 @@
 
 #include "legged_controllers/LeggedController.h"
 
+#include "legged_controllers/HardwareCommandWriter.h"
+
 #include <ocs2_centroidal_model/AccessHelperFunctions.h>
 #include <ocs2_centroidal_model/CentroidalModelPinocchioMapping.h>
 #include <ocs2_core/thread_support/ExecuteAndSleep.h>
@@ -295,19 +297,12 @@ controller_interface::return_type LeggedController::update(const rclcpp::Time& t
   vector_t x = wbc_->update(optimizedState, optimizedInput, measuredRbdState_, plannedMode, period.seconds());
   wbcTimer_.endTimer();
 
-  vector_t torque = x.tail(12);
-
-  vector_t posDes = centroidal_model::getJointAngles(optimizedState, leggedInterface_->getCentroidalModelInfo());
-  vector_t velDes = centroidal_model::getJointVelocities(optimizedInput, leggedInterface_->getCentroidalModelInfo());
-
-  // Safety check, if failed, stop the controller
-  if (!safetyChecker_->check(currentObservation_, optimizedState, optimizedInput)) {
-    RCLCPP_ERROR(this->get_node()->get_logger(), "[Legged Controller] Safety check failed!");
+  // Safety check + per-joint torque/position/velocity/kp/kd write-out, shared with
+  // OptiPessiController -- see HardwareCommandWriter.h.
+  if (!writeHardwareCommand(hybridJointHandles_, leggedInterface_->getCentroidalModelInfo(), *safetyChecker_, currentObservation_,
+                            optimizedState, optimizedInput, x, this->get_node()->get_logger(),
+                            "[Legged Controller] Safety check failed!")) {
     return controller_interface::return_type::ERROR;
-  }
-
-  for (size_t j = 0; j < leggedInterface_->getCentroidalModelInfo().actuatedDofNum; ++j) {
-    hybridJointHandles_[j].setCommand(posDes(j), velDes(j), 0, 3, torque(j));
   }
 
   // Visualization

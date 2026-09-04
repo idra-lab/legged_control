@@ -63,7 +63,7 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  const std::string taskFile = argv[1];
+  const std::string optipessiFile = argv[1];
   const std::string scenarioFile = argv[2];
   std::string libraryFolder = "/tmp/ocs2/opti_pessi_interface";
   bool recompile = true;
@@ -84,9 +84,11 @@ int main(int argc, char** argv) {
   }
 
   try {
-    OptiPessiInterface interface(taskFile, scenarioFile, libraryFolder, recompile, verbose);
+    OptiPessiInterface interface(optipessiFile, scenarioFile, libraryFolder, recompile, verbose);
     std::cout << "Built the Opti-Pessi optimal control problem: stateDim=" << interface.stateDim()
               << " inputDim=" << interface.inputDim() << " numObstacles=" << interface.numObstacles() << "\n";
+
+    interface.setupOptimalControlProblem(libraryFolder, recompile);
 
     ocs2::IpmSolver solver(interface.ipmSettings(), interface.getOptimalControlProblem(), interface.getInitializer());
     solver.setReferenceManager(interface.getReferenceManagerPtr());

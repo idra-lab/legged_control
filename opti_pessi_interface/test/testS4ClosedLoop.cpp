@@ -41,6 +41,8 @@ ClosedLoopResult runScenario(const std::string& scenario, OptiPessiInterface& in
 TEST(S4ClosedLoop, StepsAreCollisionFreeAndDynamicallyConsistent) {
   OptiPessiInterface interface(configPath("task.info"), configPath("scenario_S4_test.info"),
                                "/tmp/ocs2/opti_pessi_interface_test", /*recompile=*/true, /*verbose=*/false);
+  // The constructor loads settings only; the OCP, rollout and initializer are built here.
+  interface.setupOptimalControlProblem("/tmp/ocs2/opti_pessi_interface_test", /*recompile=*/true);
   const ClosedLoopResult result = runScenario("S4", interface);
   const auto& params = interface.modelParameters();
 
@@ -81,6 +83,8 @@ TEST(S4ClosedLoop, StepsAreCollisionFreeAndDynamicallyConsistent) {
 TEST(S4ClosedLoop, DISABLED_CompletesTheFullScenarioLikeTheReference) {
   OptiPessiInterface interface(configPath("task.info"), configPath("scenario_S4.info"),
                                "/tmp/ocs2/opti_pessi_interface_test", /*recompile=*/false, /*verbose=*/false);
+  // The constructor loads settings only; the OCP, rollout and initializer are built here.
+  interface.setupOptimalControlProblem("/tmp/ocs2/opti_pessi_interface_test", /*recompile=*/false);
   const ClosedLoopResult result = runScenario("S4", interface);
 
   scalar_t simulatedTime = 0.0;

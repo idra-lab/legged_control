@@ -24,6 +24,8 @@ find_package(ocs2_legged_robot_ros REQUIRED)
 find_package(ocs2_self_collision_visualization REQUIRED)
 find_package(angles REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(opti_pessi_interface REQUIRED)
+find_package(opti_pessi_wbc_bridge REQUIRED)
 
 find_package(pinocchio REQUIRED)
 find_package(Boost REQUIRED COMPONENTS system filesystem log log_setup)
@@ -41,6 +43,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
 # Declare a shared controller plugin library target
 add_library(${PROJECT_NAME}_lib SHARED
         src/LeggedController.cpp
+        src/OptiPessiController.cpp
         )
 
 # Set the output name of the library to match the original package name
@@ -53,6 +56,13 @@ target_include_directories(${PROJECT_NAME}_lib PUBLIC
         )
 
 # Use ROS 2 recommended macro to link and include ament dependencies
+#
+# NOTE: as with pinocchio (see target_link_libraries below), opti_pessi_wbc_bridge is passed
+# through ament_target_dependencies() -- unlike pinocchio it has no legacy *_LIBRARIES fallback
+# issue of its own, but it links pinocchio::pinocchio (the modern imported target) internally and
+# exports that transitively, so consuming it here does not reintroduce the dual-pinocchio conflict
+# documented in opti_pessi_wbc_bridge/CMakeLists.txt -- only calling ament_target_dependencies()
+# with "pinocchio" itself (which this file deliberately never does) would do that.
 ament_target_dependencies(${PROJECT_NAME}_lib
         rclcpp
         legged_common
@@ -65,6 +75,8 @@ ament_target_dependencies(${PROJECT_NAME}_lib
         ocs2_self_collision_visualization
         angles
         std_msgs
+        opti_pessi_interface
+        opti_pessi_wbc_bridge
         )
 
 # Link standard non-ament external libraries using namespaced targets
@@ -143,6 +155,6 @@ install(DIRECTORY config launch
 ament_export_include_directories(include)
 ament_export_libraries(${PROJECT_NAME}_lib)
 ament_export_targets(${PROJECT_NAME} HAS_LIBRARY_TARGET)
-ament_export_dependencies(rclcpp legged_common legged_interface legged_wbc legged_estimation controller_interface pluginlib ocs2_legged_robot_ros ocs2_self_collision_visualization angles std_msgs pinocchio)
+ament_export_dependencies(rclcpp legged_common legged_interface legged_wbc legged_estimation controller_interface pluginlib ocs2_legged_robot_ros ocs2_self_collision_visualization angles std_msgs pinocchio opti_pessi_interface opti_pessi_wbc_bridge)
 
 ament_package()
