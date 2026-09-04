@@ -28,7 +28,7 @@ from value_function_manager import ValueFunctionManager
 
 
 class TestManager():
-    def __init__(self, use_nn=False, only_mpc = False, only_rl = True, nom_rl = False, abs = False):
+    def __init__(self, use_nn=False, only_mpc = False, only_rl = True, nom_rl = False, only_nom = False, abs = False):
         # -------------------------------
         # Simulation Thresholds and Constants
         # -------------------------------
@@ -75,6 +75,8 @@ class TestManager():
         self.only_mpc = only_mpc
         self.only_rl = only_rl
         self.nom_rl = nom_rl
+        self.only_nom = only_nom
+        
         self.init_ros()
 
         full_path = os.path.realpath(__file__)
@@ -148,7 +150,7 @@ class TestManager():
             nom_rl_arg = 'nom_rl:=true' 
         else:
             nom_rl_arg = 'nom_rl:=false' 
-        self.launch_controller = launchFileNode('legged_controllers', 'load_controller.launch', additional_args=['joy:=true', nn_arg, 'mps:=true', 'joy_msg:=true', only_rl_arg, only_mpc_arg, nom_rl_arg, 'rviz:=true'])
+        self.launch_controller = launchFileNode('legged_controllers', 'load_controller.launch', additional_args=['joy:=true', nn_arg, 'mps:=true', 'joy_msg:=true', only_rl_arg, only_mpc_arg, nom_rl_arg, 'rviz:=false'])
         self.launch_controller.start()
 
         # Subscribe to messages
@@ -418,7 +420,7 @@ class TestManager():
                         #torch.tensor(data_new[0][3:], device='cuda:0', dtype=torch.double).unsqueeze(0),
                         self.grav_tens
                     )[0].cpu().numpy()
-                    if (self.step*self.dt > 0.5) and (decimation_counter_vf % self.decimation_vf) == 0:
+                    if (self.step*self.dt > 0.5) and (decimation_counter_vf % self.decimation_vf) == 0 and not self.only_nom:
                         self.isrec, V_safe = self.vf.computeValueFnc(body_ang_vel, proj_gravity, joint_pos=data_new[2], joint_vel=data_new[3], threshold=self.threshold, vf_additional_term = self.vf_additional_term)
 
                     qDes_no = self.backup_policy.action(data_new[6], None, body_ang_vel, proj_gravity, data_new[2], data_new[3], policy_type="safe")

@@ -1,6 +1,6 @@
 settings:
   paths:
-    results_folder: /MPS_RL_RL_2
+    results_folder: /No_MPS_RL
     force_directions: /sphere_points_100.csv
     force_iterations: /aplication_iteration.csv
     estimate_lipschitz: VF_data/data_vf_sensors_stop
