@@ -64,10 +64,10 @@ TEST(ConfigLoading, TaskFileMatchesPythonReference) {
   EXPECT_DOUBLE_EQ(hipOf(p, Foot::RR)(0), -0.2407);
   EXPECT_DOUBLE_EQ(hipOf(p, Foot::RR)(1), -0.134);
 
-  // Augmented dimensions: 2 branches of 17 states (10 physical + 4 previous footholds + previous
-  // CoM/yaw) + clock, and 2 branches of 8 inputs + 4 hyperplane variables per obstacle per branch
-  // (a (phi, b) pair each for the mid-step and the landing plane).
-  EXPECT_EQ(p.stateDim(), 2 * 17 + 1);
+  // Augmented dimensions: 2 branches of 10 states (the reference's state, no previous-phase
+  // bookkeeping) + clock, and 2 branches of 8 inputs + 4 hyperplane variables per obstacle per
+  // branch (a (phi, b) pair each for the mid-step and the landing plane).
+  EXPECT_EQ(p.stateDim(), 2 * 10 + 1);
   EXPECT_EQ(p.inputDim(), 2 * 8 + 2 * 4 * 1);
 }
 

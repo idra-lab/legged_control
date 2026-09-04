@@ -53,10 +53,9 @@ struct OptiPessiModelParameters {
   /**
    * Measured robot state the simulation starts from, R^10:
    * [cx, cy, theta, dcx, dcy, dtheta, p0x, p0y, p1x, p1y].
-   * This is the physical measurement; the extra previous-foothold slots of the internal branch state
-   * are bookkeeping and are seeded by the closed loop.
+   * This is the whole per-branch state: RobotX::DIM == kMeasuredStateDim.
    */
-  static constexpr int kMeasuredStateDim = 10;
+  static constexpr int kMeasuredStateDim = RobotX::DIM;
   vector_t initialState = vector_t::Zero(kMeasuredStateDim);
 
   // --- scenario: goal and obstacles ---

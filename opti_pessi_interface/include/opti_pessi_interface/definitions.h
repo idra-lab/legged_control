@@ -32,7 +32,25 @@ using ocs2::vector_t;
 
 enum class Foot { FL = 0, FR = 1, RL = 2, RR = 3 };
 
-/** Per-branch robot state layout (R^10). */
+/**
+ * Per-branch robot state layout (R^10) -- exactly the reference's state vector
+ * (ocp_quadruped.py:223, `x = opti.variable(10, N+1)`), with no auxiliary slots.
+ *
+ * NO PREVIOUS-PHASE VARIABLES LIVE HERE.
+ *
+ * Two constraint families of the reference relate knot i to knot i+1: foot reachability
+ * (ocp_quadruped.py:116-128) and the mid-step collision plane (ocp_quadruped.py:279-284). An earlier
+ * transcription carried the previous phase's footholds and pose in the state so those rows could be
+ * written knot-locally; that grew the state to R^17. They are now written the way the reference
+ * writes them: the next state is recomputed inside the constraint as x_{i+1} = lipMap(x_i, u_i), i.e.
+ * the dynamics are stepped explicitly, and the rows are imposed over intervals i = 0..N-1.
+ *
+ * The multiple-shooting defect still forces x_{i+1} = lipMap(x_i, u_i) at any solution, so the two
+ * forms describe the same feasible set. This one costs more conditioning (cosh/sinh of the decision
+ * variable dt and products with alpha reach every Jacobian row) and buys back a state that matches
+ * the reference one-for-one, plus rows on interval 0 that constrain the state the applied input
+ * actually lands in.
+ */
 struct RobotX {
   static constexpr int CX = 0;
   static constexpr int CY = 1;
@@ -44,31 +62,7 @@ struct RobotX {
   static constexpr int P0Y = 7;
   static constexpr int P1X = 8;
   static constexpr int P1Y = 9;
-  /**
-   * Footholds of the PREVIOUS contact phase, carried along so that the reference's reachability
-   * condition "the feet you are standing on must still be reachable once the CoM has moved"
-   * (ocp_quadruped.py:118-121, p_i measured against base i+1) can be written at the knot where both
-   * quantities live, instead of being composed with the dynamics. They are a pure copy -- see
-   * lipMap -- so they cost nothing in conditioning. Dropping this family lets the robot stride far
-   * harder than the reference: max speed 1.53 m/s against the reference's 0.88 m/s.
-   */
-  static constexpr int PP0X = 10;
-  static constexpr int PP0Y = 11;
-  static constexpr int PP1X = 12;
-  static constexpr int PP1Y = 13;
-  /**
-   * CoM and yaw of the PREVIOUS contact phase, carried for exactly the same reason as the previous
-   * footholds above: the reference's MID-STEP collision constraint is imposed at the pose halfway
-   * along interval i, (c_i + c_{i+1})/2 (ocp_quadruped.py:519-520), which needs two knots. Composing
-   * with the dynamics to get c_{i+1} is what this transcription exists to avoid, so the midpoint is
-   * instead formed from the previous knot and this one, (c^- + c)/2, and imposed over knots 1..N.
-   * That is the same family of midpoints, shifted one index -- exactly the device already used for
-   * PP0/PP1. Pure copies in lipMap, so they cost nothing in conditioning.
-   */
-  static constexpr int PCX = 14;
-  static constexpr int PCY = 15;
-  static constexpr int PTH = 16;
-  static constexpr int DIM = 17;
+  static constexpr int DIM = 10;
 };
 
 /** Per-branch robot input layout (R^8). The first four entries are the NEXT footholds. */

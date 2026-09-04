@@ -18,7 +18,11 @@ namespace opti_pessi {
  *
  * Terms: CoM position error to the goal, CoM speed, yaw rate, heading alignment (weight 0),
  * CoP centering (alpha - 1/2)^2, phase-duration preference (dt - dt*)^2, and the distance from the
- * next footholds to their nominal hip positions.
+ * landing footholds to their nominal hip positions.
+ *
+ * The first four terms are evaluated at knot i. The foothold term is evaluated at knot i+1,
+ * recomputed by stepping the dynamics inside the cost, because the hips it measures against move
+ * with the base -- this is the reference's ocp_quadruped.py:64-66.
  */
 class OptiPessiStageCost final : public ocs2::StateInputCostCppAd {
  public:
@@ -40,7 +44,11 @@ class OptiPessiStageCost final : public ocs2::StateInputCostCppAd {
   const OptiPessiReferenceManager* referenceManagerPtr_;
 };
 
-/** Terminal cost: the state-dependent part of the running cost at knot N, optimistic branch. */
+/**
+ * Terminal cost: the state-dependent part of the running cost at knot N, optimistic branch. No
+ * foothold, CoP or duration term -- knot N has no input, and the reference adds those only for
+ * i < N.
+ */
 class OptiPessiFinalCost final : public ocs2::StateCostCppAd {
  public:
   OptiPessiFinalCost(OptiPessiModelParameters params, const OptiPessiReferenceManager& referenceManager,

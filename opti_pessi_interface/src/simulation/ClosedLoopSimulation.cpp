@@ -27,8 +27,8 @@ constexpr scalar_t kDynamicsResidualTolerance = 0.02;
  * the next re-solve gets to fix, and rejecting on them throws away usable solves (the reference
  * applies whatever the NLP returns). The bound is deliberately loose for the same reason.
  *
- * "The applied step" means knot 1 here -- the state u_0 lands the robot in. See the long comment at
- * the measurement site in extractSolve() for why knot 0 cannot be the gate.
+ * "The applied step" means interval 0, whose rows bound x_1 = lipMap(x_0, u_0) -- the state u_0
+ * lands the robot in.
  *
  * Note this is measured directly off the returned trajectory, NOT read from the solver's
  * PerformanceIndex: with computeLagrangeMultipliers = false the reported equality/inequality SSE is
@@ -199,25 +199,14 @@ SolveOutcome extractSolve(ocs2::IpmSolver& solver, const ocs2::OptimalControlPro
     return out;
   }
 
-  // Measured at knot 1, NOT knot 0 -- knot 0 reports almost nothing.
+  // Measured on interval 0 -- the interval whose input is about to be applied.
   //
-  // StageInequalityConstraint::isActive is `time >= 0.5`, and for a good reason: knot 0's path rows
-  // constrain x_0, which is the measurement, so enforcing them would make the OCP infeasible exactly
-  // when the controller is needed most. But the collection honours isActive, so evaluating it at
-  // t = 0 leaves only the input box bounds -- no velocity bound, no reachability, no collision row.
-  // It read 0.000e+00 on healthy steps and 9.26e-08 on a plan whose horizon violation was 1.4e+04,
-  // which is how the first inputs of runaway plans came through this gate marked clean.
-  //
-  // The rows that actually guard the executed step are the ones at knot 1: they constrain
-  // x_1 = lipMap(x_0, u_0), the state this step is about to enter. dynamicsResidual separately
-  // verifies that the solver's x_1 agrees with that map, so knot 1 is the honest applied-step gate.
-  if (out.solution.inputTrajectory_.size() > 1) {
-    out.constraintViolation =
-        appliedConstraintViolation(problem, 1.0, out.solution.stateTrajectory_[1], out.solution.inputTrajectory_[1]);
-  } else {
-    out.constraintViolation =
-        appliedConstraintViolation(problem, 0.0, out.solution.stateTrajectory_.front(), out.solution.inputTrajectory_.front());
-  }
+  // Since the path rows are written on the successor knot (they bound x_1 = lipMap(x_0, u_0), not
+  // x_0), interval 0 is active and its rows are exactly the ones that guard the executed step. That
+  // was not true of the earlier knot-local transcription, which had to skip interval 0 and gate on
+  // knot 1 instead.
+  out.constraintViolation =
+      appliedConstraintViolation(problem, 0.0, out.solution.stateTrajectory_.front(), out.solution.inputTrajectory_.front());
   out.horizonViolation = 0.0;
   {
     const int knots = std::min(static_cast<int>(out.solution.inputTrajectory_.size()),
@@ -292,17 +281,10 @@ ClosedLoopResult runClosedLoopSimulation(OptiPessiInterface& interface, ocs2::Ip
   int relaxedSteps = 0;
   int fallbackSteps = 0;
 
-  // Step 0 stands on (FR, RL); seed those stance feet under their nominal hips. With no previous
-  // phase to inherit from, the "previous" footholds start equal to the current ones.
-  X.col(0).head(10) = params.initialState.head(10);
+  // Step 0 stands on (FR, RL); seed those stance feet under their nominal hips.
+  X.col(0) = params.initialState.head(RobotX::DIM);
   X.block(RobotX::P0X, 0, 2, 1) = worldHip(X.col(0), hipOf(params, Foot::FR));
   X.block(RobotX::P1X, 0, 2, 1) = worldHip(X.col(0), hipOf(params, Foot::RL));
-  X.block(RobotX::PP0X, 0, 4, 1) = X.block(RobotX::P0X, 0, 4, 1);
-  // Likewise the "previous" pose starts equal to the current one, so step 0's mid-step plane
-  // degenerates to the knot pose instead of separating against a spurious midpoint at the origin.
-  X(RobotX::PCX, 0) = X(RobotX::CX, 0);
-  X(RobotX::PCY, 0) = X(RobotX::CY, 0);
-  X(RobotX::PTH, 0) = X(RobotX::TH, 0);
 
   ObstaclePlant plant = makeObstaclePlant(params);
   std::vector<matrix_t> obstacleTrajectories(static_cast<size_t>(params.numObstacles()), matrix_t::Zero(2, maxSteps + 1));
@@ -491,9 +473,7 @@ ClosedLoopResult runClosedLoopSimulation(OptiPessiInterface& interface, ocs2::Ip
   std::cout << "Final distance from goal: " << std::sqrt(goalDistanceSq(n)) << "\n";
 
   ClosedLoopResult result;
-  // Only the 10 physical degrees of freedom are logged; the trailing previous-foothold entries are
-  // bookkeeping for the constraints and would confuse the plotting/comparison scripts.
-  result.stateTrajectory = X.topLeftCorner(10, n + 1);
+  result.stateTrajectory = X.topLeftCorner(RobotX::DIM, n + 1);
   result.inputTrajectory = U.leftCols(n);
   result.stanceHip0 = hip0.leftCols(n);
   result.stanceHip1 = hip1.leftCols(n);

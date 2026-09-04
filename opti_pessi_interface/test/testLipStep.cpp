@@ -35,9 +35,8 @@ TEST(LipStep, MatchesExactDiscretization) {
   const scalar_t inertia = 1.048;
   const scalar_t dt = 0.25;
 
-  vector_t x = vector_t::Zero(RobotX::DIM);
-  x.head(10) << 0.1, -0.2, 0.3, 0.4, -0.05, 0.1, 0.0, 0.05, 0.2, -0.05;
-  x.segment(RobotX::PP0X, 4) = x.segment(RobotX::P0X, 4);
+  vector_t x(RobotX::DIM);
+  x << 0.1, -0.2, 0.3, 0.4, -0.05, 0.1, 0.0, 0.05, 0.2, -0.05;
   vector_t u(RobotU::DIM);
   u << 0.15, 0.02, 0.22, -0.03, 0.4, dt, 0.3, 0.7;
 
@@ -70,14 +69,8 @@ TEST(LipStep, MatchesExactDiscretization) {
   EXPECT_NEAR(xn(RobotX::P0Y), u(RobotU::P0Y), 1e-12);
   EXPECT_NEAR(xn(RobotX::P1X), u(RobotU::P1X), 1e-12);
   EXPECT_NEAR(xn(RobotX::P1Y), u(RobotU::P1Y), 1e-12);
-  // The previous-foothold slots are a pure copy of this phase's stance feet.
-  EXPECT_NEAR(xn(RobotX::PP0X), x(RobotX::P0X), 1e-12);
-  EXPECT_NEAR(xn(RobotX::PP1Y), x(RobotX::P1Y), 1e-12);
-  // The previous-pose slots are a pure copy of this phase's CoM and yaw, which is what makes the
-  // mid-step collision plane expressible at a single knot.
-  EXPECT_NEAR(xn(RobotX::PCX), x(RobotX::CX), 1e-12);
-  EXPECT_NEAR(xn(RobotX::PCY), x(RobotX::CY), 1e-12);
-  EXPECT_NEAR(xn(RobotX::PTH), x(RobotX::TH), 1e-12);
+  // The branch state is exactly the reference's R^10: no previous-phase bookkeeping slots.
+  EXPECT_EQ(xn.size(), 10);
 }
 
 TEST(LipStep, PureTranslationHasClosedForm) {

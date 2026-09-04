@@ -52,8 +52,6 @@ what is executed in open loop until the next solve.
 | $\dot{c}\in\mathbb{R}^2$ | CoM horizontal velocity (world) |
 | $\dot{\theta}\in\mathbb{R}$ | Yaw rate |
 | $p^{(0)},p^{(1)}\in\mathbb{R}^2$ | Positions of the two **stance** feet |
-| $p^{-,(0)},p^{-,(1)}\in\mathbb{R}^2$ | Stance feet of the **previous** contact phase |
-| $c^-\in\mathbb{R}^2,\ \theta^-\in\mathbb{R}$ | CoM and yaw of the **previous** contact phase |
 | $T\in\mathbb{R}$ | elapsed-time clock (explicit state) |
 | $z\in\mathbb{R}^2$ | Centre of pressure (CoP) |
 | $\Delta t>0$ | Contact-phase duration (decision variable) |
@@ -180,9 +178,8 @@ During a contact phase the stance feet are **fixed** in the world.
 $$
 x_i
 =
-\bigl[\,c_i,\ \theta_i,\ \dot c_i,\ \dot\theta_i,\ p^{(0)}_i,\ p^{(1)}_i,\
-p^{-,(0)}_i,\ p^{-,(1)}_i,\ c^-_i,\ \theta^-_i\,\bigr]
-\in\mathbb{R}^{17},
+\bigl[\,c_i,\ \theta_i,\ \dot c_i,\ \dot\theta_i,\ p^{(0)}_i,\ p^{(1)}_i\,\bigr]
+\in\mathbb{R}^{10},
 \qquad
 u_i
 =
@@ -192,12 +189,11 @@ p_{i+1}^{(0)} \\ p_{i+1}^{(1)} \\ \alpha_i \\ \Delta t_i \\ \beta_i \\ \gamma_i
 \in\mathbb{R}^{8}.
 $$
 
-The first six entries of $x_i$ carry the current pose, velocity and stance feet, exactly
-as in the reference. The last four entries are the previous phase's stance feet and pose;
-in the exact step they are pure copies, $p^-_{i+1}:=p_i$, $c^-_{i+1}:=c_i$,
-$\theta^-_{i+1}:=\theta_i$, added because two constraint families that would otherwise need
-two knots at once (reachability, §5.4; the mid-step collision plane, §5.5) can then be
-written as a function of a **single** knot.
+This is the reference's state vector, entry for entry: current pose, velocity, and the two
+stance feet. **No previous-phase quantities are carried.** The two constraint families
+that relate knot $i$ to knot $i+1$ — reachability (§5.4) and the mid-step collision plane
+(§5.5) — recompute the successor knot explicitly inside the constraint,
+$x_{i+1}=f(x_i,u_i)$, exactly as the reference substitutes its dynamics.
 
 ### 4.2 Exact discretization
 
@@ -210,8 +206,7 @@ c_{i+1} &= \mathrm{ch}_i\, c_i + \frac{\mathrm{sh}_i}{\omega}\,\dot{c}_i + (1-\m
 \theta_{i+1} &= \theta_i + \Delta t_i\,\dot{\theta}_i, \\
 \dot{c}_{i+1} &= \omega\,\mathrm{sh}_i\, c_i + \mathrm{ch}_i\,\dot{c}_i - \omega\,\mathrm{sh}_i\, z_i, \\
 \dot{\theta}_{i+1} &= \dot{\theta}_i + \Delta t_i\,\frac{\tau_i}{I}, \\
-p_{i+1} &= \bigl(p_{i+1}^{(0)},\, p_{i+1}^{(1)}\bigr)\quad\text{(foothold part of }u_i\text{)}, \\
-p^-_{i+1} &= p_i,\qquad c^-_{i+1}=c_i,\qquad \theta^-_{i+1}=\theta_i,
+p_{i+1} &= \bigl(p_{i+1}^{(0)},\, p_{i+1}^{(1)}\bigr)\quad\text{(foothold part of }u_i\text{)},
 \end{aligned}
 $$
 
@@ -227,7 +222,7 @@ $$
 X_i
 =
 \begin{bmatrix} x^{\mathrm{opti}}_i \\ x^{\mathrm{pessi}}_i \\ T_i \end{bmatrix}
-\in\mathbb{R}^{35},
+\in\mathbb{R}^{21},
 \qquad
 U_i
 =
@@ -259,11 +254,11 @@ enforce if both branches live inside one problem.
 
 ## 5. Constraints
 
-Every row below is a function of $(x_i,u_i)$ at **one** knot — nothing is composed with
-the dynamics except the two terminal constraints (§5.6, §5.7). Path and collision rows are
-imposed over knots $i=1,\dots,N$: knot 0 carries no path row, since it is pinned to the
-measurement and constraining it would make the OCP infeasible exactly when the controller
-is needed most.
+Every row below is a function of $(x_i,u_i)$ on **one interval**. Where a bound belongs to
+knot $i+1$, the successor is recomputed inside the row by stepping the dynamics,
+$x_{i+1}=f(x_i,u_i)$ — the transcription is *composed*, not knot-local. Path and collision
+rows are imposed over intervals $i=0,\dots,N-1$; interval 0 included, because its rows
+constrain $x_1$, the state the applied input lands in, and never the measured $x_0$.
 
 ### 5.1 Input bounds
 
@@ -283,14 +278,15 @@ per branch, 8 rows.
 
 ### 5.2 Velocity bounds
 
-At knot $i$, in that knot's own body frame:
+On the **successor** velocity $\dot c_{i+1}$, expressed in knot $i$'s body frame — the
+reference's `dc_bound(x[3:5, i+1], ..., x[2, i])`:
 
 $$
-\dot c^{\,2}_{x,\max}-\bigl(R_{01}(\theta_i)\dot c_i\bigr)^2_x\ \ge 0,
+\dot c^{\,2}_{x,\max}-\bigl(R_{01}(\theta_i)\dot c_{i+1}\bigr)^2_x\ \ge 0,
 \qquad
-\dot c^{\,2}_{y,\max}-\bigl(R_{01}(\theta_i)\dot c_i\bigr)^2_y\ \ge 0,
+\dot c^{\,2}_{y,\max}-\bigl(R_{01}(\theta_i)\dot c_{i+1}\bigr)^2_y\ \ge 0,
 \qquad
-\dot\theta^{\,2}_{\max}-\dot\theta_i^2\ \ge 0.
+\dot\theta^{\,2}_{\max}-\dot\theta_{i+1}^2\ \ge 0.
 $$
 
 The squared form keeps the rows smooth for the AD Jacobians.
@@ -308,11 +304,11 @@ $$
 Dividing through by $f_n^{2}+10^{-3}$ normalizes the row to the same order of magnitude as
 the box bounds, which matters for a QP that assembles every row into one matrix.
 
-### 5.4 Foot reachability (knot-local)
+### 5.4 Foot reachability
 
 For a foot $p$, its hip offset $h_\ell$, side sign $s_\ell=\pm1$, and
-$p^{\mathrm{b}}=R_{01}(\theta_i)(p-c_i)$, both measured against **this** knot's base
-$(c_i,\theta_i)$:
+$p^{\mathrm{b}}=R_{01}(\theta_{i+1})(p-c_{i+1})$, both measured against the **successor**
+base $(c_{i+1},\theta_{i+1})$:
 
 $$
 r_{\mathrm{hip}}^2-\bigl\lVert p^{\mathrm b}-h_\ell\bigr\rVert^2\ \ge 0,
@@ -320,10 +316,10 @@ r_{\mathrm{hip}}^2-\bigl\lVert p^{\mathrm b}-h_\ell\bigr\rVert^2\ \ge 0,
 s_\ell\, p^{\mathrm b}_y\ \ge 0.
 $$
 
-Applied to four feet per branch: the two current stance feet $p^{(0)},p^{(1)}$ (pair
-$\mathcal{G}_i$) and the two previous stance feet $p^{-,(0)},p^{-,(1)}$ (pair
-$\mathcal{G}_{i-1}$, carried in the state) — 8 rows per branch. This family caps stride
-length and therefore top speed.
+Applied to four feet per branch: the two stance feet of this phase $p^{(0)}_i,p^{(1)}_i$
+(pair $\mathcal{G}_i$) and the two commanded landing feet $p^{(0)}_{i+1},p^{(1)}_{i+1}$
+(pair $\mathcal{G}_{i+1}$) — 8 rows per branch, exactly `reachibility_bounds(x_i, x_{i+1})`
+of the reference. This family caps stride length and therefore top speed.
 
 ### 5.5 Separating-hyperplane collision avoidance
 
@@ -333,33 +329,34 @@ holds identically — there is no separate norm constraint.
 Two independent planes per obstacle per interval, matching the two-certificate structure
 of the model:
 
-**Mid-step plane**, hips only, at the pose formed from the *previous* knot (available
-knot-locally through the state-carried $c^-,\theta^-$):
+**Mid-step plane**, hips only, at the pose halfway along interval $i$:
 
 $$
-c_{i-1/2}=\tfrac12(c^-_i+c_i),
+c_{i+1/2}=\tfrac12(c_i+c_{i+1}),
 \qquad
-\theta_{i-1/2}=\tfrac12(\theta^-_i+\theta_i),
+\theta_{i+1/2}=\tfrac12(\theta_i+\theta_{i+1}),
 $$
 
 $$
--(a_{\mathrm{mid}}^\top r_{\ell}(c_{i-1/2},\theta_{i-1/2})+b_{\mathrm{mid}})\ \ge 0
+-(a_{\mathrm{mid}}^\top r_{\ell}(c_{i+1/2},\theta_{i+1/2})+b_{\mathrm{mid}})\ \ge 0
 \quad\forall\ell,
 \qquad
 a_{\mathrm{mid}}^\top o+b_{\mathrm{mid}}-d_{\min,i}-10^{-3}\ \ge 0.
 $$
 
-**Landing plane**, hips and both stance feet, at the knot pose $(c_i,\theta_i)$:
+**Landing plane**, hips and both landing feet, at the successor pose
+$(c_{i+1},\theta_{i+1})$:
 
 $$
--(a_{\mathrm{land}}^\top r_{\ell}(c_i,\theta_i)+b_{\mathrm{land}})\ \ge 0\quad\forall\ell,
+-(a_{\mathrm{land}}^\top r_{\ell}(c_{i+1},\theta_{i+1})+b_{\mathrm{land}})\ \ge 0\quad\forall\ell,
 \qquad
--(a_{\mathrm{land}}^\top p^{(k)}_i+b_{\mathrm{land}})\ \ge 0\quad k\in\{0,1\},
+-(a_{\mathrm{land}}^\top p^{(k)}_{i+1}+b_{\mathrm{land}})\ \ge 0\quad k\in\{0,1\},
 \qquad
 a_{\mathrm{land}}^\top o+b_{\mathrm{land}}-d_{\min,i}-10^{-3}\ \ge 0.
 $$
 
-12 rows per obstacle per branch. Both planes use the same $d_{\min,i}$ (§7.2).
+12 rows per obstacle per branch. Both planes use the same $d_{\min,i}$ (§7.2). This is the
+reference's pair of `collision_avoidance` calls per interval, index for index.
 
 ### 5.6 Terminal CoP
 
@@ -424,12 +421,19 @@ $$
 $$
 
 $$
-\ell_p(x_i)=w_p\sum_{k\in\{0,1\}}\bigl\lVert p^{(k)}_i-\bigl(c_i+R(\theta_i)h_{\ell^{(k)}_i}\bigr)\bigr\rVert_2^2.
+\ell_p(x_i,u_i)=w_p\sum_{k\in\{0,1\}}\bigl\lVert p^{(k)}_{i+1}-\bigl(c_{i+1}+R(\theta_{i+1})h_{\ell^{(k)}_{i+1}}\bigr)\bigr\rVert_2^2,
+\qquad
+x_{i+1}=f(x_i,u_i).
 $$
 
+$\ell_p$ is written on the **successor** knot, as the reference writes it
+(`cost_p(x[-4:-2, i+1], hip_pos_0)` with the hips of $\mathcal{G}_{i+1}$ taken at
+$(c_{i+1},\theta_{i+1})$): the landing feet are $u_i$'s foothold entries, but the hips they
+are measured against move with the base, so the successor is recomputed inside the cost.
+
 The hip offset in $\ell_p$ is placed in the world with $R(\theta)$ (body→world) — the
-same rotation used for collision (§2), so the cost pulls the stance feet toward the
-*actual* nominal hip position under the current yaw, with no dependence on which rotation
+same rotation used for collision (§2), so the cost pulls the landing feet toward the
+*actual* nominal hip position under the predicted yaw, with no dependence on which rotation
 convention is used elsewhere.
 
 Total cost:
