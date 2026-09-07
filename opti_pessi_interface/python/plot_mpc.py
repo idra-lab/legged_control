@@ -8,6 +8,7 @@ the goal, the start pose and the horizon. Run it from the directory holding the 
 """
 import sys
 from pathlib import Path
+import os
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -24,18 +25,23 @@ def load_obstacles(path):
 
 
 def main(argv):
-    if len(argv) < 3:
+    if len(argv) < 2:
         print(__doc__)
         return 1
 
-    task = load_info(argv[1])
-    scenario = load_info(argv[2])
+    task = load_info("src/legged_control/opti_pessi_interface/config/task.info")
+    scen = "src/legged_control/opti_pessi_interface/config/scenario_S"
+    ario = argv[1]
+    scenario = load_info(scen + ario + ".info")
+    # scenario = load_info(argv[2])
 
     horizon = int(task["horizon"]["N"])
     start = np.array([float(task["initialState"]["(0,0)"]), float(task["initialState"]["(1,0)"])])
     goal = np.array([float(scenario["goal"]["(0,0)"]), float(scenario["goal"]["(1,0)"])])
     fig_name = scenario["simulation"]["figName"].strip('"')
     save_results = True
+    save_dt = False
+    clean_npy_files = True
 
     suffix = fig_name + "_opti_pessi.npy"
     X = np.load("x_quad_" + suffix)
@@ -55,7 +61,7 @@ def main(argv):
     plt.ylabel("Time [s]")
     plt.grid(True)
     plt.legend()
-    if save_results:
+    if save_results and save_dt:
         plt_ut.saveFigure(fig_name + "dt")
 
     # Closed-loop trajectory, fading in with simulation time.
@@ -85,6 +91,17 @@ def main(argv):
     if save_results:
         plt_ut.saveFigure(fig_name + "opti_pessi")
     # plt.show()
+    
+    if clean_npy_files:
+        x_file = "x_quad_" + suffix
+        u_file = "u_" + suffix
+        y_file = "y_obs_" + suffix
+        npy_files_to_remove = [x_file, u_file, y_file]
+        for f in npy_files_to_remove:
+            if os.path.exists(f):
+                os.remove(f)
+                print(f"Rimosso file: {f}")
+
     return 0
 
 
