@@ -466,8 +466,8 @@ controller_interface::CallbackReturn OptiPessiController::on_activate(const rclc
   standing.robotInput(opti_pessi::RobotU::DT) = interface_->modelParameters().dtCost0;
   // Land the swing feet exactly where the (placeholder) previous footholds already are: no
   // stepping.
-  standing.robotInput.segment(opti_pessi::RobotU::P0X, 2) = standing.robotState.segment(opti_pessi::RobotX::PP0X, 2);
-  standing.robotInput.segment(opti_pessi::RobotU::P1X, 2) = standing.robotState.segment(opti_pessi::RobotX::PP1X, 2);
+  standing.robotInput.segment(opti_pessi::RobotU::P0X, 2) = standing.robotState.segment(opti_pessi::RobotX::P0X, 2);
+  standing.robotInput.segment(opti_pessi::RobotU::P1X, 2) = standing.robotState.segment(opti_pessi::RobotX::P1X, 2);
   standing.phaseIndex = 0;
   standing.valid = true;
 
