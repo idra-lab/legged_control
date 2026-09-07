@@ -25,7 +25,6 @@
     <depend>angles</depend>
     <depend>std_msgs</depend>
     <depend>opti_pessi_interface</depend>
-    <depend>opti_pessi_wbc_bridge</depend>
 
     <exec_depend>rosidl_default_runtime</exec_depend>
     <exec_depend>rclpy</exec_depend>
