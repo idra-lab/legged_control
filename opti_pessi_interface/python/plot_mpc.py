@@ -50,6 +50,10 @@ def main(argv):
 
     dt = U[5, :]
     steps = dt.size
+
+    # Next footholds, i.e. the applied input's first four rows (RobotU::P0X..P1Y).
+    p0_next = U[0:2, :]
+    p1_next = U[2:4, :]
     num_obstacles = obstacles.shape[0]
 
     # Contact-phase durations.
@@ -77,6 +81,16 @@ def main(argv):
             plt.plot(X[0, i : i + 2], X[1, i : i + 2], "-c", label="Opti-Pessi MPC", alpha=alpha)
             for j in range(num_obstacles):
                 plt.plot(obstacles[j, 0, i : i + 2], obstacles[j, 1, i : i + 2], "-r", label="Obstacle", alpha=alpha)
+    # Next footholds p0+ / p1+ and the support segment they span, fading like the CoM path.
+    for i in range(steps):
+        alpha = 0.2 + fade * (i + 1)
+        plt.plot([p0_next[0, i], p1_next[0, i]], [p0_next[1, i], p1_next[1, i]], "-", color="0.6", alpha=alpha, lw=0.8)
+        plt.plot(p0_next[0, i], p0_next[1, i], "^", color="g", alpha=alpha, ms=5)
+        plt.plot(p1_next[0, i], p1_next[1, i], "v", color="m", alpha=alpha, ms=5)
+    if steps:
+        plt.plot(p0_next[0, -1], p0_next[1, -1], "^g", label="p0+")
+        plt.plot(p1_next[0, -1], p1_next[1, -1], "vm", label="p1+")
+
     for j in range(num_obstacles):
         plt.plot(obstacles[j, 0, -1], obstacles[j, 1, -1], "-or")
         plt.plot(obstacles[j, 0, 0], obstacles[j, 1, 0], "sr")
