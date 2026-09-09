@@ -50,7 +50,7 @@ limits
 
 horizon
 {
-  N  6   ; contact phases; with dt in [0.2, 0.35] s this is a 1.2-2.1 s lookahead
+  N  3   ; contact phases; with dt in [0.2, 0.35] s this is a 1.2-2.1 s lookahead
 }
 
 ; Measured 10-dof robot state the simulation starts from:
@@ -80,7 +80,7 @@ ipm
 {
   dt                             1.0
   integratorType                 EULER
-  ipmIteration                   100
+  ipmIteration                   25
   deltaTol                       1e-4
   costTol                        1e-4
   g_min                          1e-4
@@ -106,7 +106,7 @@ hpipm
 
 mpc
 {
-  timeHorizon                  4.0
+  timeHorizon                  3.0
   solutionTimeWindow          -1
   coldStart                    false
   debugPrint                   false
