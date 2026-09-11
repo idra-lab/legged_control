@@ -352,14 +352,20 @@ SolveOutcome OptiPessiInterface::solveControlStep(ocs2::IpmMpc& mpc, const vecto
                                                   const ocs2::PrimalSolution* warmStart, bool realTimeIteration,
                                                   bool verbose, scalar_t& acceptedScale) {
   const vector_t augmentedInitialState = packInitialState(robotState);
+  ocs2::IpmSolver& solver = *mpc.getSolverPtr();
 
   // One solve attempt at the given keep-out scale, optionally warm-started.
   auto attempt = [&](scalar_t pessiScale, const ocs2::PrimalSolution* guess) {
     referenceManagerPtr_->setPessiScale(pessiScale);
     SolveOutcome result;
     try {
-      mpc.solve(0.0, augmentedInitialState, finalTime(), guess);
-      result = extractSolve(*mpc.getSolverPtr(), *problemPtr_, params_, robotState, verbose);
+      if (guess != nullptr) {
+        solver.run(0.0, augmentedInitialState, finalTime(), *guess);
+      } else {
+        solver.reset();
+        solver.run(0.0, augmentedInitialState, finalTime());
+      }
+      result = extractSolve(solver, *problemPtr_, params_, robotState, verbose);
     } catch (const std::exception& e) {
       std::cout << "Solver failed (pessiScale=" << pessiScale << "): " << e.what() << "\n";
     }
