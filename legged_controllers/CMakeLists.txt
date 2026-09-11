@@ -42,6 +42,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
 # Declare a shared controller plugin library target
 add_library(${PROJECT_NAME}_lib SHARED
         src/LeggedController.cpp
+        src/OptiPessiController.cpp
         )
 
 # Set the output name of the library to match the original package name
