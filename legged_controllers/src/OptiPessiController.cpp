@@ -328,6 +328,11 @@ controller_interface::return_type OptiPessiController::update(const rclcpp::Time
   // State Estimate
   updateStateEstimation(time, period);
 
+  // Visualization of the measured robot (odom -> base TF, joint states, feet). There is no
+  // centroidal plan to draw, so the policy and command are empty.
+  robotVisualizer_->update(currentObservation_, PrimalSolution(), CommandData());
+  selfCollisionVisualization_->update(currentObservation_);
+
   // Load the latest MPC policy
   optiPessiMrtInterface_->updatePolicy();
 
