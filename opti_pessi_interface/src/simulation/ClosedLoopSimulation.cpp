@@ -1,13 +1,10 @@
 #include "opti_pessi_interface/simulation/ClosedLoopSimulation.h"
 
 #include <algorithm>
-#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <iostream>
-
-#include <ocs2_oc/oc_data/PerformanceIndex.h>
 
 #include "opti_pessi_interface/LipKinematics.h"
 #include "opti_pessi_interface/initialization/OptiPessiInitializer.h"
@@ -16,42 +13,6 @@
 namespace opti_pessi {
 
 namespace {
-
-/** Largest one-step dynamics residual accepted before the solve is treated as failed. */
-constexpr scalar_t kDynamicsResidualTolerance = 0.02;
-
-/**
- * Largest violation of the APPLIED step's own path inequalities before the solve is rejected.
- *
- * Only knot 0's input is executed; violations further along the horizon are plan-quality issues that
- * the next re-solve gets to fix, and rejecting on them throws away usable solves (the reference
- * applies whatever the NLP returns). The bound is deliberately loose for the same reason.
- *
- * "The applied step" means interval 0, whose rows bound x_1 = lipMap(x_0, u_0) -- the state u_0
- * lands the robot in.
- *
- * Note this is measured directly off the returned trajectory, NOT read from the solver's
- * PerformanceIndex: with computeLagrangeMultipliers = false the reported equality/inequality SSE is
- * slack-contaminated and can read 1e11 on a solution whose true worst violation is 0.03.
- */
-constexpr scalar_t kAppliedViolationTolerance = 0.05;
-
-/**
- * Largest violation anywhere along the horizon before the PLAN (as opposed to the applied step) is
- * considered untrustworthy.
- *
- * A plan can be fine at knot 0 and hopeless further out -- that is precisely what happens when the
- * pessimistic keep-out has inflated past what the robot can outrun, and the solver converges to a
- * least-infeasible point whose cost is ~1e6 instead of ~20. Such a plan must not become the next
- * warm start, and it is the signal to fall back to the keep-out continuation.
- */
-constexpr scalar_t kPlanViolationTolerance = 0.05;
-
-/**
- * Continuation schedule for the pessimistic keep-out growth (see ClosedLoopSimulation.h). Each
- * relaxed solve warm-starts the next, walking back up to the nominal pessiScale = 1.
- */
-constexpr std::array<scalar_t, 5> kPessiContinuation = {0.0, 0.25, 0.5, 0.75, 1.0};
 
 vector_t worldHip(const vector_t& robotState, const vector_t& hipBody) {
   return robotState.head(2) + applyR(robotState(RobotX::TH), hipBody);
@@ -139,138 +100,12 @@ bool hasDiverged(const vector_t& robotState, const vector_t& robotInput) {
          robotState.segment(RobotX::DCX, 2).norm() > kDivergedSpeed;
 }
 
-/** Guards against the solver returning a formally converged but physically nonsensical iterate. */
-bool isInsane(const vector_t& robotState, const vector_t& robotInput, const OptiPessiModelParameters& params) {
-  if (!robotState.allFinite() || !robotInput.allFinite()) {
-    return true;
-  }
-  if (robotState.head(2).norm() > 10.0 || robotState.segment(RobotX::DCX, 2).norm() > params.dcxMax + 0.2 ||
-      std::abs(robotState(RobotX::DTH)) > params.dthetaMax + 0.2) {
-    return true;
-  }
-  if (robotInput(RobotU::DT) < params.dtMin - 0.05 || robotInput(RobotU::DT) > params.dtMax + 0.05) {
-    return true;
-  }
-  return false;
-}
-
-struct SolveOutcome {
-  ocs2::PrimalSolution solution;
-  vector_t appliedInput = vector_t::Zero(RobotU::DIM);
-  vector_t successorState = vector_t::Zero(RobotX::DIM);
-  scalar_t dynamicsResidual = 1e9;    // |x_1^solver - lipMap(x_0, u_0)|
-  scalar_t horizonResidual = 1e9;     // worst defect over the whole horizon
-  scalar_t constraintViolation = 1e9; // worst path-inequality violation at the APPLIED knot
-  scalar_t horizonViolation = 1e9;    // worst path-inequality violation anywhere on the horizon
-  bool ok = false;                    // the applied step is usable
-  /** The whole plan is feasible, so it is safe to warm-start the next solve from it. */
-  bool planTrustworthy() const { return ok && horizonViolation < kPlanViolationTolerance; }
-};
-
-/** Worst violation (as a positive number) of the problem's path inequalities at one knot. */
-scalar_t appliedConstraintViolation(const ocs2::OptimalControlProblem& problem, scalar_t time, const vector_t& state,
-                                    const vector_t& input) {
-  if (problem.inequalityConstraintPtr == nullptr || problem.inequalityConstraintPtr->empty()) {
-    return 0.0;
-  }
-  const ocs2::PreComputation preComputation;
-  scalar_t worst = 0.0;
-  for (const auto& g : problem.inequalityConstraintPtr->getValue(time, state, input, preComputation)) {
-    if (g.size() > 0) {
-      worst = std::max(worst, -std::min(scalar_t(0), g.minCoeff()));
-    }
-  }
-  return worst;
-}
-
-SolveOutcome extractSolve(ocs2::SolverBase& solver, const ocs2::OptimalControlProblem& problem,
-                          const OptiPessiModelParameters& params, const vector_t& robotState, bool verbose) {
-  SolveOutcome out;
-  const scalar_t finalTime = static_cast<scalar_t>(params.N);
-
-  try {
-    out.solution = solver.primalSolution(finalTime);
-  } catch (const std::exception& e) {
-    std::cout << "Solver failed: " << e.what() << "\n";
-    return out;
-  }
-  if (out.solution.stateTrajectory_.size() < 2 || out.solution.inputTrajectory_.empty()) {
-    std::cout << "Solver failed: empty primal solution\n";
-    return out;
-  }
-
-  // Measured on interval 0 -- the interval whose input is about to be applied.
-  //
-  // Since the path rows are written on the successor knot (they bound x_1 = lipMap(x_0, u_0), not
-  // x_0), interval 0 is active and its rows are exactly the ones that guard the executed step. That
-  // was not true of the earlier knot-local transcription, which had to skip interval 0 and gate on
-  // knot 1 instead.
-  out.constraintViolation =
-      appliedConstraintViolation(problem, 0.0, out.solution.stateTrajectory_.front(), out.solution.inputTrajectory_.front());
-  out.horizonViolation = 0.0;
-  {
-    const int knots = std::min(static_cast<int>(out.solution.inputTrajectory_.size()),
-                               static_cast<int>(out.solution.stateTrajectory_.size()) - 1);
-    for (int k = 0; k < knots; ++k) {
-      out.horizonViolation = std::max(out.horizonViolation,
-                                      appliedConstraintViolation(problem, static_cast<scalar_t>(k),
-                                                                 out.solution.stateTrajectory_[k],
-                                                                 out.solution.inputTrajectory_[k]));
-    }
-  }
-  out.appliedInput = extractRobotInput(out.solution.inputTrajectory_.front());
-  out.successorState = lipMapScalar(robotState, out.appliedInput, params.omega(), params.mass, params.inertia);
-
-  const vector_t solverSuccessor = extractRobotState(out.solution.stateTrajectory_[1]);
-  out.dynamicsResidual = (solverSuccessor - out.successorState).norm();
-
-  out.horizonResidual = 0.0;
-  const int stateDim = params.stateDim();
-  const int inputDim = params.inputDim();
-  const int numInputs = static_cast<int>(out.solution.inputTrajectory_.size());
-  const int numIntervals = std::min(numInputs, static_cast<int>(out.solution.stateTrajectory_.size()) - 1);
-  for (int k = 0; k < numIntervals; ++k) {
-    const vector_t& xk = out.solution.stateTrajectory_[static_cast<size_t>(k)];
-    const vector_t& uk = out.solution.inputTrajectory_[static_cast<size_t>(k)];
-    const vector_t& xk1 = out.solution.stateTrajectory_[static_cast<size_t>(k + 1)];
-    if (xk.size() != stateDim || uk.size() != inputDim || xk1.size() != stateDim) {
-      out.horizonResidual = 1e9;
-      break;
-    }
-    out.horizonResidual = std::max(out.horizonResidual, (augmentedLipStep(params, xk, uk) - xk1).norm());
-  }
-
-  if (verbose) {
-    std::printf("    cost=%.4e appliedViolation=%.3e horizonViolation=%.3e\n", solver.getPerformanceIndeces().cost,
-                out.constraintViolation, out.horizonViolation);
-    std::printf("    dynRes=%.3e horizon=%.3e cy=%.3f vx=%.2f vy=%.2f dt=%.3f\n", out.dynamicsResidual, out.horizonResidual,
-                out.successorState(RobotX::CY), out.successorState(RobotX::DCX), out.successorState(RobotX::DCY),
-                out.appliedInput(RobotU::DT));
-  }
-
-  if (!out.appliedInput.allFinite() || !out.successorState.allFinite() || isInsane(out.successorState, out.appliedInput, params)) {
-    if (verbose) {
-      std::printf("    rejected as insane: c=(%.2f,%.2f) v=(%.2f,%.2f) dtheta=%.2f dt=%.2f\n", out.successorState(RobotX::CX),
-                  out.successorState(RobotX::CY), out.successorState(RobotX::DCX), out.successorState(RobotX::DCY),
-                  out.successorState(RobotX::DTH), out.appliedInput(RobotU::DT));
-    }
-    return out;
-  }
-
-  out.ok = out.dynamicsResidual < kDynamicsResidualTolerance && out.constraintViolation < kAppliedViolationTolerance;
-  if (!out.ok && verbose && out.constraintViolation >= kAppliedViolationTolerance) {
-    std::printf("    rejected: applied step violates its own constraints by %.3e\n", out.constraintViolation);
-  }
-  return out;
-}
-
 }  // namespace
 
-ClosedLoopResult runClosedLoopSimulation(OptiPessiInterface& interface, ocs2::SolverBase& solver, bool verbose,
+ClosedLoopResult runClosedLoopSimulation(OptiPessiInterface& interface, ocs2::IpmMpc& mpc, bool verbose,
                                          bool realTimeIteration) {
   const OptiPessiModelParameters& params = interface.modelParameters();
   auto referenceManagerPtr = interface.getOptiPessiReferenceManagerPtr();
-  const scalar_t finalTime = interface.finalTime();
   const int maxSteps = 1 + static_cast<int>(std::ceil(params.simTime / params.dtMin));
 
   matrix_t X = matrix_t::Zero(RobotX::DIM, maxSteps + 1);
@@ -320,78 +155,15 @@ ClosedLoopResult runClosedLoopSimulation(OptiPessiInterface& interface, ocs2::So
     referenceManagerPtr->setObstacles(plant.positions);
     referenceManagerPtr->setGoal(params.goal);
 
-    const vector_t augmentedInitialState = packInitialState(X.col(n));
     if (verbose) {
       std::printf("Sim step: %d  time: %.2f\n", n, t);
       std::fflush(stdout);
     }
 
     const auto tic = std::chrono::steady_clock::now();
-
-    // One solve attempt at the given keep-out scale, optionally warm-started.
-    auto attempt = [&](scalar_t pessiScale, const ocs2::PrimalSolution* guess) {
-      referenceManagerPtr->setPessiScale(pessiScale);
-      SolveOutcome result;
-      try {
-        if (guess != nullptr) {
-          solver.run(0.0, augmentedInitialState, finalTime, *guess);
-        } else {
-          solver.reset();
-          solver.run(0.0, augmentedInitialState, finalTime);
-        }
-        result = extractSolve(solver, interface.getOptimalControlProblem(), params, X.col(n), verbose);
-      } catch (const std::exception& e) {
-        std::cout << "Solver failed (pessiScale=" << pessiScale << "): " << e.what() << "\n";
-      }
-      return result;
-    };
-
-    // 1. Nominal problem, warm-started from the shifted previous solution.
-    SolveOutcome outcome = attempt(1.0, haveWarmStart ? &warmStart : nullptr);
     scalar_t acceptedScale = 1.0;
-
-    // 2. A bad warm start can poison the solve; retry cold at the nominal scale.
-    //    Skipped under RTI: one solve per control step is the contract.
-    if (!realTimeIteration && !outcome.planTrustworthy() && haveWarmStart) {
-      const SolveOutcome cold = attempt(1.0, nullptr);
-      if (cold.planTrustworthy() || (!outcome.ok && cold.ok)) {
-        outcome = cold;
-      }
-    }
-
-    // 3. Keep-out continuation.
-    //
-    // Triggered on plan quality, not just on the applied step: once the worst-case disk has inflated
-    // past what the robot can outrun, the nominal problem is genuinely infeasible and the solver
-    // returns a least-infeasible plan that is fine at knot 0 but hopeless further out. Applying its
-    // first input and warm-starting from it walks the closed loop into a state the LIP cannot
-    // recover from. Solving a relaxed problem instead yields a feasible plan and a usable warm
-    // start, at the cost of robustness -- which is measured and reported, never hidden.
-    //
-    // Skipped under RTI for the same reason as the cold retry: it costs up to five extra solves.
-    if (!realTimeIteration && !outcome.planTrustworthy()) {
-      SolveOutcome best;
-      scalar_t bestScale = 0.0;
-      const ocs2::PrimalSolution* guess = nullptr;
-      SolveOutcome previous;
-      for (const scalar_t scale : kPessiContinuation) {
-        const SolveOutcome step = attempt(scale, guess);
-        if (!step.planTrustworthy()) {
-          break;  // the relaxed problems only get harder from here
-        }
-        previous = step;
-        guess = &previous.solution;
-        best = step;
-        bestScale = scale;
-      }
-      // Keep the nominal result if the continuation found nothing better.
-      if (best.planTrustworthy()) {
-        outcome = best;
-        acceptedScale = bestScale;
-      }
-    }
-
-    referenceManagerPtr->setPessiScale(1.0);
+    const SolveOutcome outcome = interface.solveControlStep(mpc, X.col(n), haveWarmStart ? &warmStart : nullptr,
+                                                            realTimeIteration, verbose, acceptedScale);
     const auto toc = std::chrono::steady_clock::now();
     solveTimes(n) = std::chrono::duration<scalar_t>(toc - tic).count();
     appliedPessiScale(n) = outcome.ok ? acceptedScale : 0.0;

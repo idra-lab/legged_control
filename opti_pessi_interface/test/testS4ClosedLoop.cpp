@@ -3,7 +3,7 @@
 
 #include <gtest/gtest.h>
 
-#include <ocs2_ipm/IpmSolver.h>
+#include <ocs2_ipm/IpmMpc.h>
 
 #include "opti_pessi_interface/LipKinematics.h"
 #include "opti_pessi_interface/OptiPessiInterface.h"
@@ -29,9 +29,10 @@ scalar_t lipResidual(const ClosedLoopResult& r, const OptiPessiModelParameters& 
 }
 
 ClosedLoopResult runScenario(const std::string& scenario, OptiPessiInterface& interface) {
-  ocs2::IpmSolver solver(interface.ipmSettings(), interface.getOptimalControlProblem(), interface.getInitializer());
-  solver.setReferenceManager(interface.getReferenceManagerPtr());
-  return runClosedLoopSimulation(interface, solver, /*verbose=*/false);
+  ocs2::IpmMpc mpc(interface.mpcSettings(), interface.ipmSettings(), interface.getOptimalControlProblem(),
+                   interface.getInitializer());
+  mpc.getSolverPtr()->setReferenceManager(interface.getReferenceManagerPtr());
+  return runClosedLoopSimulation(interface, mpc, /*verbose=*/false);
 }
 
 }  // namespace

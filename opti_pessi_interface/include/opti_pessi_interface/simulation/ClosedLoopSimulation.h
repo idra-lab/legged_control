@@ -2,7 +2,7 @@
 
 #include <vector>
 
-#include <ocs2_oc/oc_solver/SolverBase.h>
+#include <ocs2_ipm/IpmMpc.h>
 
 #include "opti_pessi_interface/OptiPessiInterface.h"
 #include "opti_pessi_interface/definitions.h"
@@ -65,10 +65,9 @@ struct ClosedLoopResult {
  * fallbackSteps. RTI bounds the computation per step; it does not make a bad step safe to execute.
  * relaxedSteps stays 0 in this mode because the keep-out continuation never runs.
  *
- * @param solver  any ocs2::SolverBase built for this interface's problem -- ocs2::IpmSolver or
- *                ocs2::SqpSolver; see makeSolver() in SolverBackend.h.
+ * @param mpc  ocs2::IpmMpc built for this interface's problem and bound to its reference manager.
  */
-ClosedLoopResult runClosedLoopSimulation(OptiPessiInterface& interface, ocs2::SolverBase& solver, bool verbose,
+ClosedLoopResult runClosedLoopSimulation(OptiPessiInterface& interface, ocs2::IpmMpc& mpc, bool verbose,
                                          bool realTimeIteration = false);
 
 }  // namespace opti_pessi

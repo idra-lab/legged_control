@@ -103,9 +103,8 @@ int main(int argc, char** argv) {
     }
   }
 
-  if (realTimeIteration && backend != SolverBackend::Sqp) {
-    std::cerr << "--rti applies to the SQP backend only; the IPM's barrier schedule needs its outer "
-                 "iterations. Add --solver sqp.\n";
+  if (backend != SolverBackend::Ipm || realTimeIteration) {
+    std::cerr << "The closed loop runs on ocs2::IpmMpc: --solver sqp and --rti (SQP only) are not supported.\n";
     return 1;
   }
 
@@ -116,14 +115,12 @@ int main(int argc, char** argv) {
 
     interface.setupOptimalControlProblem(libraryFolder, recompile, backend);
 
-    const auto solverPtr = makeSolver(interface, backend, realTimeIteration);
+    ocs2::IpmMpc mpc(interface.mpcSettings(), interface.ipmSettings(), interface.getOptimalControlProblem(),
+                     interface.getInitializer());
+    mpc.getSolverPtr()->setReferenceManager(interface.getReferenceManagerPtr());
 
-    std::cout << "\nSimulating Opti-Pessi MPC  [solver=" << toString(backend) << (realTimeIteration ? ", RTI" : "") << "]\n";
-    if (backend == SolverBackend::Sqp) {
-      std::cout << "  NOTE: SqpSolver drops hard inequalities; the path/collision/friction/box rows are\n"
-                   "        enforced through relaxed-barrier soft constraints, so feasibility is approximate.\n";
-    }
-    const ClosedLoopResult result = runClosedLoopSimulation(interface, *solverPtr, verbose, realTimeIteration);
+    std::cout << "\nSimulating Opti-Pessi MPC  [solver=" << toString(backend) << "]\n";
+    const ClosedLoopResult result = runClosedLoopSimulation(interface, mpc, verbose, realTimeIteration);
     const auto& params = interface.modelParameters();
 
     std::cout << "\nCollision:             " << (result.collision ? "yes" : "no") << "\n";

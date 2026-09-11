@@ -7,6 +7,7 @@
 #include <ocs2_core/initialization/Initializer.h>
 #include <ocs2_ipm/IpmSettings.h>
 #include <ocs2_mpc/MPC_Settings.h>
+#include <ocs2_oc/oc_data/PrimalSolution.h>
 #include <ocs2_oc/oc_problem/OptimalControlProblem.h>
 #include <ocs2_oc/rollout/TimeTriggeredRollout.h>
 #include <ocs2_robotic_tools/common/RobotInterface.h>
@@ -17,7 +18,28 @@
 #include "opti_pessi_interface/SolverBackend.h"
 #include "opti_pessi_interface/definitions.h"
 
+namespace ocs2 {
+class IpmMpc;
+}  // namespace ocs2
+
 namespace opti_pessi {
+
+/** Result of one solve, checked against the exact LIP map and the problem's own path inequalities. */
+struct SolveOutcome {
+  ocs2::PrimalSolution solution;
+  vector_t appliedInput = vector_t::Zero(RobotU::DIM);
+  vector_t successorState = vector_t::Zero(RobotX::DIM);
+  scalar_t dynamicsResidual = 1e9;    // |x_1^solver - lipMap(x_0, u_0)|
+  scalar_t horizonResidual = 1e9;     // worst defect over the whole horizon
+  scalar_t constraintViolation = 1e9; // worst path-inequality violation at the APPLIED knot
+  scalar_t horizonViolation = 1e9;    // worst path-inequality violation anywhere on the horizon
+  bool ok = false;                    // the applied step is usable
+  /** The whole plan is feasible, so it is safe to warm-start the next solve from it. */
+  bool planTrustworthy() const;
+};
+
+/** Guards against the solver returning a formally converged but physically nonsensical iterate. */
+bool isInsane(const vector_t& robotState, const vector_t& robotInput, const OptiPessiModelParameters& params);
 
 /**
  * Assembles the Optimistic-Pessimistic optimal control problem for OCS2, following the structure
@@ -84,6 +106,20 @@ class OptiPessiInterface : public ocs2::RobotInterface {
 
   /** Horizon end, in the knot-index time convention of definitions.h. */
   scalar_t finalTime() const { return static_cast<scalar_t>(params_.N); }
+
+  /**
+   * Every solve attempt of one control step, from the robot state at that step: the nominal problem,
+   * a cold retry and the keep-out continuation. Leaves the reference manager at the nominal keep-out.
+   * Gait offset, obstacles and goal must already be pushed to the reference manager.
+   *
+   * @param [in] mpc: built from this interface's problem and bound to its reference manager.
+   * @param [in] robotState: measured 10-dof robot state (NOT the augmented state).
+   * @param [in] warmStart: shifted previous solution, or nullptr to cold-start the nominal solve.
+   * @param [in] realTimeIteration: skip the cold retry and the continuation (one solve per step).
+   * @param [out] acceptedScale: keep-out scale of the returned outcome (1.0 unless a relaxed solve won).
+   */
+  SolveOutcome solveControlStep(ocs2::IpmMpc& mpc, const vector_t& robotState, const ocs2::PrimalSolution* warmStart,
+                                bool realTimeIteration, bool verbose, scalar_t& acceptedScale);
 
  private:
   OptiPessiModelParameters params_;
