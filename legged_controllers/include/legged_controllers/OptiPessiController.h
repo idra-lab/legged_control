@@ -13,6 +13,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/int16_multi_array.hpp>
 #include <ocs2_msgs/msg/mpc_observation.hpp>
+#include <visualization_msgs/msg/marker_array.hpp>
 
 #include <ocs2_centroidal_model/CentroidalModelRbdConversions.h>
 #include <ocs2_core/misc/Benchmark.h>
@@ -73,6 +74,9 @@ class OptiPessiController : public controller_interface::ControllerInterface {
    */
   vector_t measureLipState(size_t phase) const;
 
+  /** Draws the active Opti-Pessi policy in odom: both CoM paths, stance feet per knot, obstacles, goal. */
+  void publishOptiPessiPlan();
+
   // Interface
   std::shared_ptr<opti_pessi::OptiPessiInterface> optiPessiInterface_;
   std::shared_ptr<LeggedInterface> leggedInterface_;
@@ -112,6 +116,7 @@ class OptiPessiController : public controller_interface::ControllerInterface {
   // ROS 2 publishers and subscribers
   rclcpp::Publisher<ocs2_msgs::msg::MpcObservation>::SharedPtr optiPessiObservationPublisher_;
   rclcpp::Publisher<ocs2_msgs::msg::MpcObservation>::SharedPtr leggedObservationPublisher_;
+  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr optiPessiPlanPublisher_;
   rclcpp::Subscription<std_msgs::msg::Int16MultiArray>::SharedPtr contactSub_;
 
   rclcpp::Node::SharedPtr ros2_node_;

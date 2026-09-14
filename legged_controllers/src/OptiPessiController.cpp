@@ -334,7 +334,9 @@ controller_interface::return_type OptiPessiController::update(const rclcpp::Time
   selfCollisionVisualization_->update(currentObservation_);
 
   // Load the latest MPC policy
-  optiPessiMrtInterface_->updatePolicy();
+  if (optiPessiMrtInterface_->updatePolicy()) {
+    publishOptiPessiPlan();
+  }
 
   // A policy solved for an earlier phase would apply that phase's footholds: hold the LIP clock
   // until the MPC thread has caught up with the current phase.
@@ -425,6 +427,73 @@ vector_t OptiPessiController::measureLipState(size_t phase) const {
   lipState.segment(RobotX::P0X, 2) = data.oMf[model.getFrameId(footFrames[static_cast<size_t>(stance[0])])].translation().head<2>();
   lipState.segment(RobotX::P1X, 2) = data.oMf[model.getFrameId(footFrames[static_cast<size_t>(stance[1])])].translation().head<2>();
   return lipState;
+}
+
+void OptiPessiController::publishOptiPessiPlan() {
+  using opti_pessi::RobotX;
+  using visualization_msgs::msg::Marker;
+  const auto& params = optiPessiInterface_->modelParameters();
+  const PrimalSolution& policy = optiPessiMrtInterface_->getPolicy();
+  const auto stamp = ros2_node_->get_clock()->now();  // same clock as the odom -> base TF of robotVisualizer_
+
+  auto makeMarker = [&](const std::string& ns, int id, int32_t type, float r, float g, float b, float a) {
+    Marker marker;
+    marker.header.frame_id = "odom";
+    marker.header.stamp = stamp;
+    marker.ns = ns;
+    marker.id = id;
+    marker.type = type;
+    marker.action = Marker::ADD;
+    marker.pose.orientation.w = 1.0;
+    marker.color.r = r;
+    marker.color.g = g;
+    marker.color.b = b;
+    marker.color.a = a;
+    return marker;
+  };
+  auto point = [](scalar_t x, scalar_t y, scalar_t z) {
+    geometry_msgs::msg::Point p;
+    p.x = x;
+    p.y = y;
+    p.z = z;
+    return p;
+  };
+
+  visualization_msgs::msg::MarkerArray markers;
+
+  // Planned CoM path of each branch at the LIP height, one point per knot.
+  Marker optimisticCom = makeMarker("optimistic_com", 0, Marker::LINE_STRIP, 0.1F, 0.8F, 0.1F, 1.0F);
+  Marker pessimisticCom = makeMarker("pessimistic_com", 0, Marker::LINE_STRIP, 0.9F, 0.2F, 0.1F, 1.0F);
+  optimisticCom.scale.x = pessimisticCom.scale.x = 0.01;
+  // Stance feet of the optimistic plan: knot 0 is the current stance, later knots the planned footholds.
+  Marker footholds = makeMarker("footholds", 0, Marker::SPHERE_LIST, 0.1F, 0.3F, 0.9F, 1.0F);
+  footholds.scale.x = footholds.scale.y = footholds.scale.z = 0.04;
+  for (const vector_t& x : policy.stateTrajectory_) {
+    optimisticCom.points.push_back(point(x(RobotX::CX), x(RobotX::CY), params.comHeight));
+    pessimisticCom.points.push_back(point(x(RobotX::DIM + RobotX::CX), x(RobotX::DIM + RobotX::CY), params.comHeight));
+    footholds.points.push_back(point(x(RobotX::P0X), x(RobotX::P0Y), 0.0));
+    footholds.points.push_back(point(x(RobotX::P1X), x(RobotX::P1Y), 0.0));
+  }
+  markers.markers.push_back(optimisticCom);
+  markers.markers.push_back(pessimisticCom);
+  markers.markers.push_back(footholds);
+
+  // Obstacles as the OCP currently sees them (scenario frame, drawn as-is in odom).
+  const matrix_t& obstacles = optiPessiInterface_->getOptiPessiReferenceManagerPtr()->getObstacles();
+  for (int j = 0; j < obstacles.rows(); ++j) {
+    Marker disk = makeMarker("obstacles", j, Marker::CYLINDER, 0.5F, 0.5F, 0.5F, 0.6F);
+    disk.pose.position = point(obstacles(j, 0), obstacles(j, 1), 0.25);
+    disk.scale.x = disk.scale.y = 2.0 * params.obstacleRadius;
+    disk.scale.z = 0.5;
+    markers.markers.push_back(disk);
+  }
+
+  Marker goal = makeMarker("goal", 0, Marker::SPHERE, 1.0F, 0.85F, 0.0F, 1.0F);
+  goal.pose.position = point(params.goal(0), params.goal(1), 0.05);
+  goal.scale.x = goal.scale.y = goal.scale.z = 0.1;
+  markers.markers.push_back(goal);
+
+  optiPessiPlanPublisher_->publish(markers);
 }
 
 void OptiPessiController::pushOptiPessiObservation() {
@@ -545,6 +614,7 @@ void OptiPessiController::setupOptiPessiMpc() {
   // optiPessiMpc_->getSolverPtr()->addSynchronizedModule(gaitReceiverPtr);
   optiPessiMpc_->getSolverPtr()->setReferenceManager(rosReferenceManagerPtr);
   optiPessiObservationPublisher_ = ros2_node_->create_publisher<ocs2_msgs::msg::MpcObservation>(robotName + "_mpc_observation", 1);
+  optiPessiPlanPublisher_ = ros2_node_->create_publisher<visualization_msgs::msg::MarkerArray>("/opti_pessi/plan", 1);
 }
 
 void OptiPessiController::setupLeggedMpc() {
