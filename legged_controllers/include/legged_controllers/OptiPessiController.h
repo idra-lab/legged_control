@@ -70,9 +70,37 @@ class OptiPessiController : public controller_interface::ControllerInterface {
   /**
    * 10-dof LIP state [cx, cy, theta, dcx, dcy, dtheta, p0x, p0y, p1x, p1y] of the measured robot:
    * c from pinocchio::centerOfMass, yaw and velocities from measuredRbdState_, stance feet of `phase`
-   * (see opti_pessi::gaitPair) from forward kinematics.
+   * (see opti_pessi::gaitPair) from forward kinematics. `footPositions` receives all four feet in
+   * odom, indexed by opti_pessi::Foot.
    */
-  vector_t measureLipState(size_t phase) const;
+  vector_t measureLipState(size_t phase, std::array<vector3_t, 4>& footPositions) const;
+
+  /**
+   * Contact forces of the stance pair (foot 0, foot 1) of one LIP knot, in odom:
+   *   f0 = (beta m ddcx, gamma m ddcy, (1 - alpha) m g),   f1 = ((1 - beta) m ddcx, (1 - gamma) m ddcy, alpha m g),
+   * with ddc = omega^2 (c - z) and z = p0 + alpha (p1 - p0) the CoP.
+   */
+  static std::array<vector3_t, 2> computeContactForces(const vector_t& robotState, const vector_t& robotInput,
+                                                       const opti_pessi::OptiPessiModelParameters& params);
+
+  /**
+   * Fills optiPessiFootReferences_ at `time` seconds into the current phase. The stance pair of the
+   * phase holds its liftoff position and carries the knot-i forces; the other pair swings from its
+   * liftoff position to the next footholds of robotInput along cubic splines with zero velocity at
+   * both ends and an apex optiPessiSwingHeight_ above liftoff at mid-phase, landing with the knot-(i+1)
+   * forces. The two pairs swap every phase.
+   */
+  void updateFootReferences(const vector_t& robotState, const vector_t& robotInput, const vector_t& nextRobotState,
+                            const vector_t& nextRobotInput, scalar_t time);
+
+  /** Reference of one foot over the current phase, in odom. */
+  struct FootReference {
+    bool contact = true;
+    vector3_t position = vector3_t::Zero();
+    vector3_t velocity = vector3_t::Zero();
+    vector3_t force = vector3_t::Zero();           // contact force now, zero while swinging
+    vector3_t touchdownForce = vector3_t::Zero();  // contact force at the end of the phase
+  };
 
   /** Draws the active Opti-Pessi policy in odom: both CoM paths, stance feet per knot, obstacles, goal. */
   void publishOptiPessiPlan();
@@ -108,6 +136,11 @@ class OptiPessiController : public controller_interface::ControllerInterface {
   vector_t optiPessiRobotState_;           // measured 10-dof LIP state at the start of the current phase
   scalar_t optiPessiPhaseElapsed_ = 0.0;   // seconds spent in the current phase
   bool optiPessiGoalReached_ = false;
+
+  // Swing/stance references of the four feet, indexed by opti_pessi::Foot. Control thread only.
+  std::array<vector3_t, 4> optiPessiLiftoffPositions_{};  // measured feet at the start of the current phase
+  std::array<FootReference, 4> optiPessiFootReferences_{};
+  scalar_t optiPessiSwingHeight_ = 0.08;                   // swing apex above liftoff [m]
 
   // Visualization
   std::shared_ptr<LeggedRobotVisualizer> robotVisualizer_;

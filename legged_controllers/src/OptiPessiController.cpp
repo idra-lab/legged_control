@@ -16,6 +16,8 @@
 #include <ocs2_centroidal_model/CentroidalModelPinocchioMapping.h>
 #include <ocs2_core/thread_support/ExecuteAndSleep.h>
 #include <ocs2_core/thread_support/SetThreadPriority.h>
+#include <ocs2_legged_robot/foot_planner/CubicSpline.h>
+#include <ocs2_legged_robot/foot_planner/SplineCpg.h>
 #include <ocs2_legged_robot_ros/gait/GaitReceiver.h>
 #include <ocs2_pinocchio_interface/PinocchioEndEffectorKinematics.h>
 #include <ocs2_ros_interfaces/common/RosMsgConversions.h>
@@ -31,8 +33,11 @@
 #include <legged_wbc/WeightedWbc.h>
 #include <pluginlib/class_list_macros.hpp>
 
+#include <opti_pessi_interface/LipKinematics.h>
 #include <opti_pessi_interface/OptiPessiInterface.h>
 #include <opti_pessi_interface/initialization/OptiPessiInitializer.h>
+
+#include <algorithm>
 
 using namespace std;
 
@@ -293,7 +298,7 @@ controller_interface::CallbackReturn OptiPessiController::on_activate(const rclc
   currentObservation_.mode = ModeNumber::STANCE;
 
   // Opti-Pessi LIP loop: every phase starts from the measured robot.
-  const vector_t robotState = measureLipState(0);
+  const vector_t robotState = measureLipState(0, optiPessiLiftoffPositions_);
   RCLCPP_INFO(node->get_logger(), "[OptiPessi] measured initial state: c=(%.3f, %.3f) theta=%.3f v=(%.3f, %.3f) dtheta=%.3f "
               "p0=(%.3f, %.3f) p1=(%.3f, %.3f)",
               robotState(0), robotState(1), robotState(2), robotState(3), robotState(4), robotState(5), robotState(6),
@@ -353,14 +358,20 @@ controller_interface::return_type OptiPessiController::update(const rclcpp::Time
   const vector_t appliedInput = opti_pessi::extractRobotInput(plannedInput);
   const scalar_t phaseDuration = appliedInput(opti_pessi::RobotU::DT);
 
+  // Knot 1 is the stance the swing feet land in, so its forces are their touchdown forces.
+  vector_t nextState, nextInput;
+  optiPessiMrtInterface_->evaluatePolicy(1.0, command.mpcInitObservation_.state, nextState, nextInput, plannedMode);
+
   optiPessiPhaseElapsed_ += period.seconds();
+  updateFootReferences(opti_pessi::extractRobotState(plannedState), appliedInput, opti_pessi::extractRobotState(nextState),
+                       opti_pessi::extractRobotInput(nextInput), optiPessiPhaseElapsed_);
   if (optiPessiPhaseElapsed_ < phaseDuration) {
     return controller_interface::return_type::OK;
   }
 
   // Phase over: measure the robot for the next phase's stance pair and hand it to the MPC thread.
   const auto& params = optiPessiInterface_->modelParameters();
-  const vector_t successorState = measureLipState(optiPessiPhase_ + 1);
+  const vector_t successorState = measureLipState(optiPessiPhase_ + 1, optiPessiLiftoffPositions_);
   if (opti_pessi::isInsane(successorState, appliedInput, params)) {
     RCLCPP_WARN(this->get_node()->get_logger(), "[OptiPessi] phase %zu: measured state or applied input outside the LIP bounds",
                 optiPessiPhase_);
@@ -392,7 +403,7 @@ controller_interface::return_type OptiPessiController::update(const rclcpp::Time
   return controller_interface::return_type::OK;
 }
 
-vector_t OptiPessiController::measureLipState(size_t phase) const {
+vector_t OptiPessiController::measureLipState(size_t phase, std::array<vector3_t, 4>& footPositions) const {
   using opti_pessi::RobotX;
   const auto& info = leggedInterface_->getCentroidalModelInfo();
   const size_t nq = info.generalizedCoordinatesNum;
@@ -423,10 +434,76 @@ vector_t OptiPessiController::measureLipState(size_t phase) const {
 
   // Indexed by opti_pessi::Foot (FL, FR, RL, RR).
   const std::array<std::string, 4> footFrames{"LF_FOOT", "RF_FOOT", "LH_FOOT", "RH_FOOT"};
+  for (size_t i = 0; i < footFrames.size(); ++i) {
+    footPositions[i] = data.oMf[model.getFrameId(footFrames[i])].translation();
+  }
   const auto stance = opti_pessi::gaitPair(static_cast<int>(phase));
-  lipState.segment(RobotX::P0X, 2) = data.oMf[model.getFrameId(footFrames[static_cast<size_t>(stance[0])])].translation().head<2>();
-  lipState.segment(RobotX::P1X, 2) = data.oMf[model.getFrameId(footFrames[static_cast<size_t>(stance[1])])].translation().head<2>();
+  lipState.segment(RobotX::P0X, 2) = footPositions[static_cast<size_t>(stance[0])].head<2>();
+  lipState.segment(RobotX::P1X, 2) = footPositions[static_cast<size_t>(stance[1])].head<2>();
   return lipState;
+}
+
+std::array<vector3_t, 2> OptiPessiController::computeContactForces(const vector_t& robotState, const vector_t& robotInput,
+                                                                   const opti_pessi::OptiPessiModelParameters& params) {
+  using opti_pessi::RobotU;
+  using opti_pessi::RobotX;
+  using vector2_t = Eigen::Matrix<scalar_t, 2, 1>;
+  const vector2_t c(robotState(RobotX::CX), robotState(RobotX::CY));
+  const vector2_t p0(robotState(RobotX::P0X), robotState(RobotX::P0Y));
+  const vector2_t p1(robotState(RobotX::P1X), robotState(RobotX::P1Y));
+  const scalar_t alpha = robotInput(RobotU::ALPHA);
+  const scalar_t beta = robotInput(RobotU::BETA);
+  const scalar_t gamma = robotInput(RobotU::GAMMA);
+
+  // Tangential: the same beta/gamma split of m * ddc as the OCP. Normal: m * g shared so that the CoP sits at alpha.
+  vector2_t f0, f1;
+  opti_pessi::computeTangentialForces(c, p0, p1, alpha, beta, gamma, params.omega(), params.mass, f0, f1);
+  std::array<vector3_t, 2> forces;
+  forces[0] << f0, (1.0 - alpha) * params.mass * params.gravity;
+  forces[1] << f1, alpha * params.mass * params.gravity;
+  return forces;
+}
+
+void OptiPessiController::updateFootReferences(const vector_t& robotState, const vector_t& robotInput, const vector_t& nextRobotState,
+                                               const vector_t& nextRobotInput, scalar_t time) {
+  using opti_pessi::RobotU;
+  const auto& params = optiPessiInterface_->modelParameters();
+  const scalar_t phaseDuration = robotInput(RobotU::DT);
+  time = std::max(0.0, std::min(time, phaseDuration));
+
+  // Stance pair of this phase: stays where it was measured at phase start.
+  const auto stance = opti_pessi::gaitPair(static_cast<int>(optiPessiPhase_));
+  const auto stanceForces = computeContactForces(robotState, robotInput, params);
+  for (size_t k = 0; k < 2; ++k) {
+    const auto foot = static_cast<size_t>(stance[k]);
+    FootReference& reference = optiPessiFootReferences_[foot];
+    reference.contact = true;
+    reference.position = optiPessiLiftoffPositions_[foot];
+    reference.velocity.setZero();
+    reference.force = stanceForces[k];
+    reference.touchdownForce = stanceForces[k];
+  }
+
+  // Swing pair: the stance pair of the next phase, landing on the footholds of the applied input
+  // (flat ground: touchdown at liftoff height).
+  const auto swing = opti_pessi::gaitPair(static_cast<int>(optiPessiPhase_) + 1);
+  const auto touchdownForces = computeContactForces(nextRobotState, nextRobotInput, params);
+  for (size_t k = 0; k < 2; ++k) {
+    const auto foot = static_cast<size_t>(swing[k]);
+    const vector3_t& liftoff = optiPessiLiftoffPositions_[foot];
+    const scalar_t touchdownX = robotInput(RobotU::P0X + 2 * static_cast<int>(k));
+    const scalar_t touchdownY = robotInput(RobotU::P0Y + 2 * static_cast<int>(k));
+    const CubicSpline splineX({0.0, liftoff.x(), 0.0}, {phaseDuration, touchdownX, 0.0});
+    const CubicSpline splineY({0.0, liftoff.y(), 0.0}, {phaseDuration, touchdownY, 0.0});
+    const SplineCpg splineZ({0.0, liftoff.z(), 0.0}, liftoff.z() + optiPessiSwingHeight_, {phaseDuration, liftoff.z(), 0.0});
+
+    FootReference& reference = optiPessiFootReferences_[foot];
+    reference.contact = false;
+    reference.position << splineX.position(time), splineY.position(time), splineZ.position(time);
+    reference.velocity << splineX.velocity(time), splineY.velocity(time), splineZ.velocity(time);
+    reference.force.setZero();
+    reference.touchdownForce = touchdownForces[k];
+  }
 }
 
 void OptiPessiController::publishOptiPessiPlan() {
