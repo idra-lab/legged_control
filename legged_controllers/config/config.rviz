@@ -295,6 +295,32 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /opti_pessi/plan
       Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: Opti-Pessi Trajectory
+      Namespaces:
+        CoM Trajectory: true
+        EE Trajectories: true
+        Future footholds: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /opti_pessi/optimizedStateTrajectory
+      Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: Legged Current State
+      Namespaces:
+        {}
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /legged_robot/currentState
+      Value: true
     - Class: rviz_common/Group
       Displays:
         - Class: rviz_common/Group

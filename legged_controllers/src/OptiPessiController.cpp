@@ -18,9 +18,11 @@
 #include <ocs2_core/thread_support/SetThreadPriority.h>
 #include <ocs2_legged_robot/foot_planner/CubicSpline.h>
 #include <ocs2_legged_robot/foot_planner/SplineCpg.h>
+#include <ocs2_legged_robot/gait/MotionPhaseDefinition.h>
 #include <ocs2_legged_robot_ros/gait/GaitReceiver.h>
 #include <ocs2_pinocchio_interface/PinocchioEndEffectorKinematics.h>
 #include <ocs2_ros_interfaces/common/RosMsgConversions.h>
+#include <ocs2_ros_interfaces/visualization/VisualizationHelpers.h>
 #include <ocs2_robotic_tools/common/RotationDerivativesTransforms.h>
 #include <ocs2_ros_interfaces/synchronized_module/RosReferenceManager.h>
 #include <ocs2_sqp/SqpMpc.h>
@@ -333,14 +335,24 @@ controller_interface::return_type OptiPessiController::update(const rclcpp::Time
   // State Estimate
   updateStateEstimation(time, period);
 
-  // Visualization of the measured robot (odom -> base TF, joint states, feet). There is no
-  // centroidal plan to draw, so the policy and command are empty.
-  robotVisualizer_->update(currentObservation_, PrimalSolution(), CommandData());
+  // Visualization of the measured robot (odom -> base TF, joint states, feet) with the Opti-Pessi
+  // contact schedule and reference forces as its mode and input, i.e. LeggedController's current state.
+  // Foot indices of opti_pessi::Foot match contactNames3DoF (LF, RF, LH, RH). There is no centroidal
+  // plan, so the policy and command are empty: publishOptiPessiTrajectories() draws the plan instead.
+  SystemObservation visualizedObservation = currentObservation_;
+  contact_flag_t referenceContacts{};
+  for (size_t i = 0; i < optiPessiFootReferences_.size(); ++i) {
+    referenceContacts[i] = optiPessiFootReferences_[i].contact;
+    visualizedObservation.input.segment<3>(3 * i) = optiPessiFootReferences_[i].force;
+  }
+  visualizedObservation.mode = stanceLeg2ModeNumber(referenceContacts);
+  robotVisualizer_->update(visualizedObservation, PrimalSolution(), CommandData());
   selfCollisionVisualization_->update(currentObservation_);
 
   // Load the latest MPC policy
   if (optiPessiMrtInterface_->updatePolicy()) {
     publishOptiPessiPlan();
+    publishOptiPessiTrajectories();
   }
 
   // A policy solved for an earlier phase would apply that phase's footholds: hold the LIP clock
@@ -491,16 +503,12 @@ void OptiPessiController::updateFootReferences(const vector_t& robotState, const
   for (size_t k = 0; k < 2; ++k) {
     const auto foot = static_cast<size_t>(swing[k]);
     const vector3_t& liftoff = optiPessiLiftoffPositions_[foot];
-    const scalar_t touchdownX = robotInput(RobotU::P0X + 2 * static_cast<int>(k));
-    const scalar_t touchdownY = robotInput(RobotU::P0Y + 2 * static_cast<int>(k));
-    const CubicSpline splineX({0.0, liftoff.x(), 0.0}, {phaseDuration, touchdownX, 0.0});
-    const CubicSpline splineY({0.0, liftoff.y(), 0.0}, {phaseDuration, touchdownY, 0.0});
-    const SplineCpg splineZ({0.0, liftoff.z(), 0.0}, liftoff.z() + optiPessiSwingHeight_, {phaseDuration, liftoff.z(), 0.0});
+    const vector3_t touchdown(robotInput(RobotU::P0X + 2 * static_cast<int>(k)), robotInput(RobotU::P0Y + 2 * static_cast<int>(k)),
+                              liftoff.z());
 
     FootReference& reference = optiPessiFootReferences_[foot];
     reference.contact = false;
-    reference.position << splineX.position(time), splineY.position(time), splineZ.position(time);
-    reference.velocity << splineX.velocity(time), splineY.velocity(time), splineZ.velocity(time);
+    evaluateSwing(liftoff, touchdown, phaseDuration, optiPessiSwingHeight_, time, reference.position, reference.velocity);
     reference.force.setZero();
     reference.touchdownForce = touchdownForces[k];
   }
@@ -538,22 +546,14 @@ void OptiPessiController::publishOptiPessiPlan() {
 
   visualization_msgs::msg::MarkerArray markers;
 
-  // Planned CoM path of each branch at the LIP height, one point per knot.
-  Marker optimisticCom = makeMarker("optimistic_com", 0, Marker::LINE_STRIP, 0.1F, 0.8F, 0.1F, 1.0F);
+  // Planned CoM path of the pessimistic branch at the LIP height, one point per knot. The optimistic
+  // branch, the one executed, is drawn with its feet by publishOptiPessiTrajectories().
   Marker pessimisticCom = makeMarker("pessimistic_com", 0, Marker::LINE_STRIP, 0.9F, 0.2F, 0.1F, 1.0F);
-  optimisticCom.scale.x = pessimisticCom.scale.x = 0.01;
-  // Stance feet of the optimistic plan: knot 0 is the current stance, later knots the planned footholds.
-  Marker footholds = makeMarker("footholds", 0, Marker::SPHERE_LIST, 0.1F, 0.3F, 0.9F, 1.0F);
-  footholds.scale.x = footholds.scale.y = footholds.scale.z = 0.04;
+  pessimisticCom.scale.x = 0.01;
   for (const vector_t& x : policy.stateTrajectory_) {
-    optimisticCom.points.push_back(point(x(RobotX::CX), x(RobotX::CY), params.comHeight));
     pessimisticCom.points.push_back(point(x(RobotX::DIM + RobotX::CX), x(RobotX::DIM + RobotX::CY), params.comHeight));
-    footholds.points.push_back(point(x(RobotX::P0X), x(RobotX::P0Y), 0.0));
-    footholds.points.push_back(point(x(RobotX::P1X), x(RobotX::P1Y), 0.0));
   }
-  markers.markers.push_back(optimisticCom);
   markers.markers.push_back(pessimisticCom);
-  markers.markers.push_back(footholds);
 
   // Obstacles as the OCP currently sees them (scenario frame, drawn as-is in odom).
   const matrix_t& obstacles = optiPessiInterface_->getOptiPessiReferenceManagerPtr()->getObstacles();
@@ -571,6 +571,106 @@ void OptiPessiController::publishOptiPessiPlan() {
   markers.markers.push_back(goal);
 
   optiPessiPlanPublisher_->publish(markers);
+}
+
+void OptiPessiController::publishOptiPessiTrajectories() {
+  using opti_pessi::RobotU;
+  using opti_pessi::RobotX;
+  using vector2_t = Eigen::Matrix<scalar_t, 2, 1>;
+  const auto& params = optiPessiInterface_->modelParameters();
+  const PrimalSolution& policy = optiPessiMrtInterface_->getPolicy();
+  const size_t phase = optiPessiMrtInterface_->getCommand().mpcInitObservation_.mode;
+
+  // Knot 0 swings from the feet measured at the start of optiPessiPhase_, so a policy solved for
+  // another phase has no liftoff positions to start from.
+  if (phase != optiPessiPhase_ || policy.stateTrajectory_.size() < 2 || policy.inputTrajectory_.empty()) {
+    return;
+  }
+  const size_t numPhases = std::min(policy.stateTrajectory_.size() - 1, policy.inputTrajectory_.size());
+  constexpr size_t samplesPerPhase = 10;
+  const scalar_t w = params.omega();
+
+  feet_array_t<std::vector<geometry_msgs::msg::Point>> feetPoints;
+  std::vector<geometry_msgs::msg::Point> comPoints;
+  visualization_msgs::msg::Marker footholds;
+  footholds.type = visualization_msgs::msg::Marker::SPHERE_LIST;
+  footholds.scale.x = footholds.scale.y = footholds.scale.z = robotVisualizer_->footMarkerDiameter_;
+  footholds.ns = "Future footholds";
+  footholds.pose.orientation = getOrientationMsg({1., 0., 0., 0.});
+
+  vector_t previousState = opti_pessi::extractRobotState(policy.stateTrajectory_.front());
+  for (size_t i = 0; i < numPhases; ++i) {
+    const vector_t x = opti_pessi::extractRobotState(policy.stateTrajectory_[i]);
+    const vector_t u = opti_pessi::extractRobotInput(policy.inputTrajectory_[i]);
+    const scalar_t dt = u(RobotU::DT);
+    const auto stance = opti_pessi::gaitPair(static_cast<int>(phase + i));
+    const auto swing = opti_pessi::gaitPair(static_cast<int>(phase + i + 1));
+
+    // Flat ground: every foot stays at the height measured at the start of the current phase. The swing
+    // pair of knot i stood on the footholds of knot i - 1 (same pair order); at knot 0 it was measured.
+    std::array<vector3_t, 2> stancePositions, liftoffs, touchdowns;
+    for (size_t k = 0; k < 2; ++k) {
+      const int offset = 2 * static_cast<int>(k);
+      const scalar_t stanceZ = optiPessiLiftoffPositions_[static_cast<size_t>(stance[k])].z();
+      const scalar_t swingZ = optiPessiLiftoffPositions_[static_cast<size_t>(swing[k])].z();
+      stancePositions[k] << x(RobotX::P0X + offset), x(RobotX::P0Y + offset), stanceZ;
+      if (i == 0) {
+        liftoffs[k] = optiPessiLiftoffPositions_[static_cast<size_t>(swing[k])];
+      } else {
+        liftoffs[k] << previousState(RobotX::P0X + offset), previousState(RobotX::P0Y + offset), swingZ;
+      }
+      touchdowns[k] << u(RobotU::P0X + offset), u(RobotU::P0Y + offset), swingZ;
+      footholds.points.push_back(getPointMsg(touchdowns[k]));
+      footholds.colors.push_back(getColor(robotVisualizer_->feetColorMap_[static_cast<size_t>(swing[k])]));
+    }
+
+    // Closed-form LIP flow with the CoP held at alpha, as in opti_pessi::lipMap.
+    const vector2_t c(x(RobotX::CX), x(RobotX::CY));
+    const vector2_t dc(x(RobotX::DCX), x(RobotX::DCY));
+    const vector2_t p0(x(RobotX::P0X), x(RobotX::P0Y));
+    const vector2_t p1(x(RobotX::P1X), x(RobotX::P1Y));
+    const vector2_t cop = opti_pessi::computeCop(p0, p1, u(RobotU::ALPHA));
+
+    for (size_t s = (i == 0 ? 0 : 1); s <= samplesPerPhase; ++s) {
+      const scalar_t t = dt * static_cast<scalar_t>(s) / static_cast<scalar_t>(samplesPerPhase);
+      const scalar_t ch = std::cosh(w * t);
+      const scalar_t sh = std::sinh(w * t);
+      const vector2_t com = ch * c + (sh / w) * dc + (1.0 - ch) * cop;
+      comPoints.push_back(getPointMsg(vector3_t(com(0), com(1), params.comHeight)));
+
+      for (size_t k = 0; k < 2; ++k) {
+        feetPoints[static_cast<size_t>(stance[k])].push_back(getPointMsg(stancePositions[k]));
+        vector3_t position, velocity;
+        evaluateSwing(liftoffs[k], touchdowns[k], dt, optiPessiSwingHeight_, t, position, velocity);
+        feetPoints[static_cast<size_t>(swing[k])].push_back(getPointMsg(position));
+      }
+    }
+    previousState = x;
+  }
+
+  visualization_msgs::msg::MarkerArray markerArray;
+  for (size_t i = 0; i < feetPoints.size(); ++i) {
+    markerArray.markers.emplace_back(
+        getLineMsg(std::move(feetPoints[i]), robotVisualizer_->feetColorMap_[i], robotVisualizer_->trajectoryLineWidth_));
+    markerArray.markers.back().ns = "EE Trajectories";
+  }
+  markerArray.markers.emplace_back(getLineMsg(std::move(comPoints), Color::red, robotVisualizer_->trajectoryLineWidth_));
+  markerArray.markers.back().ns = "CoM Trajectory";
+  markerArray.markers.push_back(std::move(footholds));
+
+  // Same clock as the odom -> base TF of robotVisualizer_.
+  assignHeader(markerArray.markers.begin(), markerArray.markers.end(), getHeaderMsg("odom", ros2_node_->get_clock()->now()));
+  assignIncreasingId(markerArray.markers.begin(), markerArray.markers.end());
+  optiPessiTrajectoryPublisher_->publish(markerArray);
+}
+
+void OptiPessiController::evaluateSwing(const vector3_t& liftoff, const vector3_t& touchdown, scalar_t duration, scalar_t swingHeight,
+                                        scalar_t time, vector3_t& position, vector3_t& velocity) {
+  const CubicSpline splineX({0.0, liftoff.x(), 0.0}, {duration, touchdown.x(), 0.0});
+  const CubicSpline splineY({0.0, liftoff.y(), 0.0}, {duration, touchdown.y(), 0.0});
+  const SplineCpg splineZ({0.0, liftoff.z(), 0.0}, std::max(liftoff.z(), touchdown.z()) + swingHeight, {duration, touchdown.z(), 0.0});
+  position << splineX.position(time), splineY.position(time), splineZ.position(time);
+  velocity << splineX.velocity(time), splineY.velocity(time), splineZ.velocity(time);
 }
 
 void OptiPessiController::pushOptiPessiObservation() {
@@ -692,6 +792,8 @@ void OptiPessiController::setupOptiPessiMpc() {
   optiPessiMpc_->getSolverPtr()->setReferenceManager(rosReferenceManagerPtr);
   optiPessiObservationPublisher_ = ros2_node_->create_publisher<ocs2_msgs::msg::MpcObservation>(robotName + "_mpc_observation", 1);
   optiPessiPlanPublisher_ = ros2_node_->create_publisher<visualization_msgs::msg::MarkerArray>("/opti_pessi/plan", 1);
+  optiPessiTrajectoryPublisher_ =
+      ros2_node_->create_publisher<visualization_msgs::msg::MarkerArray>("/opti_pessi/optimizedStateTrajectory", 1);
 }
 
 void OptiPessiController::setupLeggedMpc() {

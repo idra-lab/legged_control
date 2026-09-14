@@ -102,8 +102,21 @@ class OptiPessiController : public controller_interface::ControllerInterface {
     vector3_t touchdownForce = vector3_t::Zero();  // contact force at the end of the phase
   };
 
-  /** Draws the active Opti-Pessi policy in odom: both CoM paths, stance feet per knot, obstacles, goal. */
+  /** Draws the active Opti-Pessi policy in odom: pessimistic CoM path per knot, obstacles, goal. */
   void publishOptiPessiPlan();
+
+  /**
+   * Draws the executed (optimistic) plan over the horizon like LeggedRobotVisualizer's optimized state
+   * trajectory: continuous CoM path of the LIP flow, per-foot stance/swing paths, future footholds.
+   */
+  void publishOptiPessiTrajectories();
+
+  /**
+   * Swing foot at `time` in [0, duration]: cubic splines in x and y from liftoff to touchdown, and in z
+   * through an apex swingHeight above the higher end at mid-swing; zero velocity at both ends.
+   */
+  static void evaluateSwing(const vector3_t& liftoff, const vector3_t& touchdown, scalar_t duration, scalar_t swingHeight,
+                            scalar_t time, vector3_t& position, vector3_t& velocity);
 
   // Interface
   std::shared_ptr<opti_pessi::OptiPessiInterface> optiPessiInterface_;
@@ -150,6 +163,7 @@ class OptiPessiController : public controller_interface::ControllerInterface {
   rclcpp::Publisher<ocs2_msgs::msg::MpcObservation>::SharedPtr optiPessiObservationPublisher_;
   rclcpp::Publisher<ocs2_msgs::msg::MpcObservation>::SharedPtr leggedObservationPublisher_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr optiPessiPlanPublisher_;
+  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr optiPessiTrajectoryPublisher_;
   rclcpp::Subscription<std_msgs::msg::Int16MultiArray>::SharedPtr contactSub_;
 
   rclcpp::Node::SharedPtr ros2_node_;
