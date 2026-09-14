@@ -464,50 +464,96 @@ vector_t saturateRobotInput(vector_t u, const OptiPessiModelParameters& params) 
 }
 
 /**
+ * A clamped failed solve can throw the robot faster than any later solve recovers from, and it breaks up the
+ * capture-point stops around it: in Gazebo, saturated steps predicting 1.2 m/s lateral against dcyMax = 0.25 started a
+ * fall, and on S1 with the obstacle dead ahead they took the speed 0.26 -> 0.58 -> 0.65 -> 1.43 m/s in three steps.
+ */
+bool saturatedStepUsable(const vector_t& robotState, const vector_t& saturatedInput, const OptiPessiModelParameters& params) {
+  using vector2_t = Eigen::Matrix<scalar_t, 2, 1>;
+  constexpr scalar_t kSpeedMargin = 0.1;    // [m/s] past dcxMax / dcyMax
+  constexpr scalar_t kYawRateMargin = 0.2;  // [rad/s] past dthetaMax
+  const vector_t successor = lipMapScalar(robotState, saturatedInput, params.omega(), params.mass, params.inertia);
+  // The OCP bounds the successor's velocity in this knot's body frame (StageInequalityConstraint).
+  const vector2_t dcBody = applyR01(robotState(RobotX::TH), vector2_t(successor(RobotX::DCX), successor(RobotX::DCY)));
+  return std::abs(dcBody(0)) <= params.dcxMax + kSpeedMargin && std::abs(dcBody(1)) <= params.dcyMax + kSpeedMargin &&
+         std::abs(successor(RobotX::DTH)) <= params.dthetaMax + kYawRateMargin && !isInsane(successor, saturatedInput, params);
+}
+
+/**
  * Emergency step used when the solver produces nothing usable: a capture-point (deadbeat) stop.
  *
- * The LIP's divergent mode is the DCM xi = c + dc/omega, which evolves as
- * xi_{i+1} = e^{omega*dt} (xi_i - z) + z. Placing the CoP z at the DCM therefore leaves the DCM
- * stationary instead of letting it grow by cosh(omega*dt) ~ 3 per phase. The previous heuristic
- * (z = c - 0.25*dc) is not stabilizing, and open-loop divergence turned a single failed solve into
- * a run-ending blow-up within four steps.
+ * The LIP's divergent mode is the DCM xi = c + dc/omega, which evolves as xi(t) = z + e^{omega t} (xi_0 - z) under a
+ * constant CoP z. This phase's CoP goes as close to the DCM as the current support segment allows (all that alpha can
+ * express). The next footholds go under the DCM as it will be at TOUCHDOWN: the midpoint of a diagonal pair is the body
+ * centre, so with alpha = 1/2 the next phase's CoP sits on the DCM, the DCM stops, and the speed decays as e^{-omega t}.
  *
- * The CoP is clamped to the current support segment (all that alpha can express), and the next
- * footholds are placed under the DCM so the following support polygon can actually contain it.
+ * Placing them under the phase-start DCM instead -- as this routine once did -- lands every support segment behind
+ * the DCM, which has moved out by e^{omega dt} ~ 2.8 times its distance to the CoP by then. Repeated stops then speed
+ * the robot up: in Gazebo 16 consecutive stops took it from 0.84 to 2.5 m/s and over.
  *
- * NOTE the limit of this: the clamp is not cosmetic. Once the capture point leaves the support
- * segment the CoP cannot reach it and the step is no longer deadbeat -- it only slows the growth
- * (1.70x per phase measured, against 2.76x open loop). This routine cannot rescue an already-fast
- * state, and calling it repeatedly is divergence with extra steps.
+ * Limits: the touchdown point stays within kMaxCaptureStep of the touchdown CoM, so a fast state gets a long step
+ * rather than a deadbeat one; and beta/gamma, closest to an even split within [0, 1], make the tangential forces cancel
+ * the yaw rate over the phase.
  */
 vector_t fallbackInput(const OptiPessiModelParameters& params, const vector_t& robotState, int phase) {
-  vector_t u = vector_t::Zero(RobotU::DIM);
+  using vector2_t = Eigen::Matrix<scalar_t, 2, 1>;
+  constexpr scalar_t kMaxCaptureStep = 0.25;  // [m] touchdown point from the touchdown CoM
   const auto next = gaitPair(phase + 1);
-  const vector_t c = robotState.head(2);
-  const vector_t dc = robotState.segment(RobotX::DCX, 2);
+  const vector2_t c(robotState(RobotX::CX), robotState(RobotX::CY));
+  const vector2_t dc(robotState(RobotX::DCX), robotState(RobotX::DCY));
+  const vector2_t p0(robotState(RobotX::P0X), robotState(RobotX::P0Y));
+  const vector2_t p1(robotState(RobotX::P1X), robotState(RobotX::P1Y));
   const scalar_t theta = robotState(RobotX::TH);
+  const scalar_t dtheta = robotState(RobotX::DTH);
   const scalar_t w = params.omega();
+  const scalar_t dt = params.dtMin;  // shortest phase: re-plan as soon as possible
 
-  // Divergent component of the LIP state.
-  const vector_t dcm = c + dc / w;
-
-  // Step under the capture point so the next stance can arrest the motion.
-  u.segment(RobotU::P0X, 2) = dcm + applyR(theta, hipOf(params, next[0]));
-  u.segment(RobotU::P1X, 2) = dcm + applyR(theta, hipOf(params, next[1]));
-
-  // Put this phase's CoP as close to the capture point as the current support segment allows.
-  const vector_t p0 = robotState.segment(RobotX::P0X, 2);
-  const vector_t p1 = robotState.segment(RobotX::P1X, 2);
-  const vector_t d = p1 - p0;
-  const scalar_t denominator = d.dot(d);
+  // This phase's CoP: as close to the DCM as the support segment allows.
+  const vector2_t dcm = c + dc / w;
+  const vector2_t d = p1 - p0;
   scalar_t alpha = 0.5;
-  if (denominator > 1e-9) {
-    alpha = (dcm - p0).dot(d) / denominator;
+  if (d.squaredNorm() > 1e-9) {
+    alpha = (dcm - p0).dot(d) / d.squaredNorm();
   }
-  u(RobotU::ALPHA) = std::min(std::max(alpha, params.alphaReduction), scalar_t(1) - params.alphaReduction);
-  u(RobotU::DT) = params.dtMin;  // shortest phase: re-plan as soon as possible
-  u(RobotU::BETA) = 0.5;
-  u(RobotU::GAMMA) = 0.5;
+  alpha = std::min(std::max(alpha, params.alphaReduction), scalar_t(1) - params.alphaReduction);
+  const vector2_t cop = computeCop(p0, p1, alpha);
+
+  // CoM and DCM at touchdown under that CoP; the next pair lands centred under the DCM.
+  const scalar_t ch = std::cosh(w * dt);
+  const scalar_t sh = std::sinh(w * dt);
+  const vector2_t cTouchdown = ch * c + (sh / w) * dc + (1.0 - ch) * cop;
+  const vector2_t dcmTouchdown = cop + std::exp(w * dt) * (dcm - cop);
+  vector2_t captureStep = dcmTouchdown - cTouchdown;
+  if (captureStep.norm() > kMaxCaptureStep) {
+    captureStep *= kMaxCaptureStep / captureStep.norm();
+  }
+  const vector2_t target = cTouchdown + captureStep;
+  const scalar_t thetaTouchdown = theta + dt * dtheta;
+
+  vector_t u = vector_t::Zero(RobotU::DIM);
+  u.segment(RobotU::P0X, 2) = target + applyR(thetaTouchdown, hipOf(params, next[0]));
+  u.segment(RobotU::P1X, 2) = target + applyR(thetaTouchdown, hipOf(params, next[1]));
+  u(RobotU::ALPHA) = alpha;
+  u(RobotU::DT) = dt;
+
+  // Yaw: the torque of the tangential forces (see yawTorque) is affine in the split, tau = tau0 + a beta + b gamma.
+  // Take the split closest to (1/2, 1/2) whose torque stops the yaw rate over the phase, dtheta + dt tau / I = 0.
+  const vector2_t force = params.mass * (w * w) * (c - cop);
+  const vector2_t r0 = p0 - c;
+  const vector2_t r1 = p1 - c;
+  const scalar_t a = force.x() * (r1.y() - r0.y());
+  const scalar_t b = force.y() * (r0.x() - r1.x());
+  const scalar_t tauEvenSplit = r1.x() * force.y() - r1.y() * force.x() + 0.5 * (a + b);
+  const scalar_t tauTarget = -params.inertia * dtheta / dt;
+  scalar_t beta = 0.5;
+  scalar_t gamma = 0.5;
+  if (a * a + b * b > 1e-9) {
+    const scalar_t s = (tauTarget - tauEvenSplit) / (a * a + b * b);
+    beta += s * a;
+    gamma += s * b;
+  }
+  u(RobotU::BETA) = std::min(std::max(beta, scalar_t(0)), scalar_t(1));
+  u(RobotU::GAMMA) = std::min(std::max(gamma, scalar_t(0)), scalar_t(1));
   return u;
 }
 

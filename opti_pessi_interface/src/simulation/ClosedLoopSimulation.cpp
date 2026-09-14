@@ -133,7 +133,9 @@ ClosedLoopResult runClosedLoopSimulation(OptiPessiInterface& interface, ocs2::Ip
         const vector_t candidateInput = saturateRobotInput(outcome.appliedInput, params);
         const vector_t candidateState =
             lipMapScalar(X.col(n), candidateInput, params.omega(), params.mass, params.inertia);
-        if (!isInsane(candidateState, candidateInput, params)) {
+        // Stricter than the reference, which only rejects insane steps: the successor must also land near the OCP's
+        // velocity limits, as OptiPessiMpc requires before publishing one (see saturatedStepUsable).
+        if (saturatedStepUsable(X.col(n), candidateInput, params)) {
           appliedInput = candidateInput;
           successorState = candidateState;
           usedSaturatedSolve = true;

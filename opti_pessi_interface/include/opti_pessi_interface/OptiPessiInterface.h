@@ -67,8 +67,16 @@ SolveOutcome solveWithRetries(ocs2::IpmSolver& solver, const ocs2::OptimalContro
 vector_t saturateRobotInput(vector_t u, const OptiPessiModelParameters& params);
 
 /**
- * Capture-point stop for contact phase `phase` from `robotState`: the next footholds under the DCM c + dc/omega, this
- * phase's CoP as close to it as the support segment allows, shortest phase. Slows a moderate speed, cannot rescue a fast one.
+ * Whether a saturated failed step may be applied from `robotState`: its successor must land near the velocity limits the
+ * OCP imposes (body-frame speed and yaw rate, as the OCP bounds them) and pass isInsane(). Otherwise fallbackInput() is
+ * the safer step.
+ */
+bool saturatedStepUsable(const vector_t& robotState, const vector_t& saturatedInput, const OptiPessiModelParameters& params);
+
+/**
+ * Capture-point stop for contact phase `phase` from `robotState`, over the shortest phase: this phase's CoP as close to
+ * the DCM c + dc/omega as the support segment allows, the next footholds centred under the DCM as it will be at
+ * touchdown (at most a bounded step away), and the tangential force split that cancels the yaw rate.
  */
 vector_t fallbackInput(const OptiPessiModelParameters& params, const vector_t& robotState, int phase);
 

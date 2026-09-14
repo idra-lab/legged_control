@@ -71,8 +71,7 @@ void OptiPessiMpc::calculateController(scalar_t /*initTime*/, const vector_t& in
       plan.trustworthy = outcome.planTrustworthy();
     } else if (outcome.appliedInput.allFinite() && outcome.appliedInput(RobotU::DT) > 0.0) {
       const vector_t candidate = saturateRobotInput(outcome.appliedInput, params_);
-      const vector_t candidateSuccessor = lipMapScalar(robotState, candidate, params_.omega(), params_.mass, params_.inertia);
-      if (!isInsane(candidateSuccessor, candidate, params_)) {
+      if (saturatedStepUsable(robotState, candidate, params_)) {
         plan.inputs.front() = candidate;
         plan.source = "saturated";
       }
