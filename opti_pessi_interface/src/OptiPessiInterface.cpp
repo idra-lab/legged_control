@@ -125,19 +125,13 @@ scalar_t appliedConstraintViolation(const ocs2::OptimalControlProblem& problem, 
   return worst;
 }
 
-SolveOutcome extractSolve(ocs2::SolverBase& solver, const ocs2::OptimalControlProblem& problem,
-                          const OptiPessiModelParameters& params, const vector_t& robotState, bool verbose) {
-  SolveOutcome out;
-  const scalar_t finalTime = static_cast<scalar_t>(params.N);
+}  // namespace
 
-  try {
-    out.solution = solver.primalSolution(finalTime);
-  } catch (const std::exception& e) {
-    std::cout << "Solver failed: " << e.what() << "\n";
-    return out;
-  }
+SolveOutcome evaluateSolve(const ocs2::PrimalSolution& solution, const ocs2::OptimalControlProblem& problem,
+                           const OptiPessiModelParameters& params, const vector_t& robotState) {
+  SolveOutcome out;
+  out.solution = solution;
   if (out.solution.stateTrajectory_.size() < 2 || out.solution.inputTrajectory_.empty()) {
-    std::cout << "Solver failed: empty primal solution\n";
     return out;
   }
 
@@ -182,26 +176,45 @@ SolveOutcome extractSolve(ocs2::SolverBase& solver, const ocs2::OptimalControlPr
     out.horizonResidual = std::max(out.horizonResidual, (augmentedLipStep(params, xk, uk) - xk1).norm());
   }
 
+  if (!out.appliedInput.allFinite() || !out.successorState.allFinite() || isInsane(out.successorState, out.appliedInput, params)) {
+    return out;
+  }
+
+  out.ok = out.dynamicsResidual < kDynamicsResidualTolerance && out.constraintViolation < kAppliedViolationTolerance;
+  return out;
+}
+
+namespace {
+
+SolveOutcome extractSolve(ocs2::SolverBase& solver, const ocs2::OptimalControlProblem& problem,
+                          const OptiPessiModelParameters& params, const vector_t& robotState, bool verbose) {
+  ocs2::PrimalSolution solution;
+  try {
+    solution = solver.primalSolution(static_cast<scalar_t>(params.N));
+  } catch (const std::exception& e) {
+    std::cout << "Solver failed: " << e.what() << "\n";
+    return SolveOutcome();
+  }
+  if (solution.stateTrajectory_.size() < 2 || solution.inputTrajectory_.empty()) {
+    std::cout << "Solver failed: empty primal solution\n";
+    return SolveOutcome();
+  }
+
+  const SolveOutcome out = evaluateSolve(solution, problem, params, robotState);
+
   if (verbose) {
     std::printf("    cost=%.4e appliedViolation=%.3e horizonViolation=%.3e\n", solver.getPerformanceIndeces().cost,
                 out.constraintViolation, out.horizonViolation);
     std::printf("    dynRes=%.3e horizon=%.3e cy=%.3f vx=%.2f vy=%.2f dt=%.3f\n", out.dynamicsResidual, out.horizonResidual,
                 out.successorState(RobotX::CY), out.successorState(RobotX::DCX), out.successorState(RobotX::DCY),
                 out.appliedInput(RobotU::DT));
-  }
-
-  if (!out.appliedInput.allFinite() || !out.successorState.allFinite() || isInsane(out.successorState, out.appliedInput, params)) {
-    if (verbose) {
+    if (!out.appliedInput.allFinite() || !out.successorState.allFinite() || isInsane(out.successorState, out.appliedInput, params)) {
       std::printf("    rejected as insane: c=(%.2f,%.2f) v=(%.2f,%.2f) dtheta=%.2f dt=%.2f\n", out.successorState(RobotX::CX),
                   out.successorState(RobotX::CY), out.successorState(RobotX::DCX), out.successorState(RobotX::DCY),
                   out.successorState(RobotX::DTH), out.appliedInput(RobotU::DT));
+    } else if (!out.ok && out.constraintViolation >= kAppliedViolationTolerance) {
+      std::printf("    rejected: applied step violates its own constraints by %.3e\n", out.constraintViolation);
     }
-    return out;
-  }
-
-  out.ok = out.dynamicsResidual < kDynamicsResidualTolerance && out.constraintViolation < kAppliedViolationTolerance;
-  if (!out.ok && verbose && out.constraintViolation >= kAppliedViolationTolerance) {
-    std::printf("    rejected: applied step violates its own constraints by %.3e\n", out.constraintViolation);
   }
   return out;
 }
@@ -329,12 +342,22 @@ void OptiPessiInterface::setupReferenceManager(const OptiPessiModelParameters& p
       ocs2::TargetTrajectories({0.0, finalTime()}, {xRef, xRef}, {uRef, uRef}));
 }
 
+void OptiPessiInterface::setRobotModel(scalar_t mass, scalar_t inertia) {
+  if (problemPtr_ != nullptr) {
+    throw std::logic_error("[OptiPessiInterface] setRobotModel() must be called before setupOptimalControlProblem().");
+  }
+  params_.mass = mass;
+  params_.inertia = inertia;
+}
+
 /** Guards against the solver returning a formally converged but physically nonsensical iterate. */
 bool isInsane(const vector_t& robotState, const vector_t& robotInput, const OptiPessiModelParameters& params) {
   if (!robotState.allFinite() || !robotInput.allFinite()) {
     return true;
   }
-  if (robotState.head(2).norm() > 10.0 || robotState.segment(RobotX::DCX, 2).norm() > params.dcxMax + 0.2 ||
+  // The position guard is relative to the goal, not the origin: a goal is allowed to be 10 m away (scenario S1),
+  // a CoM launched tens of metres is not.
+  if ((robotState.head(2) - params.goal).norm() > 20.0 || robotState.segment(RobotX::DCX, 2).norm() > params.dcxMax + 0.2 ||
       std::abs(robotState(RobotX::DTH)) > params.dthetaMax + 0.2) {
     return true;
   }

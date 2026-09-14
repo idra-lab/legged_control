@@ -1,19 +1,27 @@
 #include "opti_pessi_interface/OptiPessiMpc.h"
 
+#include "opti_pessi_interface/OptiPessiInterface.h"
 #include "opti_pessi_interface/initialization/OptiPessiInitializer.h"
 
 namespace opti_pessi {
 
 OptiPessiMpc::OptiPessiMpc(ocs2::mpc::Settings mpcSettings, ocs2::ipm::Settings settings,
                            const ocs2::OptimalControlProblem& optimalControlProblem, const ocs2::Initializer& initializer,
-                           std::shared_ptr<const OptiPessiReferenceManager> referenceManagerPtr)
+                           std::shared_ptr<const OptiPessiReferenceManager> referenceManagerPtr, OptiPessiModelParameters params)
     : MPC_BASE(std::move(mpcSettings)),
       solverPtr_(std::make_unique<ocs2::IpmSolver>(std::move(settings), optimalControlProblem, initializer)),
-      referenceManagerPtr_(std::move(referenceManagerPtr)) {}
+      referenceManagerPtr_(std::move(referenceManagerPtr)),
+      params_(std::move(params)),
+      evaluationProblemPtr_(std::make_unique<ocs2::OptimalControlProblem>(optimalControlProblem)) {}
 
 void OptiPessiMpc::reset() {
   MPC_BASE::reset();
   hasSolution_ = false;
+  accepted_ = false;
+}
+
+bool OptiPessiMpc::run(scalar_t currentTime, const vector_t& currentState) {
+  return MPC_BASE::run(currentTime, currentState) && accepted_;
 }
 
 void OptiPessiMpc::calculateController(scalar_t initTime, const vector_t& initState, scalar_t finalTime) {
@@ -34,7 +42,11 @@ void OptiPessiMpc::calculateController(scalar_t initTime, const vector_t& initSt
     solverPtr_->run(initTime, initState, finalTime);
   }
 
-  hasSolution_ = true;
+  // Gate on the solution itself, on this thread, with the gait offset the solve used.
+  const SolveOutcome outcome =
+      evaluateSolve(solverPtr_->primalSolution(solverPtr_->getFinalTime()), *evaluationProblemPtr_, params_, extractRobotState(initState));
+  accepted_ = outcome.ok;
+  hasSolution_ = outcome.planTrustworthy();
   lastGaitOffset_ = gaitOffset;
 
   SolveStatistics statistics;
@@ -42,6 +54,10 @@ void OptiPessiMpc::calculateController(scalar_t initTime, const vector_t& initSt
   statistics.warmStart = warmStart;
   statistics.numIterations = solverPtr_->getIterationsLog().size();
   statistics.performance = solverPtr_->getPerformanceIndeces();
+  statistics.accepted = outcome.ok;
+  statistics.dynamicsResidual = outcome.dynamicsResidual;
+  statistics.appliedViolation = outcome.constraintViolation;
+  statistics.horizonViolation = outcome.horizonViolation;
   std::lock_guard<std::mutex> lock(statisticsMutex_);
   lastSolveStatistics_ = statistics;
 }

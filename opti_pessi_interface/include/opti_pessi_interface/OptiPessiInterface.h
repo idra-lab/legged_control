@@ -42,6 +42,14 @@ struct SolveOutcome {
 bool isInsane(const vector_t& robotState, const vector_t& robotInput, const OptiPessiModelParameters& params);
 
 /**
+ * Checks a primal solution against the exact LIP map and the problem's own path inequalities, measured directly off
+ * the trajectory (the solver's PerformanceIndex SSE is slack-contaminated). `problem` must not be in use by another
+ * thread: its CppAD models are not thread-safe. `robotState` is the measured 10-dof state the solve started from.
+ */
+SolveOutcome evaluateSolve(const ocs2::PrimalSolution& solution, const ocs2::OptimalControlProblem& problem,
+                           const OptiPessiModelParameters& params, const vector_t& robotState);
+
+/**
  * Assembles the Optimistic-Pessimistic optimal control problem for OCS2, following the structure
  * of legged_interface::LeggedInterface.
  *
@@ -78,6 +86,13 @@ class OptiPessiInterface : public ocs2::RobotInterface {
                                   SolverBackend backend = SolverBackend::Ipm);
 
   void setupReferenceManager(const OptiPessiModelParameters& params);
+
+  /**
+   * Replaces the robot mass and yaw inertia loaded from task.info, e.g. with the values of the simulated model. Both
+   * are compiled into the CppAD libraries, so call it before setupOptimalControlProblem() (throws otherwise) and
+   * generate the libraries into a folder that belongs to these values.
+   */
+  void setRobotModel(scalar_t mass, scalar_t inertia);
 
   const ocs2::OptimalControlProblem& getOptimalControlProblem() const override { return *problemPtr_; }
   const ocs2::Initializer& getInitializer() const override { return *initializerPtr_; }

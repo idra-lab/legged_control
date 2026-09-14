@@ -5,6 +5,7 @@
 #include <pinocchio/fwd.hpp>  // forward declarations must be included first.
 
 #include <pinocchio/algorithm/center-of-mass.hpp>
+#include <pinocchio/algorithm/centroidal.hpp>
 #include <pinocchio/algorithm/frames.hpp>
 #include <pinocchio/algorithm/kinematics.hpp>
 
@@ -40,6 +41,10 @@
 #include <opti_pessi_interface/initialization/OptiPessiInitializer.h>
 
 #include <algorithm>
+#include <cstdio>
+
+#include <boost/property_tree/info_parser.hpp>
+#include <boost/property_tree/ptree.hpp>
 
 using namespace std;
 
@@ -100,8 +105,14 @@ controller_interface::CallbackReturn OptiPessiController::on_init() {
     executor_->spin();
   });
 
-  setupOptiPessiInterface(optipessiFile, scenarioFile, libraryFolder, recompile, backend);
+  // LeggedInterface first: the Opti-Pessi model takes its mass and inertia from the URDF.
   setupLeggedInterface(taskFile, urdfFile, referenceFile, verbose);
+  setupOptiPessiInterface(optipessiFile, scenarioFile, libraryFolder, recompile, backend);
+  {
+    boost::property_tree::ptree pt;
+    boost::property_tree::read_info(taskFile, pt);
+    loadData::loadPtreeValue(pt, optiPessiMaxPlanShift_, "optiPessiController.maxPlanShift", verbose);
+  }
   // setupLeggedMpc();
   setupOptiPessiMpc();
   // setupLeggedMrt();
@@ -328,6 +339,7 @@ controller_interface::CallbackReturn OptiPessiController::on_activate(const rclc
   mpcRunning_ = false;
   // A policy left from an earlier activation must not count as the first policy of this one.
   optiPessiMrtInterface_->reset();
+  optiPessiPlan_ = AcceptedPlan();
   RCLCPP_INFO(node->get_logger(), "[OptiPessi] standing up: CoM height %.3f -> %.3f in %.1f s, then %.1f s settling",
               optiPessiStandStartHeight_, optiPessiInterface_->modelParameters().comHeight, optiPessiStandUpDuration_,
               optiPessiStandSettleDuration_);
@@ -361,6 +373,7 @@ controller_interface::return_type OptiPessiController::update(const rclcpp::Time
   // Load the latest MPC policy
   if (optiPessiMrtInterface_->updatePolicy()) {
     ++optiPessiPhaseDiagnostics_.policyUpdates;
+    storeAcceptedPlan();
     publishOptiPessiPlan();
     publishOptiPessiTrajectories();
   }
@@ -384,30 +397,28 @@ void OptiPessiController::advanceOptiPessiPhase(const rclcpp::Time& time, const 
     return;
   }
 
-  // No policy for phase 0 yet (the MPC starts when standUp() ends): keep standing.
-  if (!optiPessiMrtInterface_->initialPolicyReceived()) {
+  // No accepted plan yet (the MPC starts when standUp() ends): keep standing.
+  if (!optiPessiPlan_.valid || optiPessiPlan_.phase > optiPessiPhase_) {
     optiPessiWaitTime_ += period.seconds();
     return;
   }
 
-  // A policy solved for an earlier phase would apply that phase's footholds: hold the LIP clock
-  // until the MPC thread has caught up with the current phase, coasting on the last CoM reference.
-  const CommandData& command = optiPessiMrtInterface_->getCommand();
-  if (command.mpcInitObservation_.mode != optiPessiPhase_) {
-    optiPessiWaitTime_ += period.seconds();
-    optiPessiComReference_.position += period.seconds() * optiPessiComReference_.velocity;
-    optiPessiComReference_.acceleration.setZero();
-    optiPessiComReference_.yaw += period.seconds() * optiPessiComReference_.yawRate;
-    optiPessiComReference_.yawAcceleration = 0.0;
+  // Every solve starts at knot 0 (see opti_pessi_interface/definitions.h). Until the MPC thread delivers this phase's
+  // own policy, the latest accepted plan runs shifted by the phases completed since it was solved, from the state
+  // measured at the start of this phase: the LIP clock never waits for a solve. The input lasts u(DT) seconds.
+  const size_t offset = optiPessiPhase_ - optiPessiPlan_.phase;
+  if (offset > optiPessiMaxPlanShift_ || offset >= optiPessiPlan_.inputs.size()) {
+    RCLCPP_WARN(this->get_node()->get_logger(),
+                "[OptiPessi] phase %zu: latest accepted plan is from phase %zu (max shift %zu), stopping to restart from stance",
+                optiPessiPhase_, optiPessiPlan_.phase, optiPessiMaxPlanShift_);
+    restartFromStance();
     return;
   }
-
-  // Every solve starts at knot 0 (see opti_pessi_interface/definitions.h), so the input at t = 0 is
-  // the one applied over this whole phase; it lasts u(DT) seconds.
-  vector_t plannedState, plannedInput;
-  size_t plannedMode = 0;
-  optiPessiMrtInterface_->evaluatePolicy(0.0, command.mpcInitObservation_.state, plannedState, plannedInput, plannedMode);
-  const vector_t appliedInput = opti_pessi::extractRobotInput(plannedInput);
+  if (offset > 0) {
+    optiPessiWaitTime_ += period.seconds();
+  }
+  const vector_t robotState = offset == 0 ? optiPessiPlan_.startState : optiPessiRobotState_;
+  const vector_t appliedInput = optiPessiPlan_.inputs[offset];
   const scalar_t phaseDuration = appliedInput(opti_pessi::RobotU::DT);
 
   // Plan stability over the phase: the MPC keeps re-solving it, and each new policy can move dt and the footholds.
@@ -422,20 +433,19 @@ void OptiPessiController::advanceOptiPessiPhase(const rclcpp::Time& time, const 
     diagnostics.footholdDrift = std::max(diagnostics.footholdDrift, (footholds - diagnostics.firstFootholds).cwiseAbs().maxCoeff());
   }
 
-  // Knot 1 is the stance the swing feet land in, so its forces are their touchdown forces.
-  vector_t nextState, nextInput;
-  optiPessiMrtInterface_->evaluatePolicy(1.0, command.mpcInitObservation_.state, nextState, nextInput, plannedMode);
+  // The next knot is the stance the swing feet land in, so its forces are their touchdown forces.
+  const auto& params = optiPessiInterface_->modelParameters();
+  const vector_t nextState = opti_pessi::lipMapScalar(robotState, appliedInput, params.omega(), params.mass, params.inertia);
+  const vector_t& nextInput = optiPessiPlan_.inputs[std::min(offset + 1, optiPessiPlan_.inputs.size() - 1)];
 
   optiPessiPhaseElapsed_ += period.seconds();
-  updateFootReferences(opti_pessi::extractRobotState(plannedState), appliedInput, opti_pessi::extractRobotState(nextState),
-                       opti_pessi::extractRobotInput(nextInput), optiPessiPhaseElapsed_);
-  updateComReference(opti_pessi::extractRobotState(plannedState), appliedInput, optiPessiPhaseElapsed_);
+  updateFootReferences(robotState, appliedInput, nextState, nextInput, optiPessiPhaseElapsed_);
+  updateComReference(robotState, appliedInput, optiPessiPhaseElapsed_);
   if (optiPessiPhaseElapsed_ < phaseDuration) {
     return;
   }
 
   // Phase over: measure the robot for the next phase's stance pair and hand it to the MPC thread.
-  const auto& params = optiPessiInterface_->modelParameters();
   const vector_t successorState = measureLipState(optiPessiPhase_ + 1, optiPessiLiftoffPositions_);
   if (opti_pessi::isInsane(successorState, appliedInput, params)) {
     RCLCPP_WARN(this->get_node()->get_logger(), "[OptiPessi] phase %zu: measured state or applied input outside the LIP bounds",
@@ -447,12 +457,11 @@ void OptiPessiController::advanceOptiPessiPhase(const rclcpp::Time& time, const 
   // how many WBC QPs failed during it.
   {
     using opti_pessi::RobotX;
-    const vector_t predicted =
-        opti_pessi::lipMapScalar(opti_pessi::extractRobotState(plannedState), appliedInput, params.omega(), params.mass, params.inertia);
+    const vector_t& predicted = nextState;
     const vector_t lipError = predicted - successorState;
     const size_t qpFailures = wbc_->getNumQpFailures();
     RCLCPP_INFO(this->get_node()->get_logger(),
-                "[OptiPessi] phase %zu diag: t=%.3f wait=%.3f solve=%.1fms | LIP-measured c=(%.3f, %.3f) dc=(%.3f, %.3f) th=%.3f dth=%.3f "
+                "[OptiPessi] phase %zu diag: t=%.3f shifted=%.3f solve=%.1fms | LIP-measured c=(%.3f, %.3f) dc=(%.3f, %.3f) th=%.3f dth=%.3f "
                 "p0=(%.3f, %.3f) p1=(%.3f, %.3f) | ref-measured com=(%.3f, %.3f) yaw=%.3f yawRate=%.3f | measured |dc|=%.3f dth=%.3f | "
                 "WBC QP failures=%zu",
                 optiPessiPhase_, time.seconds(), optiPessiWaitTime_, optiPessiMpcTimer_.getLastIntervalInMilliseconds(), lipError(RobotX::CX),
@@ -505,10 +514,11 @@ void OptiPessiController::advanceOptiPessiPhase(const rclcpp::Time& time, const 
     const auto solve = std::static_pointer_cast<opti_pessi::OptiPessiMpc>(optiPessiMpc_)->getLastSolveStatistics();
     RCLCPP_INFO(this->get_node()->get_logger(),
                 "[OptiPessi] phase %zu plan: predicted dcBody=(%.3f, %.3f) dth=%.3f (limits %.2f, %.2f, %.2f) | latest solve: "
-                "gaitOffset=%d warmStart=%s iterations=%zu cost=%.3e dynamicsSSE=%.3e inequalitySSE=%.3e",
+                "gaitOffset=%d warmStart=%s iterations=%zu cost=%.3e accepted=%d dynRes=%.3e appliedViol=%.3e horizonViol=%.3e | "
+                "applied plan of phase %zu (shift %zu)",
                 optiPessiPhase_, dcBody(0), dcBody(1), predicted(RobotX::DTH), params.dcxMax, params.dcyMax, params.dthetaMax,
-                solve.gaitOffset, solve.warmStart, solve.numIterations, solve.performance.cost, solve.performance.dynamicsViolationSSE,
-                solve.performance.inequalityConstraintsSSE);
+                solve.gaitOffset, solve.warmStart, solve.numIterations, solve.performance.cost, solve.accepted ? 1 : 0,
+                solve.dynamicsResidual, solve.appliedViolation, solve.horizonViolation, optiPessiPlan_.phase, offset);
   }
   {
     std::lock_guard<std::mutex> lock(optiPessiPhaseMutex_);
@@ -621,17 +631,23 @@ vector_t OptiPessiController::measureLipState(size_t phase, std::array<vector3_t
   qPino.head<3>() = rbd.segment<3>(3);
   qPino.segment<3>(3) = zyx;
   qPino.tail(info.actuatedDofNum) = rbd.segment(6, info.actuatedDofNum);
-  pinocchio::forwardKinematics(model, data, qPino);
+  // Pinocchio velocity as in WbcBase::updateMeasured(): base linear velocity, ZYX Euler rates, joint velocities.
+  vector_t vPino = vector_t::Zero(nq);
+  vPino.head<3>() = rbd.segment<3>(nq + 3);
+  vPino.segment<3>(3) = getEulerAnglesZyxDerivativesFromGlobalAngularVelocity<scalar_t>(zyx, angularVelWorld);
+  vPino.tail(info.actuatedDofNum) = rbd.segment(nq + 6, info.actuatedDofNum);
+  // Whole-body CoM and its velocity (the swinging legs move the CoM relative to the base), then the feet.
+  const vector3_t com = pinocchio::centerOfMass(model, data, qPino, vPino);
+  const vector3_t comVelocity = data.vcom[0];
   pinocchio::updateFramePlacements(model, data);
-  const vector3_t com = pinocchio::centerOfMass(model, data, qPino);
 
   vector_t lipState = vector_t::Zero(RobotX::DIM);
   lipState(RobotX::CX) = com(0);
   lipState(RobotX::CY) = com(1);
   lipState(RobotX::TH) = rbd(0);
-  lipState(RobotX::DCX) = rbd(nq + 3);
-  lipState(RobotX::DCY) = rbd(nq + 4);
-  lipState(RobotX::DTH) = getEulerAnglesZyxDerivativesFromGlobalAngularVelocity<scalar_t>(zyx, angularVelWorld)(0);
+  lipState(RobotX::DCX) = comVelocity(0);
+  lipState(RobotX::DCY) = comVelocity(1);
+  lipState(RobotX::DTH) = vPino(3);
 
   // Indexed by opti_pessi::Foot (FL, FR, RL, RR).
   const std::array<std::string, 4> footFrames{"LF_FOOT", "RF_FOOT", "LH_FOOT", "RH_FOOT"};
@@ -766,6 +782,7 @@ void OptiPessiController::standUp(const rclcpp::Duration& period) {
     optiPessiPhase_ = 0;
   }
   optiPessiPhaseElapsed_ = 0.0;
+  optiPessiPlan_ = AcceptedPlan();  // a plan from before a restart was solved for other feet
 
   const PhaseDiagnostics& d = optiPessiPhaseDiagnostics_;
   const size_t qpFailures = wbc_->getNumQpFailures();
@@ -781,6 +798,75 @@ void OptiPessiController::standUp(const rclcpp::Duration& period) {
 
   optiPessiStandingUp_ = false;
   mpcRunning_ = true;
+}
+
+void OptiPessiController::storeAcceptedPlan() {
+  // During the stand-up or a restart the phase is about to be reset: nothing solved now belongs to it.
+  if (optiPessiStandingUp_) {
+    return;
+  }
+  const PrimalSolution& policy = optiPessiMrtInterface_->getPolicy();
+  const SystemObservation& observation = optiPessiMrtInterface_->getCommand().mpcInitObservation_;
+  const size_t phase = observation.mode;
+  const auto numKnots = static_cast<size_t>(optiPessiInterface_->modelParameters().N);
+  if (policy.inputTrajectory_.size() < numKnots) {
+    return;
+  }
+
+  // Only accepted solves reach the MRT (see OptiPessiMpc::run). One solved for this phase must also start from the
+  // state this phase started from, which rejects a solve that was in flight across a restart. The observation is an
+  // exact copy of that state; the solver's knot 0 is not (the interior point step need not close the x_0 defect).
+  const vector_t startState = opti_pessi::extractRobotState(observation.state);
+  const bool forThisPhase = phase == optiPessiPhase_ && optiPessiRobotState_.size() == startState.size() &&
+                            (startState - optiPessiRobotState_).cwiseAbs().maxCoeff() < 1e-6;
+  const bool newerEarlierPhase = phase < optiPessiPhase_ && (!optiPessiPlan_.valid || phase > optiPessiPlan_.phase);
+  if (!forThisPhase && !newerEarlierPhase) {
+    return;
+  }
+
+  optiPessiPlan_.valid = true;
+  optiPessiPlan_.phase = phase;
+  optiPessiPlan_.startState = startState;
+  optiPessiPlan_.inputs.clear();
+  for (size_t k = 0; k < numKnots; ++k) {
+    optiPessiPlan_.inputs.push_back(opti_pessi::extractRobotInput(policy.inputTrajectory_[k]));
+  }
+}
+
+void OptiPessiController::restartFromStance() {
+  using opti_pessi::RobotX;
+  const auto& params = optiPessiInterface_->modelParameters();
+  mpcRunning_ = false;
+  optiPessiPlan_ = AcceptedPlan();
+  optiPessiMrtInterface_->reset();
+
+  // Swinging feet go straight down where they are and the stance pair carries the weight until standUp() puts every
+  // foot in contact.
+  std::array<vector3_t, 4> feet{};
+  const vector_t lipState = measureLipState(optiPessiPhase_, feet);
+  size_t numStance = 0;
+  for (const FootReference& reference : optiPessiFootReferences_) {
+    numStance += reference.contact ? 1 : 0;
+  }
+  for (size_t i = 0; i < optiPessiFootReferences_.size(); ++i) {
+    FootReference& reference = optiPessiFootReferences_[i];
+    reference.velocity.setZero();
+    if (reference.contact) {
+      reference.force << 0.0, 0.0, params.mass * params.gravity / static_cast<scalar_t>(std::max<size_t>(numStance, 1));
+    } else {
+      reference.position << feet[i].head<2>(), optiPessiLiftoffPositions_[i].z();
+      reference.force.setZero();
+    }
+    reference.touchdownForce = reference.force;
+  }
+  optiPessiComReference_ = ComReference();
+  optiPessiComReference_.position << lipState(RobotX::CX), lipState(RobotX::CY), params.comHeight;
+  optiPessiComReference_.yaw = lipState(RobotX::TH);
+
+  // Settling stage only (no height ramp): standUp() re-measures the robot and starts over from phase 0.
+  optiPessiStandStartHeight_ = params.comHeight;
+  optiPessiStandElapsed_ = optiPessiStandUpDuration_;
+  optiPessiStandingUp_ = true;
 }
 
 vector3_t OptiPessiController::measureCenterOfMass() const {
@@ -1072,7 +1158,26 @@ OptiPessiController::~OptiPessiController() {
 void OptiPessiController::setupOptiPessiInterface(const std::string& optipessiFile, const std::string& scenarioFile,
                                                   const std::string& libraryFolder, bool recompile, opti_pessi::SolverBackend backend) {
   optiPessiInterface_ = std::make_shared<opti_pessi::OptiPessiInterface>(optipessiFile, scenarioFile, libraryFolder, recompile, true);
-  optiPessiInterface_->setupOptimalControlProblem(libraryFolder, recompile, backend);
+
+  // LIP mass and yaw inertia of the simulated robot, not task.info's: the URDF's total mass, and its composite
+  // inertia about the vertical axis through the CoM at the default stance and comHeight.
+  const auto& info = leggedInterface_->getCentroidalModelInfo();
+  PinocchioInterface pinocchioInterface = leggedInterface_->getPinocchioInterface();
+  vector_t q = vector_t::Zero(info.generalizedCoordinatesNum);
+  q(2) = optiPessiInterface_->modelParameters().comHeight;
+  q.tail(info.actuatedDofNum) = centroidal_model::getJointAngles(leggedInterface_->getInitialState(), info);
+  pinocchio::ccrba(pinocchioInterface.getModel(), pinocchioInterface.getData(), q, vector_t::Zero(info.generalizedCoordinatesNum));
+  const scalar_t mass = info.robotMass;
+  const scalar_t inertia = pinocchioInterface.getData().Ig.inertia().matrix()(2, 2);
+  RCLCPP_INFO(this->get_node()->get_logger(), "[OptiPessi] LIP model from URDF: mass %.3f kg (task.info %.3f), yaw inertia %.4f kg m^2 (task.info %.4f)",
+              mass, optiPessiInterface_->modelParameters().mass, inertia, optiPessiInterface_->modelParameters().inertia);
+  optiPessiInterface_->setRobotModel(mass, inertia);
+
+  // Both values are compiled into the CppAD libraries: one library folder per model, so a different model generates
+  // its own libraries instead of loading stale ones.
+  char modelFolder[64];
+  std::snprintf(modelFolder, sizeof(modelFolder), "/m%.3f_I%.4f", mass, inertia);
+  optiPessiInterface_->setupOptimalControlProblem(libraryFolder + modelFolder, recompile, backend);
 }
 
 void OptiPessiController::setupLeggedInterface(const std::string& taskFile, const std::string& urdfFile, const std::string& referenceFile,
@@ -1089,7 +1194,8 @@ void OptiPessiController::setupOptiPessiMpc() {
   optiPessiMpc_ = std::make_shared<opti_pessi::OptiPessiMpc>(optiPessiInterface_->mpcSettings(), optiPessiInterface_->ipmSettings(),
                                                              optiPessiInterface_->getOptimalControlProblem(),
                                                              optiPessiInterface_->getInitializer(),
-                                                             optiPessiInterface_->getOptiPessiReferenceManagerPtr());
+                                                             optiPessiInterface_->getOptiPessiReferenceManagerPtr(),
+                                                             optiPessiInterface_->modelParameters());
 
   const std::string robotName = "opti_pessi_robot";
 

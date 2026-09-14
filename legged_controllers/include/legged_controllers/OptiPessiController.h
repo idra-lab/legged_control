@@ -114,6 +114,18 @@ class OptiPessiController : public controller_interface::ControllerInterface {
   /** Every foot down where its reference is, loaded with m g / 4; the CoM at rest at comPosition, heading yaw. */
   void holdStance(const vector3_t& comPosition, scalar_t yaw);
 
+  /**
+   * Copies the policy just loaded by updatePolicy() into optiPessiPlan_ if it is newer than the stored plan: solved
+   * for the current phase from the state it started from, or for a later earlier phase than the stored one.
+   */
+  void storeAcceptedPlan();
+
+  /**
+   * No accepted plan covers the current phase: stops the MPC, lowers the swinging feet where they are, holds the CoM
+   * at comHeight above the measured one and hands over to standUp()'s settling stage, which restarts from phase 0.
+   */
+  void restartFromStance();
+
   /** Runs OptiPessiWbc on the current references and writes the joint commands. False if the safety check fails. */
   bool updateWholeBodyControl(const rclcpp::Duration& period);
 
@@ -194,6 +206,19 @@ class OptiPessiController : public controller_interface::ControllerInterface {
   scalar_t optiPessiPhaseElapsed_ = 0.0;   // seconds spent in the current phase
   bool optiPessiGoalReached_ = false;
 
+  /**
+   * Latest accepted Opti-Pessi plan, in robot coordinates. A phase starts on it at once, shifted by the phases
+   * completed since it was solved, and switches to its own policy when the MPC thread delivers one. Control thread only.
+   */
+  struct AcceptedPlan {
+    bool valid = false;
+    size_t phase = 0;             // phase the plan was solved for
+    vector_t startState;          // measured 10-dof LIP state it was solved from
+    std::vector<vector_t> inputs;  // robot inputs of knots 0..N-1
+  };
+  AcceptedPlan optiPessiPlan_{};
+  size_t optiPessiMaxPlanShift_ = 1;  // knots a plan may be shifted before restartFromStance() (task.info: optiPessiController)
+
   // Swing/stance references of the four feet, indexed by opti_pessi::Foot. Control thread only.
   std::array<vector3_t, 4> optiPessiLiftoffPositions_{};  // measured feet at the start of the current phase
   std::array<FootReference, 4> optiPessiFootReferences_{};
@@ -208,7 +233,7 @@ class OptiPessiController : public controller_interface::ControllerInterface {
   scalar_t optiPessiStandSettleDuration_ = 0.5;  // hold at comHeight before phase 0 is measured [s]
 
   // Per-phase diagnostics, logged at the end of each phase. Control thread only.
-  scalar_t optiPessiWaitTime_ = 0.0;         // sim seconds the LIP clock was held waiting for this phase's policy
+  scalar_t optiPessiWaitTime_ = 0.0;         // sim seconds of the phase run without its own policy (shifted plan, or none yet)
   size_t optiPessiQpFailuresAtPhaseStart_ = 0;
 
   /** Posture and contact statistics over one phase, accumulated every WBC tick. */

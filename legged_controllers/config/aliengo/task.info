@@ -319,6 +319,13 @@ optiPessiWbc
     rollPitchKd     20
 }
 
+; OptiPessiController: a phase starts at once on the latest accepted plan, shifted by the phases completed since it
+; was solved, until its own policy arrives. Beyond maxPlanShift phases the robot stops and restarts from stance.
+optiPessiController
+{
+    maxPlanShift    1
+}
+
 ; State Estimation
 kalmanFilter
 {

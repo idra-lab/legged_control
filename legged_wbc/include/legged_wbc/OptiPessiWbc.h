@@ -64,6 +64,7 @@ class OptiPessiWbc : public WbcBase {
   scalar_t comKpXY_{}, comKdXY_{}, comKpZ_{}, comKdZ_{};
   scalar_t yawKp_{}, yawKd_{}, rollPitchKp_{}, rollPitchKd_{};
   size_t numQpFailures_ = 0;
+  vector_t lastSolution_;       // last solved x = [qdd, F, tau], returned when a QP fails
   matrix_t centroidalLinearA_;  // linear rows of the last centroidal task, for the residual
   vector3_t centroidalLinearB_ = vector3_t::Zero();
   vector3_t lastCentroidalResidual_ = vector3_t::Zero();

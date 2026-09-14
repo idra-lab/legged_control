@@ -48,13 +48,17 @@ ocs2::ad_vector_t InputBoundsConstraint::constraintFunction(ocs2::ad_scalar_t, c
 
     // Circular friction cones, normal loads split by alpha. Normalized by the squared cone limit so
     // these rows are the same order of magnitude as the box bounds.
+    //
+    // The CoP is z = p0 + alpha (p1 - p0), so foot 0 carries (1 - alpha) m g and foot 1 alpha m g, which is
+    // what OptiPessiController::computeContactForces commands. This deliberately deviates from
+    // ocp_quadruped.py:100-101, which bounds foot 0 with alpha m g and so lets the unloaded foot push hardest.
     const Vec2 c(x(RobotX::CX), x(RobotX::CY));
     const Vec2 p0(x(RobotX::P0X), x(RobotX::P0Y));
     const Vec2 p1(x(RobotX::P1X), x(RobotX::P1Y));
     Vec2 f0, f1;
     computeTangentialForces(c, p0, p1, alpha, beta, gamma, Scalar(params_.omega()), Scalar(params_.mass), f0, f1);
-    const Scalar fn0 = alpha * Scalar(params_.frictionCoefficient) * Scalar(params_.mass) * Scalar(params_.gravity);
-    const Scalar fn1 = (Scalar(1) - alpha) * Scalar(params_.frictionCoefficient) * Scalar(params_.mass) * Scalar(params_.gravity);
+    const Scalar fn0 = (Scalar(1) - alpha) * Scalar(params_.frictionCoefficient) * Scalar(params_.mass) * Scalar(params_.gravity);
+    const Scalar fn1 = alpha * Scalar(params_.frictionCoefficient) * Scalar(params_.mass) * Scalar(params_.gravity);
     g(idx++) = Scalar(1) - (f0(0) * f0(0) + f0(1) * f0(1)) / (fn0 * fn0 + Scalar(1e-3));
     g(idx++) = Scalar(1) - (f1(0) * f1(0) + f1(1) * f1(1)) / (fn1 * fn1 + Scalar(1e-3));
   };

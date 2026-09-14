@@ -31,7 +31,7 @@ TEST(PlanHorizonFootholds, EveryPlannedFootholdIsWithinReachOfItsHip) {
   interface.setupOptimalControlProblem(kLibraryFolder, /*recompile=*/false);
   const auto referenceManager = interface.getOptiPessiReferenceManagerPtr();
   OptiPessiMpc mpc(interface.mpcSettings(), interface.ipmSettings(), interface.getOptimalControlProblem(), interface.getInitializer(),
-                   referenceManager);
+                   referenceManager, interface.modelParameters());
   mpc.getSolverPtr()->setReferenceManager(interface.getReferenceManagerPtr());
   const auto& params = interface.modelParameters();
   using vector2_t = Eigen::Matrix<scalar_t, 2, 1>;

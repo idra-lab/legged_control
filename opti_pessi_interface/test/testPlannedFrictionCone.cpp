@@ -30,7 +30,7 @@ TEST(PlannedFrictionCone, CommandedForcesStayInsideTheCone) {
   interface.setupOptimalControlProblem(kLibraryFolder, /*recompile=*/false);
   const auto referenceManager = interface.getOptiPessiReferenceManagerPtr();
   OptiPessiMpc mpc(interface.mpcSettings(), interface.ipmSettings(), interface.getOptimalControlProblem(), interface.getInitializer(),
-                   referenceManager);
+                   referenceManager, interface.modelParameters());
   mpc.getSolverPtr()->setReferenceManager(interface.getReferenceManagerPtr());
   const auto& params = interface.modelParameters();
   const scalar_t weight = params.mass * params.gravity;

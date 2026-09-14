@@ -60,12 +60,21 @@ vector_t OptiPessiWbc::update(const WbcReference& reference, const vector_t& rbd
   qpProblem.setOptions(options);
   int nWsr = 200;
 
-  if (qpProblem.init(H.data(), g.data(), A.data(), nullptr, nullptr, lbA.data(), ubA.data(), nWsr) != qpOASES::SUCCESSFUL_RETURN) {
-    ++numQpFailures_;
-  }
   vector_t qpSol(getNumDecisionVars());
+  const bool solved =
+      qpProblem.init(H.data(), g.data(), A.data(), nullptr, nullptr, lbA.data(), ubA.data(), nWsr) == qpOASES::SUCCESSFUL_RETURN &&
+      qpProblem.getPrimalSolution(qpSol.data()) == qpOASES::SUCCESSFUL_RETURN;
+  if (solved) {
+    lastSolution_ = qpSol;
+  } else {
+    // getPrimalSolution() leaves qpSol untouched when the QP was not solved: hold the last solution instead.
+    ++numQpFailures_;
+    if (lastSolution_.size() != qpSol.size()) {
+      lastSolution_.setZero(qpSol.size());
+    }
+    qpSol = lastSolution_;
+  }
 
-  qpProblem.getPrimalSolution(qpSol.data());
   lastCentroidalResidual_ = centroidalLinearA_ * qpSol - centroidalLinearB_;
   return qpSol;
 }
