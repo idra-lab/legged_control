@@ -64,6 +64,7 @@ add_library(${PROJECT_NAME} SHARED
         src/WbcBase.cpp
         src/HierarchicalWbc.cpp
         src/WeightedWbc.cpp
+        src/OptiPessiWbc.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PUBLIC

@@ -31,8 +31,7 @@
 #include <angles/angles.h>
 #include <legged_estimation/FromTopiceEstimate.h>
 #include <legged_estimation/LinearKalmanFilter.h>
-#include <legged_wbc/HierarchicalWbc.h>
-#include <legged_wbc/WeightedWbc.h>
+#include <legged_wbc/OptiPessiWbc.h>
 #include <pluginlib/class_list_macros.hpp>
 
 #include <opti_pessi_interface/LipKinematics.h>
@@ -121,8 +120,8 @@ controller_interface::CallbackReturn OptiPessiController::on_init() {
   setupStateEstimate(taskFile, verbose);
 
   // Whole body control
-  wbc_ = std::make_shared<WeightedWbc>(leggedInterface_->getPinocchioInterface(), leggedInterface_->getCentroidalModelInfo(),
-                                       *eeKinematicsPtr_);
+  wbc_ = std::make_shared<OptiPessiWbc>(leggedInterface_->getPinocchioInterface(), leggedInterface_->getCentroidalModelInfo(),
+                                        *eeKinematicsPtr_);
   wbc_->loadTasksSetting(taskFile, verbose);
 
   // Safety Checker
@@ -305,6 +304,13 @@ controller_interface::CallbackReturn OptiPessiController::on_activate(const rclc
               "p0=(%.3f, %.3f) p1=(%.3f, %.3f)",
               robotState(0), robotState(1), robotState(2), robotState(3), robotState(4), robotState(5), robotState(6),
               robotState(7), robotState(8), robotState(9));
+  // The WBC stands on the measured feet until the first phase references are computed.
+  for (size_t i = 0; i < optiPessiFootReferences_.size(); ++i) {
+    optiPessiFootReferences_[i].position = optiPessiLiftoffPositions_[i];
+  }
+  holdStance(vector3_t(robotState(opti_pessi::RobotX::CX), robotState(opti_pessi::RobotX::CY),
+                       optiPessiInterface_->modelParameters().comHeight),
+             robotState(opti_pessi::RobotX::TH));
   {
     std::lock_guard<std::mutex> lock(optiPessiPhaseMutex_);
     optiPessiRobotState_ = robotState;
@@ -355,11 +361,30 @@ controller_interface::return_type OptiPessiController::update(const rclcpp::Time
     publishOptiPessiTrajectories();
   }
 
+  advanceOptiPessiPhase(time, period);
+
+  // Whole body control every tick, also while the LIP clock is held.
+  if (!updateWholeBodyControl(period)) {
+    return controller_interface::return_type::ERROR;
+  }
+  return controller_interface::return_type::OK;
+}
+
+void OptiPessiController::advanceOptiPessiPhase(const rclcpp::Time& time, const rclcpp::Duration& period) {
+  // Standing at the goal: holdStance() has set the references once.
+  if (optiPessiGoalReached_) {
+    return;
+  }
+
   // A policy solved for an earlier phase would apply that phase's footholds: hold the LIP clock
-  // until the MPC thread has caught up with the current phase.
+  // until the MPC thread has caught up with the current phase, coasting on the last CoM reference.
   const CommandData& command = optiPessiMrtInterface_->getCommand();
-  if (optiPessiGoalReached_ || command.mpcInitObservation_.mode != optiPessiPhase_) {
-    return controller_interface::return_type::OK;
+  if (command.mpcInitObservation_.mode != optiPessiPhase_) {
+    optiPessiComReference_.position += period.seconds() * optiPessiComReference_.velocity;
+    optiPessiComReference_.acceleration.setZero();
+    optiPessiComReference_.yaw += period.seconds() * optiPessiComReference_.yawRate;
+    optiPessiComReference_.yawAcceleration = 0.0;
+    return;
   }
 
   // Every solve starts at knot 0 (see opti_pessi_interface/definitions.h), so the input at t = 0 is
@@ -377,8 +402,9 @@ controller_interface::return_type OptiPessiController::update(const rclcpp::Time
   optiPessiPhaseElapsed_ += period.seconds();
   updateFootReferences(opti_pessi::extractRobotState(plannedState), appliedInput, opti_pessi::extractRobotState(nextState),
                        opti_pessi::extractRobotInput(nextInput), optiPessiPhaseElapsed_);
+  updateComReference(opti_pessi::extractRobotState(plannedState), appliedInput, optiPessiPhaseElapsed_);
   if (optiPessiPhaseElapsed_ < phaseDuration) {
-    return controller_interface::return_type::OK;
+    return;
   }
 
   // Phase over: measure the robot for the next phase's stance pair and hand it to the MPC thread.
@@ -394,6 +420,7 @@ controller_interface::return_type OptiPessiController::update(const rclcpp::Time
     ++optiPessiPhase_;
   }
   optiPessiPhaseElapsed_ -= phaseDuration;
+  landSwingFeet();
 
   RCLCPP_INFO(this->get_node()->get_logger(), "[OptiPessi] phase %zu: dt=%.3f c=(%.3f, %.3f) theta=%.3f v=(%.3f, %.3f)",
               optiPessiPhase_, phaseDuration, successorState(opti_pessi::RobotX::CX), successorState(opti_pessi::RobotX::CY),
@@ -409,10 +436,44 @@ controller_interface::return_type OptiPessiController::update(const rclcpp::Time
 
   if ((successorState.head(2) - params.goal).norm() < params.goalTolerance) {
     optiPessiGoalReached_ = true;
+    holdStance(optiPessiComReference_.position, optiPessiComReference_.yaw);
     RCLCPP_INFO(this->get_node()->get_logger(), "[OptiPessi] goal reached after %zu phases", optiPessiPhase_);
   }
+}
 
-  return controller_interface::return_type::OK;
+bool OptiPessiController::updateWholeBodyControl(const rclcpp::Duration& period) {
+  // opti_pessi::Foot and contactNames3DoF share the foot order (LF, RF, LH, RH).
+  WbcReference reference;
+  for (size_t i = 0; i < optiPessiFootReferences_.size(); ++i) {
+    const FootReference& foot = optiPessiFootReferences_[i];
+    reference.contact[i] = foot.contact;
+    reference.footPosition[i] = foot.position;
+    reference.footVelocity[i] = foot.velocity;
+    reference.footForce[i] = foot.force;
+  }
+  reference.comPosition = optiPessiComReference_.position;
+  reference.comVelocity = optiPessiComReference_.velocity;
+  reference.comAcceleration = optiPessiComReference_.acceleration;
+  reference.yaw = optiPessiComReference_.yaw;
+  reference.yawRate = optiPessiComReference_.yawRate;
+  reference.yawAcceleration = optiPessiComReference_.yawAcceleration;
+
+  wbcTimer_.startTimer();
+  const vector_t x = wbc_->update(reference, measuredRbdState_);
+  wbcTimer_.endTimer();
+
+  // No centroidal plan to take joint targets from. writeHardwareCommand() uses kp = 0, so only the torque
+  // and the velocity target act: the target is the measured joint velocity advanced by one step of the WBC
+  // joint accelerations. The position target (unused) is the measured one.
+  const auto& info = leggedInterface_->getCentroidalModelInfo();
+  const size_t nq = info.generalizedCoordinatesNum;
+  vector_t desiredInput = vector_t::Zero(info.inputDim);
+  desiredInput.head(3 * info.numThreeDofContacts) = x.segment(nq, 3 * info.numThreeDofContacts);
+  desiredInput.tail(info.actuatedDofNum) =
+      measuredRbdState_.segment(nq + 6, info.actuatedDofNum) + period.seconds() * x.segment(6, info.actuatedDofNum);
+
+  return writeHardwareCommand(hybridJointHandles_, info, *safetyChecker_, currentObservation_, currentObservation_.state, desiredInput, x,
+                              this->get_node()->get_logger(), "[OptiPessi Controller] Safety check failed!");
 }
 
 vector_t OptiPessiController::measureLipState(size_t phase, std::array<vector3_t, 4>& footPositions) const {
@@ -512,6 +573,66 @@ void OptiPessiController::updateFootReferences(const vector_t& robotState, const
     reference.force.setZero();
     reference.touchdownForce = touchdownForces[k];
   }
+}
+
+void OptiPessiController::updateComReference(const vector_t& robotState, const vector_t& robotInput, scalar_t time) {
+  using opti_pessi::RobotU;
+  using opti_pessi::RobotX;
+  using vector2_t = Eigen::Matrix<scalar_t, 2, 1>;
+  const auto& params = optiPessiInterface_->modelParameters();
+  const scalar_t w = params.omega();
+  time = std::max(0.0, std::min(time, robotInput(RobotU::DT)));
+
+  const vector2_t c(robotState(RobotX::CX), robotState(RobotX::CY));
+  const vector2_t dc(robotState(RobotX::DCX), robotState(RobotX::DCY));
+  const vector2_t p0(robotState(RobotX::P0X), robotState(RobotX::P0Y));
+  const vector2_t p1(robotState(RobotX::P1X), robotState(RobotX::P1Y));
+  const scalar_t alpha = robotInput(RobotU::ALPHA);
+  const vector2_t cop = opti_pessi::computeCop(p0, p1, alpha);
+
+  // Closed-form flow of ddc = omega^2 (c - z) with the CoP z held at alpha.
+  const scalar_t ch = std::cosh(w * time);
+  const scalar_t sh = std::sinh(w * time);
+  const vector2_t com = ch * c + (sh / w) * dc + (1.0 - ch) * cop;
+  const vector2_t comVelocity = (w * sh) * (c - cop) + ch * dc;
+  const vector2_t comAcceleration = (w * w) * (com - cop);
+  optiPessiComReference_.position << com, params.comHeight;
+  optiPessiComReference_.velocity << comVelocity, 0.0;
+  optiPessiComReference_.acceleration << comAcceleration, 0.0;
+
+  // Yaw: lipMap applies the phase-start torque of the tangential forces over the whole phase. This is its
+  // continuous form; at phase end it differs from lipMap's forward-Euler yaw by dt^2 tau / (2 I).
+  vector2_t f0, f1;
+  opti_pessi::computeTangentialForces(c, p0, p1, alpha, robotInput(RobotU::BETA), robotInput(RobotU::GAMMA), w, params.mass, f0, f1);
+  const scalar_t yawAcceleration = opti_pessi::yawTorque(c, p0, p1, f0, f1) / params.inertia;
+  optiPessiComReference_.yaw = robotState(RobotX::TH) + time * robotState(RobotX::DTH) + 0.5 * time * time * yawAcceleration;
+  optiPessiComReference_.yawRate = robotState(RobotX::DTH) + time * yawAcceleration;
+  optiPessiComReference_.yawAcceleration = yawAcceleration;
+}
+
+void OptiPessiController::landSwingFeet() {
+  for (FootReference& reference : optiPessiFootReferences_) {
+    if (reference.contact) {
+      reference.force.setZero();
+    } else {
+      reference.contact = true;
+      reference.velocity.setZero();
+      reference.force = reference.touchdownForce;
+    }
+  }
+}
+
+void OptiPessiController::holdStance(const vector3_t& comPosition, scalar_t yaw) {
+  const auto& params = optiPessiInterface_->modelParameters();
+  for (FootReference& reference : optiPessiFootReferences_) {
+    reference.contact = true;
+    reference.velocity.setZero();
+    reference.force << 0.0, 0.0, 0.25 * params.mass * params.gravity;
+    reference.touchdownForce = reference.force;
+  }
+  optiPessiComReference_ = ComReference();
+  optiPessiComReference_.position = comPosition;
+  optiPessiComReference_.yaw = yaw;
 }
 
 void OptiPessiController::publishOptiPessiPlan() {

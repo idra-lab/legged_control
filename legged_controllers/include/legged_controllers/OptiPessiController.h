@@ -22,7 +22,7 @@
 
 #include <legged_estimation/StateEstimateBase.h>
 #include <legged_interface/LeggedInterface.h>
-#include <legged_wbc/WbcBase.h>
+#include <legged_wbc/OptiPessiWbc.h>
 
 #include <opti_pessi_interface/OptiPessiInterface.h>
 #include <opti_pessi_interface/SolverBackend.h>
@@ -93,6 +93,39 @@ class OptiPessiController : public controller_interface::ControllerInterface {
   void updateFootReferences(const vector_t& robotState, const vector_t& robotInput, const vector_t& nextRobotState,
                             const vector_t& nextRobotInput, scalar_t time);
 
+  /**
+   * Runs the LIP clock: evaluates the policy of the current phase into the foot and CoM references, and
+   * at the end of a phase measures the robot for the next one. While the MPC has not solved the current
+   * phase the references coast; once the goal is reached they stand.
+   */
+  void advanceOptiPessiPhase(const rclcpp::Time& time, const rclcpp::Duration& period);
+
+  /**
+   * Fills optiPessiComReference_ at `time` seconds into the current phase: closed-form LIP flow of
+   * robotState with the CoP held at alpha, at height comHeight, and the yaw driven by the torque of the
+   * tangential forces, as in opti_pessi::lipMap.
+   */
+  void updateComReference(const vector_t& robotState, const vector_t& robotInput, scalar_t time);
+
+  /** End of phase: the swing pair lands with its touchdown forces, the old stance pair stays down unloaded. */
+  void landSwingFeet();
+
+  /** Every foot down where its reference is, loaded with m g / 4; the CoM at rest at comPosition, heading yaw. */
+  void holdStance(const vector3_t& comPosition, scalar_t yaw);
+
+  /** Runs OptiPessiWbc on the current references and writes the joint commands. False if the safety check fails. */
+  bool updateWholeBodyControl(const rclcpp::Duration& period);
+
+  /** Reference of the CoM and heading over the current phase, in odom. */
+  struct ComReference {
+    vector3_t position = vector3_t::Zero();
+    vector3_t velocity = vector3_t::Zero();
+    vector3_t acceleration = vector3_t::Zero();
+    scalar_t yaw = 0.0;
+    scalar_t yawRate = 0.0;
+    scalar_t yawAcceleration = 0.0;
+  };
+
   /** Reference of one foot over the current phase, in odom. */
   struct FootReference {
     bool contact = true;
@@ -133,7 +166,7 @@ class OptiPessiController : public controller_interface::ControllerInterface {
   std::shared_ptr<CentroidalModelRbdConversions> rbdConversions_;
 
   // Whole Body Control
-  std::shared_ptr<WbcBase> wbc_;
+  std::shared_ptr<OptiPessiWbc> wbc_;
   std::shared_ptr<SafetyChecker> safetyChecker_;
 
   // Nonlinear MPC
@@ -154,6 +187,7 @@ class OptiPessiController : public controller_interface::ControllerInterface {
   std::array<vector3_t, 4> optiPessiLiftoffPositions_{};  // measured feet at the start of the current phase
   std::array<FootReference, 4> optiPessiFootReferences_{};
   scalar_t optiPessiSwingHeight_ = 0.08;                   // swing apex above liftoff [m]
+  ComReference optiPessiComReference_{};                   // CoM and heading reference of the WBC. Control thread only.
 
   // Visualization
   std::shared_ptr<LeggedRobotVisualizer> robotVisualizer_;

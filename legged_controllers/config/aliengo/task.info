@@ -306,6 +306,19 @@ weight
     contactForce    0.01
 }
 
+; OptiPessiWbc centroidal task (weight: baseAccel above). CoM PD in m/s^2, yaw/roll/pitch PD in rad/s^2. Untuned.
+optiPessiWbc
+{
+    comKpXY         10
+    comKdXY         6
+    comKpZ          100
+    comKdZ          20
+    yawKp           20
+    yawKd           9
+    rollPitchKp     100
+    rollPitchKd     20
+}
+
 ; State Estimation
 kalmanFilter
 {
