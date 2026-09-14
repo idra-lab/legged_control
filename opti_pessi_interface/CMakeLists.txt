@@ -35,6 +35,7 @@ add_library(${PROJECT_NAME} SHARED
   src/constraint/TerminalObstacleConstraint.cpp
   src/constraint/FirstInputConsensusConstraint.cpp
   src/initialization/OptiPessiInitializer.cpp
+  src/OptiPessiMpc.cpp
   src/simulation/ObstaclePlant.cpp
   src/simulation/ClosedLoopSimulation.cpp
   src/simulation/NpyIo.cpp
@@ -121,6 +122,21 @@ if(BUILD_TESTING)
   ament_add_gtest(test_s4_closed_loop test/testS4ClosedLoop.cpp TIMEOUT 600)
   target_link_libraries(test_s4_closed_loop ${PROJECT_NAME})
   target_compile_definitions(test_s4_closed_loop PRIVATE OPTI_PESSI_CONFIG_DIR="${CMAKE_CURRENT_SOURCE_DIR}/config")
+
+  # The controller's MPC path (MPC_BASE::run once per contact phase): footholds must keep their side.
+  ament_add_gtest(test_mpc_phase_warm_start test/testMpcPhaseWarmStart.cpp TIMEOUT 600)
+  target_link_libraries(test_mpc_phase_warm_start ${PROJECT_NAME})
+  target_compile_definitions(test_mpc_phase_warm_start PRIVATE OPTI_PESSI_CONFIG_DIR="${CMAKE_CURRENT_SOURCE_DIR}/config")
+
+  # Planned forces, with the normal loads the CoP implies, must respect the OCP friction cone.
+  ament_add_gtest(test_planned_friction_cone test/testPlannedFrictionCone.cpp TIMEOUT 600)
+  target_link_libraries(test_planned_friction_cone ${PROJECT_NAME})
+  target_compile_definitions(test_planned_friction_cone PRIVATE OPTI_PESSI_CONFIG_DIR="${CMAKE_CURRENT_SOURCE_DIR}/config")
+
+  # Every foothold of the planned horizon must be within reach of its hip.
+  ament_add_gtest(test_plan_horizon_footholds test/testPlanHorizonFootholds.cpp TIMEOUT 600)
+  target_link_libraries(test_plan_horizon_footholds ${PROJECT_NAME})
+  target_compile_definitions(test_plan_horizon_footholds PRIVATE OPTI_PESSI_CONFIG_DIR="${CMAKE_CURRENT_SOURCE_DIR}/config")
 endif()
 
 ament_export_include_directories(include)

@@ -45,6 +45,14 @@ class OptiPessiWbc : public WbcBase {
 
   void loadTasksSetting(const std::string& taskFile, bool verbose) override;
 
+  /** Number of QPs qpOASES did not solve since construction (diagnostics). */
+  size_t getNumQpFailures() const { return numQpFailures_; }
+
+  /** Linear rows of the centroidal task at the last solution: CoM acceleration the QP achieves minus the requested one [m/s^2]. */
+  const vector3_t& getLastCentroidalResidual() const { return lastCentroidalResidual_; }
+
+  scalar_t getFrictionCoefficient() const { return frictionCoeff_; }
+
  protected:
   Task formulateConstraints();
   Task formulateSwingFootTask(const WbcReference& reference);
@@ -55,6 +63,10 @@ class OptiPessiWbc : public WbcBase {
   scalar_t weightSwingLeg_{}, weightCentroidal_{}, weightContactForce_{};
   scalar_t comKpXY_{}, comKdXY_{}, comKpZ_{}, comKdZ_{};
   scalar_t yawKp_{}, yawKd_{}, rollPitchKp_{}, rollPitchKd_{};
+  size_t numQpFailures_ = 0;
+  matrix_t centroidalLinearA_;  // linear rows of the last centroidal task, for the residual
+  vector3_t centroidalLinearB_ = vector3_t::Zero();
+  vector3_t lastCentroidalResidual_ = vector3_t::Zero();
 };
 
 }  // namespace legged

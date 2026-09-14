@@ -60,10 +60,13 @@ vector_t OptiPessiWbc::update(const WbcReference& reference, const vector_t& rbd
   qpProblem.setOptions(options);
   int nWsr = 200;
 
-  qpProblem.init(H.data(), g.data(), A.data(), nullptr, nullptr, lbA.data(), ubA.data(), nWsr);
+  if (qpProblem.init(H.data(), g.data(), A.data(), nullptr, nullptr, lbA.data(), ubA.data(), nWsr) != qpOASES::SUCCESSFUL_RETURN) {
+    ++numQpFailures_;
+  }
   vector_t qpSol(getNumDecisionVars());
 
   qpProblem.getPrimalSolution(qpSol.data());
+  lastCentroidalResidual_ = centroidalLinearA_ * qpSol - centroidalLinearB_;
   return qpSol;
 }
 
@@ -136,6 +139,9 @@ Task OptiPessiWbc::formulateCentroidalTask(const WbcReference& reference) {
   b(3) = reference.yawAcceleration + yawKp_ * yawError + yawKd_ * (reference.yawRate - vMeasured_(3));
   b(4) = -rollPitchKp_ * qMeasured_(4) - rollPitchKd_ * vMeasured_(4);
   b(5) = -rollPitchKp_ * qMeasured_(5) - rollPitchKd_ * vMeasured_(5);
+
+  centroidalLinearA_ = a.topRows(3);
+  centroidalLinearB_ = b.head<3>();
 
   return {a, b, matrix_t(), vector_t()};
 }

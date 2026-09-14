@@ -8,6 +8,7 @@
 #include <hardware_interface/loaned_state_interface.hpp>
 #include <hardware_interface/loaned_command_interface.hpp>
 #include <hardware_interface/types/hardware_interface_type_values.hpp>
+#include <limits>
 #include <mutex>
 
 #include <rclcpp/rclcpp.hpp>
@@ -116,6 +117,16 @@ class OptiPessiController : public controller_interface::ControllerInterface {
   /** Runs OptiPessiWbc on the current references and writes the joint commands. False if the safety check fails. */
   bool updateWholeBodyControl(const rclcpp::Duration& period);
 
+  /**
+   * Stand-up stage run after activation: all feet down, CoM height ramped from the measured one to comHeight over
+   * optiPessiStandUpDuration_, then optiPessiStandSettleDuration_ of holding. At its end phase 0 is measured and
+   * the MPC starts.
+   */
+  void standUp(const rclcpp::Duration& period);
+
+  /** Whole-body CoM of the measured robot, in odom. */
+  vector3_t measureCenterOfMass() const;
+
   /** Reference of the CoM and heading over the current phase, in odom. */
   struct ComReference {
     vector3_t position = vector3_t::Zero();
@@ -188,6 +199,37 @@ class OptiPessiController : public controller_interface::ControllerInterface {
   std::array<FootReference, 4> optiPessiFootReferences_{};
   scalar_t optiPessiSwingHeight_ = 0.08;                   // swing apex above liftoff [m]
   ComReference optiPessiComReference_{};                   // CoM and heading reference of the WBC. Control thread only.
+
+  // Stand-up stage after activation (see standUp()). Control thread only.
+  bool optiPessiStandingUp_ = false;
+  scalar_t optiPessiStandElapsed_ = 0.0;
+  scalar_t optiPessiStandStartHeight_ = 0.0;     // CoM height measured at activation [m]
+  scalar_t optiPessiStandUpDuration_ = 1.5;      // CoM height ramp [s]
+  scalar_t optiPessiStandSettleDuration_ = 0.5;  // hold at comHeight before phase 0 is measured [s]
+
+  // Per-phase diagnostics, logged at the end of each phase. Control thread only.
+  scalar_t optiPessiWaitTime_ = 0.0;         // sim seconds the LIP clock was held waiting for this phase's policy
+  size_t optiPessiQpFailuresAtPhaseStart_ = 0;
+
+  /** Posture and contact statistics over one phase, accumulated every WBC tick. */
+  struct PhaseDiagnostics {
+    scalar_t pitchMin = std::numeric_limits<scalar_t>::max();
+    scalar_t pitchMax = std::numeric_limits<scalar_t>::lowest();
+    scalar_t rollMin = std::numeric_limits<scalar_t>::max();
+    scalar_t rollMax = std::numeric_limits<scalar_t>::lowest();
+    scalar_t baseHeightMin = std::numeric_limits<scalar_t>::max();
+    feet_array_t<size_t> stanceWithoutContact{};  // ticks the reference stands on a foot the sensors see in the air
+    feet_array_t<size_t> swingWithContact{};      // ticks the reference swings a foot the sensors see on the ground
+    scalar_t centroidalResidualSum = 0.0;         // sum over ticks of |achieved - requested CoM acceleration| in xy
+    size_t numTicks = 0;
+    feet_array_t<size_t> frictionSaturated{};     // ticks a reference stance foot's WBC force sits on the friction pyramid
+    scalar_t durationMin = std::numeric_limits<scalar_t>::max();     // phase duration u(DT) over the policies applied in the phase
+    scalar_t durationMax = std::numeric_limits<scalar_t>::lowest();
+    vector_t firstFootholds;                      // footholds of the first policy applied in the phase
+    scalar_t footholdDrift = 0.0;                 // largest move of any foothold coordinate since then [m]
+    size_t policyUpdates = 0;                     // new MPC policies loaded during the phase
+  };
+  PhaseDiagnostics optiPessiPhaseDiagnostics_{};
 
   // Visualization
   std::shared_ptr<LeggedRobotVisualizer> robotVisualizer_;

@@ -290,7 +290,7 @@ torqueLimitsTask
 
 frictionConeTask
 {
-  frictionCoefficient    0.3
+  frictionCoefficient    0.6   ; Gazebo foot mu1/mu2 (leg.xacro _FOOT). 0.3 saturated the stance feet under Opti-Pessi plans.
 }
 
 swingLegTask

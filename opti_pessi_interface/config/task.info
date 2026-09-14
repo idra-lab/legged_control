@@ -8,7 +8,7 @@ model
   gravity              9.81    ; g [m/s^2]
   mass                 24.24   ; m [kg]
   inertia              1.048   ; I about the vertical axis [kg m^2]
-  frictionCoefficient  0.8     ; mu, rubber on asphalt
+  frictionCoefficient  0.6     ; mu, rubber on asphalt
 }
 
 ; Body-frame hip offsets [m], rows in the order FL, FR, RL, RR.
@@ -44,7 +44,7 @@ limits
   dtCost0         0.25   ; preferred contact-phase duration [s]
   footHipMax      0.1    ; foot-to-hip reachability radius [m]
   dcxMax          1.5    ; body-frame longitudinal speed [m/s]
-  dcyMax          0.45   ; body-frame lateral speed [m/s]
+  dcyMax          0.25   ; body-frame lateral speed [m/s]
   dthetaMax       0.8    ; yaw rate [rad/s]
 }
 
@@ -110,8 +110,8 @@ mpc
   solutionTimeWindow          -1
   coldStart                    false
   debugPrint                   false
-  mpcDesiredFrequency         -1
-  mrtDesiredFrequency         100
+  mpcDesiredFrequency         50
+  mrtDesiredFrequency         500
 }
 
 rollout

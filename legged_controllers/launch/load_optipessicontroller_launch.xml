@@ -5,6 +5,8 @@
   <arg name="rviz"                default="true"  description="Launch RViz2"/>
   <arg name="description_name"    default="legged_robot_description"/>
   <arg name="multiplot"           default="false"/>
+  <!-- Opti-Pessi costs/constraints are CppAD libraries with task.info values compiled in: regenerate after editing it -->
+  <arg name="recompile"           default="false" description="Regenerate the Opti-Pessi CppAD libraries from opti_pessi_interface/config/task.info"/>
 
   <arg name="joy_dev" default="/dev/input/js0"/>
   <arg name="teleop_config" default="$(find-pkg-share legged_controllers)/config/joy.yaml"/>
@@ -34,6 +36,7 @@
     <param name="optipessiFile" value="$(var optipessiFile)"/>
     <param name="scenarioFile" value="$(var scenarioFile)"/>
     <param name="libraryFolder" value="$(var libraryFolder)"/>
+    <param name="recompile" value="$(var recompile)"/>
   </node>
 
   <!-- If not using the joypad, keep using the old keyboard based program to select the gaits -->

@@ -36,6 +36,7 @@
 
 #include <opti_pessi_interface/LipKinematics.h>
 #include <opti_pessi_interface/OptiPessiInterface.h>
+#include <opti_pessi_interface/OptiPessiMpc.h>
 #include <opti_pessi_interface/initialization/OptiPessiInitializer.h>
 
 #include <algorithm>
@@ -298,36 +299,38 @@ controller_interface::CallbackReturn OptiPessiController::on_activate(const rclc
   currentObservation_.input.setZero(leggedInterface_->getCentroidalModelInfo().inputDim);
   currentObservation_.mode = ModeNumber::STANCE;
 
-  // Opti-Pessi LIP loop: every phase starts from the measured robot.
+  // Stand up before walking: the robot usually lies where Gazebo dropped it, with no controller holding it.
+  // The WBC holds all four feet and ramps the CoM height up to comHeight (see standUp()); the MPC starts once
+  // the robot stands, from the LIP state measured then.
   const vector_t robotState = measureLipState(0, optiPessiLiftoffPositions_);
+  const vector3_t com = measureCenterOfMass();
   RCLCPP_INFO(node->get_logger(), "[OptiPessi] measured initial state: c=(%.3f, %.3f) theta=%.3f v=(%.3f, %.3f) dtheta=%.3f "
               "p0=(%.3f, %.3f) p1=(%.3f, %.3f)",
               robotState(0), robotState(1), robotState(2), robotState(3), robotState(4), robotState(5), robotState(6),
               robotState(7), robotState(8), robotState(9));
-  // The WBC stands on the measured feet until the first phase references are computed.
+  // measuredRbdState_ = [yaw, pitch, roll, base position, ...]; feet indexed by opti_pessi::Foot (FL, FR, RL, RR).
+  RCLCPP_INFO(node->get_logger(), "[OptiPessi] measured initial posture: baseZ=%.3f comZ=%.3f pitch=%.3f roll=%.3f "
+              "feetZ=(%.3f, %.3f, %.3f, %.3f)",
+              measuredRbdState_(5), com.z(), measuredRbdState_(1), measuredRbdState_(2), optiPessiLiftoffPositions_[0].z(),
+              optiPessiLiftoffPositions_[1].z(), optiPessiLiftoffPositions_[2].z(), optiPessiLiftoffPositions_[3].z());
+
   for (size_t i = 0; i < optiPessiFootReferences_.size(); ++i) {
     optiPessiFootReferences_[i].position = optiPessiLiftoffPositions_[i];
   }
-  holdStance(vector3_t(robotState(opti_pessi::RobotX::CX), robotState(opti_pessi::RobotX::CY),
-                       optiPessiInterface_->modelParameters().comHeight),
+  holdStance(vector3_t(robotState(opti_pessi::RobotX::CX), robotState(opti_pessi::RobotX::CY), com.z()),
              robotState(opti_pessi::RobotX::TH));
-  {
-    std::lock_guard<std::mutex> lock(optiPessiPhaseMutex_);
-    optiPessiRobotState_ = robotState;
-    optiPessiPhase_ = 0;
-  }
-  optiPessiPhaseElapsed_ = 0.0;
+  optiPessiStandStartHeight_ = com.z();
+  optiPessiStandElapsed_ = 0.0;
+  optiPessiStandingUp_ = true;
   optiPessiGoalReached_ = false;
-
-  RCLCPP_INFO(node->get_logger(), "Waiting for the initial Opti-Pessi policy ...");
-  while (!optiPessiMrtInterface_->initialPolicyReceived() && rclcpp::ok()) {
-    pushOptiPessiObservation();
-    optiPessiMrtInterface_->advanceMpc();
-    rclcpp::Rate(optiPessiInterface_->mpcSettings().mrtDesiredFrequency_).sleep();
-  }
-  RCLCPP_INFO(node->get_logger(), "Initial Opti-Pessi policy has been received.");
-
-  mpcRunning_ = true;
+  optiPessiPhaseDiagnostics_ = PhaseDiagnostics();
+  optiPessiQpFailuresAtPhaseStart_ = wbc_->getNumQpFailures();
+  mpcRunning_ = false;
+  // A policy left from an earlier activation must not count as the first policy of this one.
+  optiPessiMrtInterface_->reset();
+  RCLCPP_INFO(node->get_logger(), "[OptiPessi] standing up: CoM height %.3f -> %.3f in %.1f s, then %.1f s settling",
+              optiPessiStandStartHeight_, optiPessiInterface_->modelParameters().comHeight, optiPessiStandUpDuration_,
+              optiPessiStandSettleDuration_);
 
   return controller_interface::CallbackReturn::SUCCESS;
 }
@@ -357,13 +360,18 @@ controller_interface::return_type OptiPessiController::update(const rclcpp::Time
 
   // Load the latest MPC policy
   if (optiPessiMrtInterface_->updatePolicy()) {
+    ++optiPessiPhaseDiagnostics_.policyUpdates;
     publishOptiPessiPlan();
     publishOptiPessiTrajectories();
   }
 
-  advanceOptiPessiPhase(time, period);
+  if (optiPessiStandingUp_) {
+    standUp(period);
+  } else {
+    advanceOptiPessiPhase(time, period);
+  }
 
-  // Whole body control every tick, also while the LIP clock is held.
+  // Whole body control every tick, also while standing up or while the LIP clock is held.
   if (!updateWholeBodyControl(period)) {
     return controller_interface::return_type::ERROR;
   }
@@ -376,10 +384,17 @@ void OptiPessiController::advanceOptiPessiPhase(const rclcpp::Time& time, const 
     return;
   }
 
+  // No policy for phase 0 yet (the MPC starts when standUp() ends): keep standing.
+  if (!optiPessiMrtInterface_->initialPolicyReceived()) {
+    optiPessiWaitTime_ += period.seconds();
+    return;
+  }
+
   // A policy solved for an earlier phase would apply that phase's footholds: hold the LIP clock
   // until the MPC thread has caught up with the current phase, coasting on the last CoM reference.
   const CommandData& command = optiPessiMrtInterface_->getCommand();
   if (command.mpcInitObservation_.mode != optiPessiPhase_) {
+    optiPessiWaitTime_ += period.seconds();
     optiPessiComReference_.position += period.seconds() * optiPessiComReference_.velocity;
     optiPessiComReference_.acceleration.setZero();
     optiPessiComReference_.yaw += period.seconds() * optiPessiComReference_.yawRate;
@@ -394,6 +409,18 @@ void OptiPessiController::advanceOptiPessiPhase(const rclcpp::Time& time, const 
   optiPessiMrtInterface_->evaluatePolicy(0.0, command.mpcInitObservation_.state, plannedState, plannedInput, plannedMode);
   const vector_t appliedInput = opti_pessi::extractRobotInput(plannedInput);
   const scalar_t phaseDuration = appliedInput(opti_pessi::RobotU::DT);
+
+  // Plan stability over the phase: the MPC keeps re-solving it, and each new policy can move dt and the footholds.
+  {
+    PhaseDiagnostics& diagnostics = optiPessiPhaseDiagnostics_;
+    diagnostics.durationMin = std::min(diagnostics.durationMin, phaseDuration);
+    diagnostics.durationMax = std::max(diagnostics.durationMax, phaseDuration);
+    const vector_t footholds = appliedInput.head(4);
+    if (diagnostics.firstFootholds.size() == 0) {
+      diagnostics.firstFootholds = footholds;
+    }
+    diagnostics.footholdDrift = std::max(diagnostics.footholdDrift, (footholds - diagnostics.firstFootholds).cwiseAbs().maxCoeff());
+  }
 
   // Knot 1 is the stance the swing feet land in, so its forces are their touchdown forces.
   vector_t nextState, nextInput;
@@ -413,6 +440,75 @@ void OptiPessiController::advanceOptiPessiPhase(const rclcpp::Time& time, const 
   if (opti_pessi::isInsane(successorState, appliedInput, params)) {
     RCLCPP_WARN(this->get_node()->get_logger(), "[OptiPessi] phase %zu: measured state or applied input outside the LIP bounds",
                 optiPessiPhase_);
+  }
+
+  // Diagnostics of the phase just ended, in sim time: how long the LIP clock waited for its policy, how far the
+  // measured robot ended from the LIP prediction (plan realizable?) and from the WBC references (tracking?), and
+  // how many WBC QPs failed during it.
+  {
+    using opti_pessi::RobotX;
+    const vector_t predicted =
+        opti_pessi::lipMapScalar(opti_pessi::extractRobotState(plannedState), appliedInput, params.omega(), params.mass, params.inertia);
+    const vector_t lipError = predicted - successorState;
+    const size_t qpFailures = wbc_->getNumQpFailures();
+    RCLCPP_INFO(this->get_node()->get_logger(),
+                "[OptiPessi] phase %zu diag: t=%.3f wait=%.3f solve=%.1fms | LIP-measured c=(%.3f, %.3f) dc=(%.3f, %.3f) th=%.3f dth=%.3f "
+                "p0=(%.3f, %.3f) p1=(%.3f, %.3f) | ref-measured com=(%.3f, %.3f) yaw=%.3f yawRate=%.3f | measured |dc|=%.3f dth=%.3f | "
+                "WBC QP failures=%zu",
+                optiPessiPhase_, time.seconds(), optiPessiWaitTime_, optiPessiMpcTimer_.getLastIntervalInMilliseconds(), lipError(RobotX::CX),
+                lipError(RobotX::CY), lipError(RobotX::DCX), lipError(RobotX::DCY), lipError(RobotX::TH), lipError(RobotX::DTH),
+                lipError(RobotX::P0X), lipError(RobotX::P0Y), lipError(RobotX::P1X), lipError(RobotX::P1Y),
+                optiPessiComReference_.position.x() - successorState(RobotX::CX),
+                optiPessiComReference_.position.y() - successorState(RobotX::CY), optiPessiComReference_.yaw - successorState(RobotX::TH),
+                optiPessiComReference_.yawRate - successorState(RobotX::DTH), successorState.segment(RobotX::DCX, 2).norm(),
+                successorState(RobotX::DTH), qpFailures - optiPessiQpFailuresAtPhaseStart_);
+    optiPessiQpFailuresAtPhaseStart_ = qpFailures;
+    optiPessiWaitTime_ = 0.0;
+
+    // Foot order of the contact counters: LF, RF, LH, RH (contact_flag_t).
+    const PhaseDiagnostics& d = optiPessiPhaseDiagnostics_;
+    RCLCPP_INFO(this->get_node()->get_logger(),
+                "[OptiPessi] phase %zu posture: pitch=[%.3f, %.3f] (negative = nose up) roll=[%.3f, %.3f] baseZ min=%.3f | ticks "
+                "stance-without-contact LF/RF/LH/RH=%zu/%zu/%zu/%zu, swing-with-contact=%zu/%zu/%zu/%zu",
+                optiPessiPhase_, d.pitchMin, d.pitchMax, d.rollMin, d.rollMax, d.baseHeightMin, d.stanceWithoutContact[0],
+                d.stanceWithoutContact[1], d.stanceWithoutContact[2], d.stanceWithoutContact[3], d.swingWithContact[0],
+                d.swingWithContact[1], d.swingWithContact[2], d.swingWithContact[3]);
+    RCLCPP_INFO(this->get_node()->get_logger(),
+                "[OptiPessi] phase %zu wbc: mean |achieved - requested CoM acceleration| xy=%.3f m/s^2 | ticks at friction pyramid "
+                "(mu=%.2f) LF/RF/LH/RH=%zu/%zu/%zu/%zu of %zu",
+                optiPessiPhase_, d.numTicks > 0 ? d.centroidalResidualSum / static_cast<scalar_t>(d.numTicks) : 0.0,
+                wbc_->getFrictionCoefficient(), d.frictionSaturated[0], d.frictionSaturated[1], d.frictionSaturated[2],
+                d.frictionSaturated[3], d.numTicks);
+    {
+      // The swing pair of the phase just ended, at the moment it becomes the stance pair: height above its touchdown
+      // reference and what the contact sensors say, plus how much the plan moved during the swing.
+      const char* const kFootNames[] = {"LF", "RF", "LH", "RH"};
+      const contact_flag_t sensorFlags = modeNumber2StanceLeg(currentObservation_.mode);  // handle order LF, LH, RF, RH
+      const contact_flag_t measuredContacts{sensorFlags[0], sensorFlags[2], sensorFlags[1], sensorFlags[3]};
+      const auto swing = opti_pessi::gaitPair(static_cast<int>(optiPessiPhase_) + 1);
+      const auto s0 = static_cast<size_t>(swing[0]);
+      const auto s1 = static_cast<size_t>(swing[1]);
+      RCLCPP_INFO(this->get_node()->get_logger(),
+                  "[OptiPessi] phase %zu touchdown: %s height=%.3f contact=%d, %s height=%.3f contact=%d | dt seen=[%.3f, %.3f] "
+                  "foothold drift=%.3f policy updates=%zu",
+                  optiPessiPhase_, kFootNames[s0], optiPessiLiftoffPositions_[s0].z() - optiPessiFootReferences_[s0].position.z(),
+                  measuredContacts[s0] ? 1 : 0, kFootNames[s1],
+                  optiPessiLiftoffPositions_[s1].z() - optiPessiFootReferences_[s1].position.z(), measuredContacts[s1] ? 1 : 0,
+                  d.durationMin, d.durationMax, d.footholdDrift, d.policyUpdates);
+    }
+    optiPessiPhaseDiagnostics_ = PhaseDiagnostics();
+
+    // Plan quality: the applied knot as the OCP bounds it (StageInequalityConstraint rows on x_1), and the latest
+    // MPC solve. A predicted successor beyond the limits means the applied policy was not a feasible plan.
+    using vector2_t = Eigen::Matrix<scalar_t, 2, 1>;
+    const vector2_t dcBody = opti_pessi::applyR01(predicted(RobotX::TH), vector2_t(predicted(RobotX::DCX), predicted(RobotX::DCY)));
+    const auto solve = std::static_pointer_cast<opti_pessi::OptiPessiMpc>(optiPessiMpc_)->getLastSolveStatistics();
+    RCLCPP_INFO(this->get_node()->get_logger(),
+                "[OptiPessi] phase %zu plan: predicted dcBody=(%.3f, %.3f) dth=%.3f (limits %.2f, %.2f, %.2f) | latest solve: "
+                "gaitOffset=%d warmStart=%s iterations=%zu cost=%.3e dynamicsSSE=%.3e inequalitySSE=%.3e",
+                optiPessiPhase_, dcBody(0), dcBody(1), predicted(RobotX::DTH), params.dcxMax, params.dcyMax, params.dthetaMax,
+                solve.gaitOffset, solve.warmStart, solve.numIterations, solve.performance.cost, solve.performance.dynamicsViolationSSE,
+                solve.performance.inequalityConstraintsSSE);
   }
   {
     std::lock_guard<std::mutex> lock(optiPessiPhaseMutex_);
@@ -461,6 +557,38 @@ bool OptiPessiController::updateWholeBodyControl(const rclcpp::Duration& period)
   wbcTimer_.startTimer();
   const vector_t x = wbc_->update(reference, measuredRbdState_);
   wbcTimer_.endTimer();
+
+  // Posture and contact statistics of the current phase, logged at its end by advanceOptiPessiPhase().
+  // measuredRbdState_ = [yaw, pitch, roll, base position, ...]; the contact flags are the estimator's (sensors).
+  PhaseDiagnostics& diagnostics = optiPessiPhaseDiagnostics_;
+  diagnostics.pitchMin = std::min(diagnostics.pitchMin, measuredRbdState_(1));
+  diagnostics.pitchMax = std::max(diagnostics.pitchMax, measuredRbdState_(1));
+  diagnostics.rollMin = std::min(diagnostics.rollMin, measuredRbdState_(2));
+  diagnostics.rollMax = std::max(diagnostics.rollMax, measuredRbdState_(2));
+  diagnostics.baseHeightMin = std::min(diagnostics.baseHeightMin, measuredRbdState_(5));
+  diagnostics.centroidalResidualSum += wbc_->getLastCentroidalResidual().head<2>().norm();
+  ++diagnostics.numTicks;
+  {
+    // x = [qdd, F, tau]: a stance foot is saturated when either tangential component reaches the pyramid edge.
+    const size_t forceOffset = leggedInterface_->getCentroidalModelInfo().generalizedCoordinatesNum;
+    const scalar_t mu = wbc_->getFrictionCoefficient();
+    for (size_t i = 0; i < reference.contact.size(); ++i) {
+      const vector3_t force = x.segment<3>(forceOffset + 3 * i);
+      if (reference.contact[i] && std::max(std::abs(force.x()), std::abs(force.y())) >= 0.95 * mu * force.z()) {
+        ++diagnostics.frictionSaturated[i];
+      }
+    }
+  }
+  // The estimator's flags follow the hardware handle order (LF, LH, RF, RH), not contact_flag_t (LF, RF, LH, RH).
+  const contact_flag_t sensorFlags = modeNumber2StanceLeg(currentObservation_.mode);
+  const contact_flag_t measuredContacts{sensorFlags[0], sensorFlags[2], sensorFlags[1], sensorFlags[3]};
+  for (size_t i = 0; i < measuredContacts.size(); ++i) {
+    if (reference.contact[i] && !measuredContacts[i]) {
+      ++diagnostics.stanceWithoutContact[i];
+    } else if (!reference.contact[i] && measuredContacts[i]) {
+      ++diagnostics.swingWithContact[i];
+    }
+  }
 
   // No centroidal plan to take joint targets from. writeHardwareCommand() uses kp = 0, so only the torque
   // and the velocity target act: the target is the measured joint velocity advanced by one step of the WBC
@@ -608,6 +736,65 @@ void OptiPessiController::updateComReference(const vector_t& robotState, const v
   optiPessiComReference_.yaw = robotState(RobotX::TH) + time * robotState(RobotX::DTH) + 0.5 * time * time * yawAcceleration;
   optiPessiComReference_.yawRate = robotState(RobotX::DTH) + time * yawAcceleration;
   optiPessiComReference_.yawAcceleration = yawAcceleration;
+}
+
+void OptiPessiController::standUp(const rclcpp::Duration& period) {
+  using opti_pessi::RobotX;
+  const auto& params = optiPessiInterface_->modelParameters();
+  optiPessiStandElapsed_ += period.seconds();
+
+  // CoM height: cubic from the height measured at activation to comHeight, zero velocity at both ends.
+  const scalar_t duration = optiPessiStandUpDuration_;
+  const scalar_t s = std::min(optiPessiStandElapsed_ / duration, 1.0);
+  const scalar_t rise = params.comHeight - optiPessiStandStartHeight_;
+  optiPessiComReference_.position.z() = optiPessiStandStartHeight_ + (3.0 - 2.0 * s) * s * s * rise;
+  optiPessiComReference_.velocity.z() = s < 1.0 ? 6.0 * s * (1.0 - s) * rise / duration : 0.0;
+  optiPessiComReference_.acceleration.z() = s < 1.0 ? (6.0 - 12.0 * s) * rise / (duration * duration) : 0.0;
+  if (optiPessiStandElapsed_ < optiPessiStandUpDuration_ + optiPessiStandSettleDuration_) {
+    return;
+  }
+
+  // Standing: phase 0 starts from the robot measured now, and the MPC thread starts solving it.
+  const vector_t robotState = measureLipState(0, optiPessiLiftoffPositions_);
+  for (size_t i = 0; i < optiPessiFootReferences_.size(); ++i) {
+    optiPessiFootReferences_[i].position = optiPessiLiftoffPositions_[i];
+  }
+  holdStance(vector3_t(robotState(RobotX::CX), robotState(RobotX::CY), params.comHeight), robotState(RobotX::TH));
+  {
+    std::lock_guard<std::mutex> lock(optiPessiPhaseMutex_);
+    optiPessiRobotState_ = robotState;
+    optiPessiPhase_ = 0;
+  }
+  optiPessiPhaseElapsed_ = 0.0;
+
+  const PhaseDiagnostics& d = optiPessiPhaseDiagnostics_;
+  const size_t qpFailures = wbc_->getNumQpFailures();
+  RCLCPP_INFO(this->get_node()->get_logger(),
+              "[OptiPessi] stood up: comZ=%.3f (reference %.3f) pitch=[%.3f, %.3f] roll=[%.3f, %.3f] WBC QP failures=%zu | phase 0 "
+              "starts from c=(%.3f, %.3f) theta=%.3f v=(%.3f, %.3f) dtheta=%.3f",
+              measureCenterOfMass().z(), params.comHeight, d.pitchMin, d.pitchMax, d.rollMin, d.rollMax,
+              qpFailures - optiPessiQpFailuresAtPhaseStart_, robotState(RobotX::CX), robotState(RobotX::CY), robotState(RobotX::TH),
+              robotState(RobotX::DCX), robotState(RobotX::DCY), robotState(RobotX::DTH));
+  optiPessiPhaseDiagnostics_ = PhaseDiagnostics();
+  optiPessiQpFailuresAtPhaseStart_ = qpFailures;
+  optiPessiWaitTime_ = 0.0;
+
+  optiPessiStandingUp_ = false;
+  mpcRunning_ = true;
+}
+
+vector3_t OptiPessiController::measureCenterOfMass() const {
+  const auto& info = leggedInterface_->getCentroidalModelInfo();
+  const vector_t& rbd = measuredRbdState_;  // [zyx, basePos, q, ...]
+
+  // Kinematics on a copy, so the shared model data is never written here.
+  PinocchioInterface pinocchioInterface = leggedInterface_->getPinocchioInterface();
+  vector_t qPino = vector_t::Zero(info.generalizedCoordinatesNum);
+  qPino.head<3>() = rbd.segment<3>(3);
+  qPino.segment<3>(3) = rbd.head<3>();
+  qPino.tail(info.actuatedDofNum) = rbd.segment(6, info.actuatedDofNum);
+  const vector3_t com = pinocchio::centerOfMass(pinocchioInterface.getModel(), pinocchioInterface.getData(), qPino);
+  return com;
 }
 
 void OptiPessiController::landSwingFeet() {
@@ -898,8 +1085,11 @@ void OptiPessiController::setupLeggedInterface(const std::string& taskFile, cons
 }
 
 void OptiPessiController::setupOptiPessiMpc() {
-  optiPessiMpc_ = std::make_shared<IpmMpc>(optiPessiInterface_->mpcSettings(), optiPessiInterface_->ipmSettings(),
-                                          optiPessiInterface_->getOptimalControlProblem(), optiPessiInterface_->getInitializer());
+  // Not IpmMpc: a new contact phase must warm-start from the previous plan shifted one knot, see OptiPessiMpc.h.
+  optiPessiMpc_ = std::make_shared<opti_pessi::OptiPessiMpc>(optiPessiInterface_->mpcSettings(), optiPessiInterface_->ipmSettings(),
+                                                             optiPessiInterface_->getOptimalControlProblem(),
+                                                             optiPessiInterface_->getInitializer(),
+                                                             optiPessiInterface_->getOptiPessiReferenceManagerPtr());
 
   const std::string robotName = "opti_pessi_robot";
 
