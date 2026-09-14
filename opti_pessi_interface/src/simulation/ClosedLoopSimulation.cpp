@@ -18,66 +18,7 @@ vector_t worldHip(const vector_t& robotState, const vector_t& hipBody) {
   return robotState.head(2) + applyR(robotState(RobotX::TH), hipBody);
 }
 
-/**
- * Emergency step used when the solver produces nothing usable: a capture-point (deadbeat) stop.
- *
- * The LIP's divergent mode is the DCM xi = c + dc/omega, which evolves as
- * xi_{i+1} = e^{omega*dt} (xi_i - z) + z. Placing the CoP z at the DCM therefore leaves the DCM
- * stationary instead of letting it grow by cosh(omega*dt) ~ 3 per phase. The previous heuristic
- * (z = c - 0.25*dc) is not stabilizing, and open-loop divergence turned a single failed solve into
- * a run-ending blow-up within four steps.
- *
- * The CoP is clamped to the current support segment (all that alpha can express), and the next
- * footholds are placed under the DCM so the following support polygon can actually contain it.
- *
- * NOTE the limit of this: the clamp is not cosmetic. Once the capture point leaves the support
- * segment the CoP cannot reach it and the step is no longer deadbeat -- it only slows the growth
- * (1.70x per phase measured, against 2.76x open loop). This routine cannot rescue an already-fast
- * state, and calling it repeatedly is divergence with extra steps; kDivergedSpeed is what stops it.
- */
-vector_t fallbackInput(const OptiPessiModelParameters& params, const vector_t& robotState, int step) {
-  vector_t u = vector_t::Zero(RobotU::DIM);
-  const auto next = gaitPair(step + 1);
-  const vector_t c = robotState.head(2);
-  const vector_t dc = robotState.segment(RobotX::DCX, 2);
-  const scalar_t theta = robotState(RobotX::TH);
-  const scalar_t w = params.omega();
-
-  // Divergent component of the LIP state.
-  const vector_t dcm = c + dc / w;
-
-  // Step under the capture point so the next stance can arrest the motion.
-  u.segment(RobotU::P0X, 2) = dcm + applyR(theta, hipOf(params, next[0]));
-  u.segment(RobotU::P1X, 2) = dcm + applyR(theta, hipOf(params, next[1]));
-
-  // Put this phase's CoP as close to the capture point as the current support segment allows.
-  const vector_t p0 = robotState.segment(RobotX::P0X, 2);
-  const vector_t p1 = robotState.segment(RobotX::P1X, 2);
-  const vector_t d = p1 - p0;
-  const scalar_t denominator = d.dot(d);
-  scalar_t alpha = 0.5;
-  if (denominator > 1e-9) {
-    alpha = (dcm - p0).dot(d) / denominator;
-  }
-  u(RobotU::ALPHA) = std::min(std::max(alpha, params.alphaReduction), scalar_t(1) - params.alphaReduction);
-  u(RobotU::DT) = params.dtMin;  // shortest phase: re-plan as soon as possible
-  u(RobotU::BETA) = 0.5;
-  u(RobotU::GAMMA) = 0.5;
-  return u;
-}
-
-/**
- * Clamps the free scalars of an input to their bounds, leaving the footholds alone. This is the
- * reference's `check_bounds_and_saturate` (mpc_utils.py:15-22): when a solve fails, its first input
- * is usually still informative, so it is saturated and applied rather than discarded.
- */
-vector_t saturateRobotInput(vector_t u, const OptiPessiModelParameters& params) {
-  u(RobotU::ALPHA) = std::min(std::max(u(RobotU::ALPHA), params.alphaReduction), scalar_t(1) - params.alphaReduction);
-  u(RobotU::BETA) = std::min(std::max(u(RobotU::BETA), scalar_t(0)), scalar_t(1));
-  u(RobotU::GAMMA) = std::min(std::max(u(RobotU::GAMMA), scalar_t(0)), scalar_t(1));
-  u(RobotU::DT) = std::min(std::max(u(RobotU::DT), params.dtMin), params.dtMax);
-  return u;
-}
+// fallbackInput() (the capture-point stop) and saturateRobotInput() live in OptiPessiInterface: OptiPessiController uses them too.
 
 /**
  * Speed past which the capture-point fallback has provably lost authority, so the run is over.

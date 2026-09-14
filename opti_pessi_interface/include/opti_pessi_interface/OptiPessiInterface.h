@@ -20,6 +20,7 @@
 
 namespace ocs2 {
 class IpmMpc;
+class IpmSolver;
 }  // namespace ocs2
 
 namespace opti_pessi {
@@ -48,6 +49,28 @@ bool isInsane(const vector_t& robotState, const vector_t& robotInput, const Opti
  */
 SolveOutcome evaluateSolve(const ocs2::PrimalSolution& solution, const ocs2::OptimalControlProblem& problem,
                            const OptiPessiModelParameters& params, const vector_t& robotState);
+
+/**
+ * One control step's solve with the closed loop's recovery attempts, on any IpmSolver bound to `referenceManager`: the
+ * nominal problem (warm-started from `warmStart`, or cold), a cold retry, and the keep-out continuation over pessiScale.
+ * Leaves the reference manager at the nominal keep-out. `problem` only evaluates the solutions (see evaluateSolve()).
+ *
+ * @param [in] robotState: measured 10-dof robot state (NOT the augmented state).
+ * @param [in] realTimeIteration: skip the cold retry and the continuation (one solve per step).
+ * @param [out] acceptedScale: keep-out scale of the returned outcome (1.0 unless a relaxed solve won).
+ */
+SolveOutcome solveWithRetries(ocs2::IpmSolver& solver, const ocs2::OptimalControlProblem& problem, const OptiPessiModelParameters& params,
+                              OptiPessiReferenceManager& referenceManager, const vector_t& robotState,
+                              const ocs2::PrimalSolution* warmStart, bool realTimeIteration, bool verbose, scalar_t& acceptedScale);
+
+/** Clamps alpha, beta, gamma and dt of a robot input to their bounds, leaving the footholds alone. */
+vector_t saturateRobotInput(vector_t u, const OptiPessiModelParameters& params);
+
+/**
+ * Capture-point stop for contact phase `phase` from `robotState`: the next footholds under the DCM c + dc/omega, this
+ * phase's CoP as close to it as the support segment allows, shortest phase. Slows a moderate speed, cannot rescue a fast one.
+ */
+vector_t fallbackInput(const OptiPessiModelParameters& params, const vector_t& robotState, int phase);
 
 /**
  * Assembles the Optimistic-Pessimistic optimal control problem for OCS2, following the structure

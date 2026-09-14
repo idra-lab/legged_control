@@ -26,6 +26,7 @@
 #include <legged_wbc/OptiPessiWbc.h>
 
 #include <opti_pessi_interface/OptiPessiInterface.h>
+#include <opti_pessi_interface/OptiPessiMpc.h>
 #include <opti_pessi_interface/SolverBackend.h>
 
 // HybridJointHandle, ImuSensorHandle and ContactSensorHandle are reused from here: redefining them
@@ -115,13 +116,14 @@ class OptiPessiController : public controller_interface::ControllerInterface {
   void holdStance(const vector3_t& comPosition, scalar_t yaw);
 
   /**
-   * Copies the policy just loaded by updatePolicy() into optiPessiPlan_ if it is newer than the stored plan: solved
-   * for the current phase from the state it started from, or for a later earlier phase than the stored one.
+   * Copies a plan just published by OptiPessiMpc into optiPessiPlan_ if it belongs to this walk and is newer than the
+   * stored one: solved for the current phase from the state it started from (a saturated plan does not replace an
+   * accepted one of the same phase), or for a later earlier phase than the stored one.
    */
-  void storeAcceptedPlan();
+  void storeAcceptedPlan(const opti_pessi::OptiPessiMpc::Plan& plan);
 
   /**
-   * No accepted plan covers the current phase: stops the MPC, lowers the swinging feet where they are, holds the CoM
+   * No usable plan and the robot nearly at rest: stops the MPC, lowers the swinging feet where they are, holds the CoM
    * at comHeight above the measured one and hands over to standUp()'s settling stage, which restarts from phase 0.
    */
   void restartFromStance();
@@ -207,17 +209,23 @@ class OptiPessiController : public controller_interface::ControllerInterface {
   bool optiPessiGoalReached_ = false;
 
   /**
-   * Latest accepted Opti-Pessi plan, in robot coordinates. A phase starts on it at once, shifted by the phases
-   * completed since it was solved, and switches to its own policy when the MPC thread delivers one. Control thread only.
+   * Latest Opti-Pessi plan, in robot coordinates. A phase starts on it at once -- shifted by the phases completed since
+   * it was solved if its horizon is trustworthy, otherwise as a capture-point stop -- and switches to its own plan when
+   * the MPC thread delivers one. Control thread only.
    */
   struct AcceptedPlan {
     bool valid = false;
-    size_t phase = 0;             // phase the plan was solved for
-    vector_t startState;          // measured 10-dof LIP state it was solved from
+    size_t phase = 0;              // phase the plan was solved for
+    vector_t startState;           // measured 10-dof LIP state it was solved from
     std::vector<vector_t> inputs;  // robot inputs of knots 0..N-1
+    bool trustworthy = false;      // later knots may be applied shifted
+    std::string source;            // OptiPessiMpc::Plan::source
   };
   AcceptedPlan optiPessiPlan_{};
-  size_t optiPessiMaxPlanShift_ = 1;  // knots a plan may be shifted before restartFromStance() (task.info: optiPessiController)
+  size_t optiPessiPlanSequence_ = 0;     // OptiPessiMpc::Plan::sequence of the last plan looked at
+  // task.info: optiPessiController
+  size_t optiPessiMaxPlanShift_ = 1;     // knots a trustworthy plan may be shifted before the capture-point stop takes over
+  scalar_t optiPessiRestartSpeed_ = 0.1;  // CoM speed below which a phase without a usable plan restarts from stance [m/s]
 
   // Swing/stance references of the four feet, indexed by opti_pessi::Foot. Control thread only.
   std::array<vector3_t, 4> optiPessiLiftoffPositions_{};  // measured feet at the start of the current phase
@@ -252,6 +260,7 @@ class OptiPessiController : public controller_interface::ControllerInterface {
     scalar_t durationMax = std::numeric_limits<scalar_t>::lowest();
     vector_t firstFootholds;                      // footholds of the first policy applied in the phase
     scalar_t footholdDrift = 0.0;                 // largest move of any foothold coordinate since then [m]
+    bool fallback = false;                        // a capture-point stop ran in the phase
     size_t policyUpdates = 0;                     // new MPC policies loaded during the phase
   };
   PhaseDiagnostics optiPessiPhaseDiagnostics_{};

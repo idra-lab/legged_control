@@ -112,6 +112,7 @@ controller_interface::CallbackReturn OptiPessiController::on_init() {
     boost::property_tree::ptree pt;
     boost::property_tree::read_info(taskFile, pt);
     loadData::loadPtreeValue(pt, optiPessiMaxPlanShift_, "optiPessiController.maxPlanShift", verbose);
+    loadData::loadPtreeValue(pt, optiPessiRestartSpeed_, "optiPessiController.restartSpeed", verbose);
   }
   // setupLeggedMpc();
   setupOptiPessiMpc();
@@ -371,9 +372,15 @@ controller_interface::return_type OptiPessiController::update(const rclcpp::Time
   selfCollisionVisualization_->update(currentObservation_);
 
   // Load the latest MPC policy
-  if (optiPessiMrtInterface_->updatePolicy()) {
+  // Plans come from the MPC itself (see OptiPessiMpc): the MRT policy is the solver's last iterate, for drawing only.
+  const auto& optiPessiMpc = static_cast<const opti_pessi::OptiPessiMpc&>(*optiPessiMpc_);
+  if (optiPessiMpc.getPlanSequence() != optiPessiPlanSequence_) {
+    const opti_pessi::OptiPessiMpc::Plan plan = optiPessiMpc.getLatestPlan();
+    optiPessiPlanSequence_ = plan.sequence;
     ++optiPessiPhaseDiagnostics_.policyUpdates;
-    storeAcceptedPlan();
+    storeAcceptedPlan(plan);
+  }
+  if (optiPessiMrtInterface_->updatePolicy()) {
     publishOptiPessiPlan();
     publishOptiPessiTrajectories();
   }
@@ -397,28 +404,44 @@ void OptiPessiController::advanceOptiPessiPhase(const rclcpp::Time& time, const 
     return;
   }
 
-  // No accepted plan yet (the MPC starts when standUp() ends): keep standing.
+  // No plan yet (the MPC starts when standUp() ends, and restartFromStance() clears the plan): keep standing.
   if (!optiPessiPlan_.valid || optiPessiPlan_.phase > optiPessiPhase_) {
     optiPessiWaitTime_ += period.seconds();
     return;
   }
 
   // Every solve starts at knot 0 (see opti_pessi_interface/definitions.h). Until the MPC thread delivers this phase's
-  // own policy, the latest accepted plan runs shifted by the phases completed since it was solved, from the state
-  // measured at the start of this phase: the LIP clock never waits for a solve. The input lasts u(DT) seconds.
+  // own plan, the latest plan runs shifted by the phases completed since it was solved, from the state measured at the
+  // start of this phase -- if its horizon is trustworthy; otherwise the phase is a capture-point stop, as in
+  // ClosedLoopSimulation. The LIP clock never waits for a solve. The input lasts u(DT) seconds.
+  const auto& params = optiPessiInterface_->modelParameters();
   const size_t offset = optiPessiPhase_ - optiPessiPlan_.phase;
-  if (offset > optiPessiMaxPlanShift_ || offset >= optiPessiPlan_.inputs.size()) {
-    RCLCPP_WARN(this->get_node()->get_logger(),
-                "[OptiPessi] phase %zu: latest accepted plan is from phase %zu (max shift %zu), stopping to restart from stance",
-                optiPessiPhase_, optiPessiPlan_.phase, optiPessiMaxPlanShift_);
-    restartFromStance();
-    return;
+  const bool planCoversPhase =
+      offset == 0 || (optiPessiPlan_.trustworthy && offset <= optiPessiMaxPlanShift_ && offset < optiPessiPlan_.inputs.size());
+  const vector_t robotState = offset == 0 ? optiPessiPlan_.startState : optiPessiRobotState_;
+  vector_t appliedInput;
+  if (planCoversPhase) {
+    appliedInput = optiPessiPlan_.inputs[offset];
+  } else {
+    const scalar_t speed = robotState.segment(opti_pessi::RobotX::DCX, 2).norm();
+    if (speed < optiPessiRestartSpeed_) {
+      RCLCPP_WARN(this->get_node()->get_logger(),
+                  "[OptiPessi] phase %zu: no usable plan since phase %zu and |dc|=%.3f < %.2f m/s, restarting from stance", optiPessiPhase_,
+                  optiPessiPlan_.phase, speed, optiPessiRestartSpeed_);
+      restartFromStance();
+      return;
+    }
+    appliedInput = opti_pessi::fallbackInput(params, robotState, static_cast<int>(optiPessiPhase_));
+    if (!optiPessiPhaseDiagnostics_.fallback) {
+      optiPessiPhaseDiagnostics_.fallback = true;
+      RCLCPP_WARN(this->get_node()->get_logger(),
+                  "[OptiPessi] phase %zu: no usable plan (latest: phase %zu, %s, trustworthy=%d), capture-point stop from |dc|=%.3f m/s",
+                  optiPessiPhase_, optiPessiPlan_.phase, optiPessiPlan_.source.c_str(), optiPessiPlan_.trustworthy ? 1 : 0, speed);
+    }
   }
   if (offset > 0) {
     optiPessiWaitTime_ += period.seconds();
   }
-  const vector_t robotState = offset == 0 ? optiPessiPlan_.startState : optiPessiRobotState_;
-  const vector_t appliedInput = optiPessiPlan_.inputs[offset];
   const scalar_t phaseDuration = appliedInput(opti_pessi::RobotU::DT);
 
   // Plan stability over the phase: the MPC keeps re-solving it, and each new policy can move dt and the footholds.
@@ -434,9 +457,9 @@ void OptiPessiController::advanceOptiPessiPhase(const rclcpp::Time& time, const 
   }
 
   // The next knot is the stance the swing feet land in, so its forces are their touchdown forces.
-  const auto& params = optiPessiInterface_->modelParameters();
   const vector_t nextState = opti_pessi::lipMapScalar(robotState, appliedInput, params.omega(), params.mass, params.inertia);
-  const vector_t& nextInput = optiPessiPlan_.inputs[std::min(offset + 1, optiPessiPlan_.inputs.size() - 1)];
+  const vector_t nextInput = planCoversPhase ? optiPessiPlan_.inputs[std::min(offset + 1, optiPessiPlan_.inputs.size() - 1)]
+                                             : opti_pessi::fallbackInput(params, nextState, static_cast<int>(optiPessiPhase_) + 1);
 
   optiPessiPhaseElapsed_ += period.seconds();
   updateFootReferences(robotState, appliedInput, nextState, nextInput, optiPessiPhaseElapsed_);
@@ -514,11 +537,12 @@ void OptiPessiController::advanceOptiPessiPhase(const rclcpp::Time& time, const 
     const auto solve = std::static_pointer_cast<opti_pessi::OptiPessiMpc>(optiPessiMpc_)->getLastSolveStatistics();
     RCLCPP_INFO(this->get_node()->get_logger(),
                 "[OptiPessi] phase %zu plan: predicted dcBody=(%.3f, %.3f) dth=%.3f (limits %.2f, %.2f, %.2f) | latest solve: "
-                "gaitOffset=%d warmStart=%s iterations=%zu cost=%.3e accepted=%d dynRes=%.3e appliedViol=%.3e horizonViol=%.3e | "
-                "applied plan of phase %zu (shift %zu)",
+                "gaitOffset=%d warmStart=%s iterations=%zu cost=%.3e source=%s pessiScale=%.2f trustworthy=%d dynRes=%.3e "
+                "appliedViol=%.3e horizonViol=%.3e | applied %s of phase %zu (shift %zu, %s)",
                 optiPessiPhase_, dcBody(0), dcBody(1), predicted(RobotX::DTH), params.dcxMax, params.dcyMax, params.dthetaMax,
-                solve.gaitOffset, solve.warmStart, solve.numIterations, solve.performance.cost, solve.accepted ? 1 : 0,
-                solve.dynamicsResidual, solve.appliedViolation, solve.horizonViolation, optiPessiPlan_.phase, offset);
+                solve.gaitOffset, solve.warmStart, solve.numIterations, solve.performance.cost, solve.source, solve.pessiScale,
+                solve.trustworthy ? 1 : 0, solve.dynamicsResidual, solve.appliedViolation, solve.horizonViolation,
+                planCoversPhase ? "plan" : "capture-point stop, latest plan", optiPessiPlan_.phase, offset, optiPessiPlan_.source.c_str());
   }
   {
     std::lock_guard<std::mutex> lock(optiPessiPhaseMutex_);
@@ -800,37 +824,32 @@ void OptiPessiController::standUp(const rclcpp::Duration& period) {
   mpcRunning_ = true;
 }
 
-void OptiPessiController::storeAcceptedPlan() {
+void OptiPessiController::storeAcceptedPlan(const opti_pessi::OptiPessiMpc::Plan& plan) {
   // During the stand-up or a restart the phase is about to be reset: nothing solved now belongs to it.
-  if (optiPessiStandingUp_) {
-    return;
-  }
-  const PrimalSolution& policy = optiPessiMrtInterface_->getPolicy();
-  const SystemObservation& observation = optiPessiMrtInterface_->getCommand().mpcInitObservation_;
-  const size_t phase = observation.mode;
-  const auto numKnots = static_cast<size_t>(optiPessiInterface_->modelParameters().N);
-  if (policy.inputTrajectory_.size() < numKnots) {
+  if (optiPessiStandingUp_ || plan.inputs.empty()) {
     return;
   }
 
-  // Only accepted solves reach the MRT (see OptiPessiMpc::run). One solved for this phase must also start from the
-  // state this phase started from, which rejects a solve that was in flight across a restart. The observation is an
-  // exact copy of that state; the solver's knot 0 is not (the interior point step need not close the x_0 defect).
-  const vector_t startState = opti_pessi::extractRobotState(observation.state);
-  const bool forThisPhase = phase == optiPessiPhase_ && optiPessiRobotState_.size() == startState.size() &&
-                            (startState - optiPessiRobotState_).cwiseAbs().maxCoeff() < 1e-6;
-  const bool newerEarlierPhase = phase < optiPessiPhase_ && (!optiPessiPlan_.valid || phase > optiPessiPlan_.phase);
+  // A plan for this phase must start from the state this phase started from (its start state is an exact copy of the
+  // observation), which rejects a solve that was in flight across a restart.
+  const bool forThisPhase = plan.phase == optiPessiPhase_ && optiPessiRobotState_.size() == plan.startState.size() &&
+                            (plan.startState - optiPessiRobotState_).cwiseAbs().maxCoeff() < 1e-9;
+  const bool newerEarlierPhase = plan.phase < optiPessiPhase_ && (!optiPessiPlan_.valid || plan.phase > optiPessiPlan_.phase);
   if (!forThisPhase && !newerEarlierPhase) {
+    return;
+  }
+  // Re-solves of a phase keep coming: a failed one must not replace a solve of the same phase that was accepted.
+  const bool saturated = std::string(plan.source) == "saturated";
+  if (saturated && optiPessiPlan_.valid && optiPessiPlan_.phase == plan.phase && optiPessiPlan_.source != "saturated") {
     return;
   }
 
   optiPessiPlan_.valid = true;
-  optiPessiPlan_.phase = phase;
-  optiPessiPlan_.startState = startState;
-  optiPessiPlan_.inputs.clear();
-  for (size_t k = 0; k < numKnots; ++k) {
-    optiPessiPlan_.inputs.push_back(opti_pessi::extractRobotInput(policy.inputTrajectory_[k]));
-  }
+  optiPessiPlan_.phase = plan.phase;
+  optiPessiPlan_.startState = plan.startState;
+  optiPessiPlan_.inputs = plan.inputs;
+  optiPessiPlan_.trustworthy = plan.trustworthy;
+  optiPessiPlan_.source = plan.source;
 }
 
 void OptiPessiController::restartFromStance() {
