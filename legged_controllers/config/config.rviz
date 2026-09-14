@@ -297,6 +297,18 @@ Visualization Manager:
       Value: true
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
+      Name: Opti-Pessi Goal
+      Namespaces:
+        {}
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /opti_pessi/goal
+      Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
       Name: Opti-Pessi Trajectory
       Namespaces:
         CoM Trajectory: true

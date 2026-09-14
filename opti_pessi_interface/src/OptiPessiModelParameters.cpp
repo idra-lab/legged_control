@@ -119,6 +119,13 @@ OptiPessiModelParameters loadOptiPessiModelParameters(const std::string& taskFil
     throw std::runtime_error("[OptiPessiModelParameters] horizon.N must be at least 2.");
   }
 
+  printHeader("Opti-Pessi Obstacle Types", verbose);
+  for (const auto& [name, type] : {std::make_pair("human", ObstacleType::Human), std::make_pair("car", ObstacleType::Car)}) {
+    auto& model = p.obstacleTypes[static_cast<size_t>(type)];
+    ocs2::loadData::loadPtreeValue(task, model.radius, std::string("obstacleTypes.") + name + ".radius", verbose);
+    ocs2::loadData::loadPtreeValue(task, model.maxSpeed, std::string("obstacleTypes.") + name + ".maxSpeed", verbose);
+  }
+
   p.initialState.setZero(OptiPessiModelParameters::kMeasuredStateDim);
   ocs2::loadData::loadEigenMatrix(taskFile, "initialState", p.initialState);
   if (verbose) {

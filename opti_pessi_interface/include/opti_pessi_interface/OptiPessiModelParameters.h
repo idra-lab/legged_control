@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -12,6 +13,16 @@ enum class ObstacleMovement { Straight, Patrol, Circle, Antagonist };
 
 ObstacleMovement obstacleMovementFromString(const std::string& name);
 std::string toString(ObstacleMovement movement);
+
+/** Obstacle classes reported by perception. The values are the type codes of legged_controllers/msg/Obstacle.msg. */
+enum class ObstacleType : uint8_t { Human = 0, Car = 1 };
+constexpr size_t kNumObstacleTypes = 2;
+
+/** Keep-out model of one obstacle class. */
+struct ObstacleTypeModel {
+  scalar_t radius;    // r_obs [m]
+  scalar_t maxSpeed;  // v_obs [m/s]
+};
 
 /**
  * Everything the Opti-Pessi OCP needs, loaded from config/task.info (robot + cost + limits +
@@ -58,11 +69,19 @@ struct OptiPessiModelParameters {
   static constexpr int kMeasuredStateDim = RobotX::DIM;
   vector_t initialState = vector_t::Zero(kMeasuredStateDim);
 
+  // --- obstacle classes (task.info: obstacleTypes), indexed by ObstacleType ---
+  std::array<ObstacleTypeModel, kNumObstacleTypes> obstacleTypes{{
+      {0.3, 1.0},  // Human
+      {2.4, 2.0},  // Car
+  }};
+
   // --- scenario: goal and obstacles ---
+  // numObstacles is also the number of obstacle slots of the OCP (it sizes the input): a controller fed from topics
+  // tracks at most that many obstacles at once.
   vector_t goal = vector_t::Zero(2);
   matrix_t obstaclePositions;      // numObstacles x 2, initial/measured centres
-  scalar_t obstacleRadius = 0.2;   // r_obs [m]
-  scalar_t obstacleMaxSpeed = 1.0; // v_obs [m/s], the bound assumed by the pessimistic branch
+  scalar_t obstacleRadius = 0.2;   // r_obs [m], of every scenario obstacle
+  scalar_t obstacleMaxSpeed = 1.0; // v_obs [m/s], of every scenario obstacle
 
   // --- scenario: obstacle plant (ground truth, unknown to the OCP) ---
   std::vector<ObstacleMovement> obstacleMovement;
@@ -85,6 +104,10 @@ struct OptiPessiModelParameters {
 
 inline const vector_t& hipOf(const OptiPessiModelParameters& p, Foot f) {
   return p.hipOffsets[static_cast<size_t>(f)];
+}
+
+inline const ObstacleTypeModel& obstacleTypeOf(const OptiPessiModelParameters& p, ObstacleType type) {
+  return p.obstacleTypes[static_cast<size_t>(type)];
 }
 
 /**

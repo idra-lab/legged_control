@@ -10,11 +10,14 @@
 #include <hardware_interface/types/hardware_interface_type_values.hpp>
 #include <limits>
 #include <mutex>
+#include <vector>
 
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/int16_multi_array.hpp>
 #include <ocs2_msgs/msg/mpc_observation.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
+
+#include "legged_controllers/msg/obstacle_array.hpp"
 
 #include <ocs2_centroidal_model/CentroidalModelRbdConversions.h>
 #include <ocs2_core/misc/Benchmark.h>
@@ -68,6 +71,23 @@ class OptiPessiController : public controller_interface::ControllerInterface {
 
   /** Hands the current LIP phase to the Opti-Pessi MPC. Runs on the MPC thread, right before advanceMpc(). */
   void pushOptiPessiObservation();
+
+  /**
+   * Subscribes the goal (/opti_pessi/goal, visualization_msgs/MarkerArray: position of its first ADD marker) and the
+   * obstacles (/opti_pessi/obstacles, legged_controllers/ObstacleArray), both in odom. Callbacks run on the spin thread.
+   */
+  void setupOptiPessiReferenceSubscribers();
+
+  /**
+   * Hands the latest goal and obstacles to the Opti-Pessi reference manager, from the MPC thread so they cannot change
+   * under a solve. The OCP has a fixed number of obstacle slots (scenario obstacles.numObstacles): with more obstacles
+   * than slots the ones whose keep-out disks come closest to the CoM of `robotState` take them, and free slots hold a
+   * point obstacle parked far from the robot.
+   */
+  void pushOptiPessiReferences(const vector_t& robotState);
+
+  /** Latest goal received and its sequence number (increments with every goal). False before the first goal. */
+  bool getOptiPessiGoal(vector_t& goal, size_t& sequence);
 
   /**
    * 10-dof LIP state [cx, cy, theta, dcx, dcy, dtheta, p0x, p0y, p1x, p1y] of the measured robot:
@@ -207,6 +227,19 @@ class OptiPessiController : public controller_interface::ControllerInterface {
   vector_t optiPessiRobotState_;           // measured 10-dof LIP state at the start of the current phase
   scalar_t optiPessiPhaseElapsed_ = 0.0;   // seconds spent in the current phase
   bool optiPessiGoalReached_ = false;
+  size_t optiPessiReachedGoalSequence_ = 0;  // goal sequence optiPessiGoalReached_ refers to. Control thread only.
+
+  // Goal and obstacles as last received on their topics, in odom. Written by the spin thread, read by the control and
+  // MPC threads, under the mutex.
+  struct ObstacleObservation {
+    scalar_t x = 0.0;
+    scalar_t y = 0.0;
+    opti_pessi::ObstacleType type = opti_pessi::ObstacleType::Human;
+  };
+  std::mutex optiPessiReferenceMutex_;
+  vector_t optiPessiGoal_;               // empty until the first goal arrives
+  size_t optiPessiGoalSequence_ = 0;     // increments with every goal received
+  std::vector<ObstacleObservation> optiPessiObstacles_;
 
   /**
    * Latest Opti-Pessi plan, in robot coordinates. A phase starts on it at once -- shifted by the phases completed since
@@ -275,6 +308,8 @@ class OptiPessiController : public controller_interface::ControllerInterface {
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr optiPessiPlanPublisher_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr optiPessiTrajectoryPublisher_;
   rclcpp::Subscription<std_msgs::msg::Int16MultiArray>::SharedPtr contactSub_;
+  rclcpp::Subscription<visualization_msgs::msg::MarkerArray>::SharedPtr optiPessiGoalSub_;
+  rclcpp::Subscription<legged_controllers::msg::ObstacleArray>::SharedPtr optiPessiObstacleSub_;
 
   rclcpp::Node::SharedPtr ros2_node_;
   rclcpp::executors::SingleThreadedExecutor::SharedPtr executor_;

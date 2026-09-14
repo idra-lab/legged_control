@@ -48,6 +48,24 @@ limits
   dthetaMax       0.8    ; yaw rate [rad/s]
 }
 
+; Keep-out model of each obstacle class a controller receives on its obstacle topic
+; (type field of legged_controllers/msg/Obstacle.msg). Radius and maxSpeed are CppAD parameters,
+; not compiled in: changing them needs no recompile. The scenario files keep their own
+; obstacles.radius/maxSpeed for the standalone simulation.
+obstacleTypes
+{
+  human
+  {
+    radius    0.3   ; r_obs [m]
+    maxSpeed  1.0   ; v_obs [m/s], the bound the pessimistic branch is robust against
+  }
+  car
+  {
+    radius    2.4   ; [m], disk enclosing a 4.5 m x 1.8 m car about its centre
+    maxSpeed  2.0   ; [m/s]
+  }
+}
+
 horizon
 {
   N  3   ; contact phases; with dt in [0.2, 0.35] s this is a 1.2-2.1 s lookahead

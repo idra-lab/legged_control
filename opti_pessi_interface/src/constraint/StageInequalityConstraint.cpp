@@ -44,7 +44,8 @@ constexpr int kCollisionRowsPerObstacle = 12;
 
 /**
  * Parameters: hip offsets and left/right signs for THIS interval's stance pair and for the NEXT
- * knot's stance pair (the trot alternates), then the obstacle centres and the pessimistic scale.
+ * knot's stance pair (the trot alternates), then one ObstacleP block (centre, radius, speed bound)
+ * per obstacle and the pessimistic scale.
  */
 constexpr int kHipsAndSignsDim = 12;
 
@@ -57,7 +58,7 @@ int stageInequalityCount(const OptiPessiModelParameters& params) {
 }
 
 int parameterDim(const OptiPessiModelParameters& params) {
-  return kHipsAndSignsDim + 2 * params.numObstacles() + 1;
+  return kHipsAndSignsDim + ObstacleP::DIM * params.numObstacles() + 1;
 }
 
 /**
@@ -164,8 +165,10 @@ StageInequalityConstraint::StageInequalityConstraint(OptiPessiModelParameters pa
       params_(std::move(params)),
       referenceManagerPtr_(&referenceManager) {
   numConstraints_ = static_cast<size_t>(stageInequalityCount(params_));
+  // The library name changed with the parameter layout (per-obstacle radius and speed bound): a library of the old
+  // layout left in libraryFolder must not be loaded when recompile is false.
   initialize(static_cast<size_t>(params_.stateDim()), static_cast<size_t>(params_.inputDim()),
-             static_cast<size_t>(parameterDim(params_)), "opti_pessi_stage_inequality", libraryFolder, recompile, true);
+             static_cast<size_t>(parameterDim(params_)), "opti_pessi_stage_inequality_typed", libraryFolder, recompile, true);
 }
 
 bool StageInequalityConstraint::isActive(scalar_t /*time*/) const {
@@ -181,12 +184,8 @@ vector_t StageInequalityConstraint::getParameters(scalar_t time, const ocs2::Pre
   const int numObstacles = params_.numObstacles();
   vector_t p = vector_t::Zero(parameterDim(params_));
   p.head(kHipsAndSignsDim) = hipsAndSignsParameters(params_, *referenceManagerPtr_, i);
-  const matrix_t& obstacles = referenceManagerPtr_->getObstacles();
-  for (int j = 0; j < numObstacles; ++j) {
-    p(kHipsAndSignsDim + 2 * j) = obstacles(j, 0);
-    p(kHipsAndSignsDim + 2 * j + 1) = obstacles(j, 1);
-  }
-  p(kHipsAndSignsDim + 2 * numObstacles) = referenceManagerPtr_->getPessiScale();
+  p.segment(kHipsAndSignsDim, ObstacleP::DIM * numObstacles) = referenceManagerPtr_->getObstacleParameters();
+  p(kHipsAndSignsDim + ObstacleP::DIM * numObstacles) = referenceManagerPtr_->getPessiScale();
   return p;
 }
 
@@ -203,12 +202,13 @@ ocs2::ad_vector_t StageInequalityConstraint::constraintFunction(ocs2::ad_scalar_
 
   const int numObstacles = params_.numObstacles();
   const Vec hipsAndSigns = parameters.head(kHipsAndSignsDim);
-  const Scalar pessiScale = parameters(kHipsAndSignsDim + 2 * numObstacles);
+  const Scalar pessiScale = parameters(kHipsAndSignsDim + ObstacleP::DIM * numObstacles);
   const Scalar w = Scalar(params_.omega());
   const Scalar mass = Scalar(params_.mass);
   const Scalar inertia = Scalar(params_.inertia);
 
-  auto appendBranch = [&](const Vec& x, const Vec& u, int hyperplaneOffset, const Scalar& keepOutGrowth) {
+  // keepOutTime scales each obstacle's own speed bound into the growth of its keep-out disk.
+  auto appendBranch = [&](const Vec& x, const Vec& u, int hyperplaneOffset, const Scalar& keepOutTime) {
     // Step the dynamics explicitly: this is the successor knot every row below is written on.
     const Vec xNext = lipMap(x, u, w, mass, inertia);
 
@@ -227,8 +227,9 @@ ocs2::ad_vector_t StageInequalityConstraint::constraintFunction(ocs2::ad_scalar_
 
     for (int j = 0; j < numObstacles; ++j) {
       const int base = hyperplaneOffset + kHyperplaneVarsPerObs * j;
-      const Vec2 o(parameters(kHipsAndSignsDim + 2 * j), parameters(kHipsAndSignsDim + 2 * j + 1));
-      const Scalar dMin = Scalar(params_.obstacleRadius) + keepOutGrowth;
+      const int obstacle = kHipsAndSignsDim + ObstacleP::DIM * j;
+      const Vec2 o(parameters(obstacle + ObstacleP::X), parameters(obstacle + ObstacleP::Y));
+      const Scalar dMin = parameters(obstacle + ObstacleP::RADIUS) + parameters(obstacle + ObstacleP::MAX_SPEED) * keepOutTime;
 
       // Mid-step plane: hips only, at the half-way pose (reference: collision_avoidance without p).
       const Scalar phiMid = input(base + Hyperplane::MID_PHI);
@@ -255,7 +256,7 @@ ocs2::ad_vector_t StageInequalityConstraint::constraintFunction(ocs2::ad_scalar_
   const Scalar elapsedNext = state(CLOCK_INDEX) + input(RobotU::DIM + RobotU::DT);
   appendBranch(state.head(RobotX::DIM), input.head(RobotU::DIM), optiHyperplaneOffset(), Scalar(0));
   appendBranch(state.segment(RobotX::DIM, RobotX::DIM), input.segment(RobotU::DIM, RobotU::DIM),
-               pessiHyperplaneOffset(numObstacles), pessiScale * Scalar(params_.obstacleMaxSpeed) * elapsedNext);
+               pessiHyperplaneOffset(numObstacles), pessiScale * elapsedNext);
 
   return g;
 }

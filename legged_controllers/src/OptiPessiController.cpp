@@ -42,6 +42,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <numeric>
 
 #include <boost/property_tree/info_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
@@ -49,6 +50,11 @@
 using namespace std;
 
 namespace legged {
+
+// Obstacle.msg type codes are opti_pessi::ObstacleType values.
+static_assert(::legged_controllers::msg::Obstacle::HUMAN == static_cast<uint8_t>(opti_pessi::ObstacleType::Human));
+static_assert(::legged_controllers::msg::Obstacle::CAR == static_cast<uint8_t>(opti_pessi::ObstacleType::Car));
+static_assert(opti_pessi::kNumObstacleTypes == 2);
 
 controller_interface::CallbackReturn OptiPessiController::on_init() {
   auto node = this->get_node();
@@ -399,8 +405,21 @@ controller_interface::return_type OptiPessiController::update(const rclcpp::Time
 }
 
 void OptiPessiController::advanceOptiPessiPhase(const rclcpp::Time& time, const rclcpp::Duration& period) {
-  // Standing at the goal: holdStance() has set the references once.
+  // Standing at the goal: holdStance() has set the references once. A new goal away from the robot restarts the walk
+  // from stance (standUp() measures phase 0 again).
   if (optiPessiGoalReached_) {
+    vector_t goal;
+    size_t goalSequence = 0;
+    if (getOptiPessiGoal(goal, goalSequence) && goalSequence != optiPessiReachedGoalSequence_) {
+      optiPessiReachedGoalSequence_ = goalSequence;
+      const scalar_t distance = (optiPessiRobotState_.head(2) - goal).norm();
+      if (distance >= optiPessiInterface_->modelParameters().goalTolerance) {
+        RCLCPP_INFO(this->get_node()->get_logger(), "[OptiPessi] new goal (%.3f, %.3f) %.3f m away, walking again", goal(0), goal(1),
+                    distance);
+        optiPessiGoalReached_ = false;
+        restartFromStance();
+      }
+    }
     return;
   }
 
@@ -564,8 +583,11 @@ void OptiPessiController::advanceOptiPessiPhase(const rclcpp::Time& time, const 
   lipObservation.mode = optiPessiPhase_;
   optiPessiObservationPublisher_->publish(ros_msg_conversions::createObservationMsg(lipObservation));
 
-  if ((successorState.head(2) - params.goal).norm() < params.goalTolerance) {
+  vector_t goal;
+  size_t goalSequence = 0;
+  if (getOptiPessiGoal(goal, goalSequence) && (successorState.head(2) - goal).norm() < params.goalTolerance) {
     optiPessiGoalReached_ = true;
+    optiPessiReachedGoalSequence_ = goalSequence;
     holdStance(optiPessiComReference_.position, optiPessiComReference_.yaw);
     RCLCPP_INFO(this->get_node()->get_logger(), "[OptiPessi] goal reached after %zu phases", optiPessiPhase_);
   }
@@ -793,6 +815,16 @@ void OptiPessiController::standUp(const rclcpp::Duration& period) {
   if (optiPessiStandElapsed_ < optiPessiStandUpDuration_ + optiPessiStandSettleDuration_) {
     return;
   }
+  // Walking starts once there is a goal to walk to.
+  {
+    vector_t goal;
+    size_t goalSequence = 0;
+    if (!getOptiPessiGoal(goal, goalSequence)) {
+      RCLCPP_INFO_THROTTLE(this->get_node()->get_logger(), *this->get_node()->get_clock(), 5000,
+                           "[OptiPessi] standing, waiting for a goal on /opti_pessi/goal");
+      return;
+    }
+  }
 
   // Standing: phase 0 starts from the robot measured now, and the MPC thread starts solving it.
   const vector_t robotState = measureLipState(0, optiPessiLiftoffPositions_);
@@ -959,6 +991,13 @@ void OptiPessiController::publishOptiPessiPlan() {
 
   visualization_msgs::msg::MarkerArray markers;
 
+  // Clears the obstacles of the previous draw: there may be fewer now.
+  Marker clear;
+  clear.header.frame_id = "odom";
+  clear.header.stamp = stamp;
+  clear.action = Marker::DELETEALL;
+  markers.markers.push_back(clear);
+
   // Planned CoM path of the pessimistic branch at the LIP height, one point per knot. The optimistic
   // branch, the one executed, is drawn with its feet by publishOptiPessiTrajectories().
   Marker pessimisticCom = makeMarker("pessimistic_com", 0, Marker::LINE_STRIP, 0.9F, 0.2F, 0.1F, 1.0F);
@@ -968,20 +1007,31 @@ void OptiPessiController::publishOptiPessiPlan() {
   }
   markers.markers.push_back(pessimisticCom);
 
-  // Obstacles as the OCP currently sees them (scenario frame, drawn as-is in odom).
-  const matrix_t& obstacles = optiPessiInterface_->getOptiPessiReferenceManagerPtr()->getObstacles();
-  for (int j = 0; j < obstacles.rows(); ++j) {
-    Marker disk = makeMarker("obstacles", j, Marker::CYLINDER, 0.5F, 0.5F, 0.5F, 0.6F);
-    disk.pose.position = point(obstacles(j, 0), obstacles(j, 1), 0.25);
-    disk.scale.x = disk.scale.y = 2.0 * params.obstacleRadius;
+  // Obstacles and goal as last received (odom), each obstacle at the keep-out radius of its type: humans orange, cars
+  // blue. The reference manager is not read here, the MPC thread writes it.
+  std::vector<ObstacleObservation> obstacles;
+  vector_t goalPosition;
+  {
+    std::lock_guard<std::mutex> lock(optiPessiReferenceMutex_);
+    obstacles = optiPessiObstacles_;
+    goalPosition = optiPessiGoal_;
+  }
+  for (size_t j = 0; j < obstacles.size(); ++j) {
+    const bool car = obstacles[j].type == opti_pessi::ObstacleType::Car;
+    Marker disk = makeMarker("obstacles", static_cast<int>(j), Marker::CYLINDER, car ? 0.2F : 0.9F, car ? 0.4F : 0.5F, car ? 0.9F : 0.1F,
+                             0.6F);
+    disk.pose.position = point(obstacles[j].x, obstacles[j].y, 0.25);
+    disk.scale.x = disk.scale.y = 2.0 * opti_pessi::obstacleTypeOf(params, obstacles[j].type).radius;
     disk.scale.z = 0.5;
     markers.markers.push_back(disk);
   }
 
-  Marker goal = makeMarker("goal", 0, Marker::SPHERE, 1.0F, 0.85F, 0.0F, 1.0F);
-  goal.pose.position = point(params.goal(0), params.goal(1), 0.05);
-  goal.scale.x = goal.scale.y = goal.scale.z = 0.1;
-  markers.markers.push_back(goal);
+  if (goalPosition.size() == 2) {
+    Marker goal = makeMarker("goal", 0, Marker::SPHERE, 1.0F, 0.85F, 0.0F, 1.0F);
+    goal.pose.position = point(goalPosition(0), goalPosition(1), 0.05);
+    goal.scale.x = goal.scale.y = goal.scale.z = 0.1;
+    markers.markers.push_back(goal);
+  }
 
   optiPessiPlanPublisher_->publish(markers);
 }
@@ -1104,7 +1154,128 @@ void OptiPessiController::pushOptiPessiObservation() {
   observation.input = vector_t::Zero(optiPessiInterface_->inputDim());
   observation.mode = phase;
   optiPessiInterface_->getOptiPessiReferenceManagerPtr()->setGaitOffset(static_cast<int>(phase));
+  pushOptiPessiReferences(robotState);
   optiPessiMrtInterface_->setCurrentObservation(observation);
+}
+
+void OptiPessiController::pushOptiPessiReferences(const vector_t& robotState) {
+  using vector2_t = Eigen::Matrix<scalar_t, 2, 1>;
+  const auto& params = optiPessiInterface_->modelParameters();
+  vector_t goal;
+  std::vector<ObstacleObservation> seen;
+  {
+    std::lock_guard<std::mutex> lock(optiPessiReferenceMutex_);
+    goal = optiPessiGoal_;
+    seen = optiPessiObstacles_;
+  }
+  auto& referenceManager = *optiPessiInterface_->getOptiPessiReferenceManagerPtr();
+  if (goal.size() == 2) {
+    referenceManager.setGoal(goal);
+  }
+
+  // Slots keep the message order, so a slot keeps its obstacle (and the hyperplanes warm-started for it) between solves.
+  // With more obstacles than slots, the closest keep-out disks take them.
+  const vector2_t com = robotState.head<2>();
+  const size_t numSlots = static_cast<size_t>(params.numObstacles());
+  std::vector<size_t> selected(seen.size());
+  std::iota(selected.begin(), selected.end(), 0);
+  if (seen.size() > numSlots) {
+    const auto clearance = [&](size_t k) {
+      return (vector2_t(seen[k].x, seen[k].y) - com).norm() - opti_pessi::obstacleTypeOf(params, seen[k].type).radius;
+    };
+    std::partial_sort(selected.begin(), selected.begin() + static_cast<std::ptrdiff_t>(numSlots), selected.end(),
+                      [&](size_t a, size_t b) { return clearance(a) < clearance(b); });
+    selected.resize(numSlots);
+    std::sort(selected.begin(), selected.end());
+    RCLCPP_WARN_THROTTLE(ros2_node_->get_logger(), *ros2_node_->get_clock(), 5000,
+                         "[OptiPessi] %zu obstacles but %zu OCP slots (scenario obstacles.numObstacles): tracking the closest", seen.size(),
+                         numSlots);
+  }
+
+  // A free slot holds a point obstacle with no speed bound, parked out of reach of the horizon.
+  constexpr scalar_t kParkingDistance = 100.0;  // [m] from the CoM
+  matrix_t positions(numSlots, 2);
+  vector_t radii = vector_t::Zero(numSlots);
+  vector_t maxSpeeds = vector_t::Zero(numSlots);
+  for (size_t j = 0; j < numSlots; ++j) {
+    if (j < selected.size()) {
+      const ObstacleObservation& obstacle = seen[selected[j]];
+      const opti_pessi::ObstacleTypeModel& model = opti_pessi::obstacleTypeOf(params, obstacle.type);
+      positions.row(j) << obstacle.x, obstacle.y;
+      radii(j) = model.radius;
+      maxSpeeds(j) = model.maxSpeed;
+    } else {
+      positions.row(j) << com.x() + kParkingDistance, com.y();
+    }
+  }
+  referenceManager.setObstacles(positions, radii, maxSpeeds);
+}
+
+bool OptiPessiController::getOptiPessiGoal(vector_t& goal, size_t& sequence) {
+  std::lock_guard<std::mutex> lock(optiPessiReferenceMutex_);
+  goal = optiPessiGoal_;
+  sequence = optiPessiGoalSequence_;
+  return goal.size() == 2;
+}
+
+void OptiPessiController::setupOptiPessiReferenceSubscribers() {
+  using visualization_msgs::msg::Marker;
+  using visualization_msgs::msg::MarkerArray;
+  using ObstacleArray = ::legged_controllers::msg::ObstacleArray;
+
+  // No TF lookup: both topics must already be in odom, the frame the LIP state is measured in.
+  auto inOdom = [this](const std::string& frame, const char* topic) {
+    if (frame.empty() || frame == "odom") {
+      return true;
+    }
+    RCLCPP_WARN_THROTTLE(ros2_node_->get_logger(), *ros2_node_->get_clock(), 5000, "[OptiPessi] %s in frame '%s' ignored: expected odom",
+                         topic, frame.c_str());
+    return false;
+  };
+
+  // Goal: the first marker that is added (ADD, alias MODIFY), at its position. RViz draws the same topic.
+  optiPessiGoalSub_ = ros2_node_->create_subscription<MarkerArray>(
+      "/opti_pessi/goal", rclcpp::QoS(1), [this, inOdom](const MarkerArray::SharedPtr msg) {
+        for (const Marker& marker : msg->markers) {
+          if (marker.action != Marker::ADD || !inOdom(marker.header.frame_id, "/opti_pessi/goal")) {
+            continue;
+          }
+          vector_t goal(2);
+          goal << marker.pose.position.x, marker.pose.position.y;
+          bool changed = false;
+          {
+            std::lock_guard<std::mutex> lock(optiPessiReferenceMutex_);
+            changed = optiPessiGoal_.size() != 2 || !optiPessiGoal_.isApprox(goal);
+            if (changed) {
+              optiPessiGoal_ = goal;
+              ++optiPessiGoalSequence_;
+            }
+          }
+          if (changed) {
+            RCLCPP_INFO(ros2_node_->get_logger(), "[OptiPessi] goal (%.3f, %.3f)", goal(0), goal(1));
+          }
+          return;
+        }
+      });
+
+  optiPessiObstacleSub_ = ros2_node_->create_subscription<ObstacleArray>(
+      "/opti_pessi/obstacles", rclcpp::QoS(1), [this, inOdom](const ObstacleArray::SharedPtr msg) {
+        if (!inOdom(msg->header.frame_id, "/opti_pessi/obstacles")) {
+          return;
+        }
+        std::vector<ObstacleObservation> obstacles;
+        obstacles.reserve(msg->obstacles.size());
+        for (const auto& obstacle : msg->obstacles) {
+          if (obstacle.type >= opti_pessi::kNumObstacleTypes) {
+            RCLCPP_WARN_THROTTLE(ros2_node_->get_logger(), *ros2_node_->get_clock(), 5000, "[OptiPessi] obstacle of unknown type %u ignored",
+                                 static_cast<unsigned>(obstacle.type));
+            continue;
+          }
+          obstacles.push_back({obstacle.position.x, obstacle.position.y, static_cast<opti_pessi::ObstacleType>(obstacle.type)});
+        }
+        std::lock_guard<std::mutex> lock(optiPessiReferenceMutex_);
+        optiPessiObstacles_ = std::move(obstacles);
+      });
 }
 
 void OptiPessiController::updateStateEstimation(const rclcpp::Time& time, const rclcpp::Duration& period) {
@@ -1230,6 +1401,7 @@ void OptiPessiController::setupOptiPessiMpc() {
   optiPessiPlanPublisher_ = ros2_node_->create_publisher<visualization_msgs::msg::MarkerArray>("/opti_pessi/plan", 1);
   optiPessiTrajectoryPublisher_ =
       ros2_node_->create_publisher<visualization_msgs::msg::MarkerArray>("/opti_pessi/optimizedStateTrajectory", 1);
+  setupOptiPessiReferenceSubscribers();
 }
 
 void OptiPessiController::setupLeggedMpc() {

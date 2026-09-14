@@ -355,9 +355,15 @@ bool isInsane(const vector_t& robotState, const vector_t& robotInput, const Opti
   if (!robotState.allFinite() || !robotInput.allFinite()) {
     return true;
   }
-  // The position guard is relative to the goal, not the origin: a goal is allowed to be 10 m away (scenario S1),
-  // a CoM launched tens of metres is not.
-  if ((robotState.head(2) - params.goal).norm() > 20.0 || robotState.segment(RobotX::DCX, 2).norm() > params.dcxMax + 0.2 ||
+  // The position guard is relative to the robot's own feet, neither the origin nor the goal (which a controller
+  // receives at run time and may put any distance away): stance feet or next footholds metres from the CoM mean a CoM
+  // launched away from its support.
+  constexpr scalar_t kMaxFootDistance = 2.0;  // [m]; hips are ~0.3 m from the CoM
+  const auto footTooFar = [&](const vector_t& vector, int index) {
+    return (vector.segment(index, 2) - robotState.head(2)).norm() > kMaxFootDistance;
+  };
+  if (footTooFar(robotState, RobotX::P0X) || footTooFar(robotState, RobotX::P1X) || footTooFar(robotInput, RobotU::P0X) ||
+      footTooFar(robotInput, RobotU::P1X) || robotState.segment(RobotX::DCX, 2).norm() > params.dcxMax + 0.2 ||
       std::abs(robotState(RobotX::DTH)) > params.dthetaMax + 0.2) {
     return true;
   }

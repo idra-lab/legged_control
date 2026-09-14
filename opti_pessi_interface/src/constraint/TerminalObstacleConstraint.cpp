@@ -19,19 +19,17 @@ TerminalObstacleConstraint::TerminalObstacleConstraint(OptiPessiModelParameters 
     hullRadius_ = std::max(hullRadius_, hip.norm());
   }
 
-  initialize(static_cast<size_t>(params_.stateDim()), static_cast<size_t>(2 * params_.numObstacles() + 1),
-             "opti_pessi_terminal_obstacle", libraryFolder, recompile, true);
+  // Parameters: one ObstacleP block per obstacle, then the pessimistic scale. The library name changed with that
+  // layout, so a library of the old layout left in libraryFolder is not loaded when recompile is false.
+  initialize(static_cast<size_t>(params_.stateDim()), static_cast<size_t>(ObstacleP::DIM * params_.numObstacles() + 1),
+             "opti_pessi_terminal_obstacle_typed", libraryFolder, recompile, true);
 }
 
 vector_t TerminalObstacleConstraint::getParameters(scalar_t, const ocs2::PreComputation&) const {
   const int numObstacles = params_.numObstacles();
-  vector_t p = vector_t::Zero(2 * numObstacles + 1);
-  const matrix_t& obstacles = referenceManagerPtr_->getObstacles();
-  for (int j = 0; j < numObstacles; ++j) {
-    p(2 * j) = obstacles(j, 0);
-    p(2 * j + 1) = obstacles(j, 1);
-  }
-  p(2 * numObstacles) = referenceManagerPtr_->getPessiScale();
+  vector_t p(ObstacleP::DIM * numObstacles + 1);
+  p.head(ObstacleP::DIM * numObstacles) = referenceManagerPtr_->getObstacleParameters();
+  p(ObstacleP::DIM * numObstacles) = referenceManagerPtr_->getPessiScale();
   return p;
 }
 
@@ -43,21 +41,24 @@ ocs2::ad_vector_t TerminalObstacleConstraint::constraintFunction(ocs2::ad_scalar
   ocs2::ad_vector_t g(static_cast<int>(numConstraints_));
   int idx = 0;
   const int numObstacles = params_.numObstacles();
-  const Scalar pessiScale = parameters(2 * numObstacles);
+  const Scalar pessiScale = parameters(ObstacleP::DIM * numObstacles);
   const Scalar elapsed = state(CLOCK_INDEX);
 
-  auto appendBranch = [&](const ocs2::ad_vector_t& x, const Scalar& keepOutGrowth) {
+  // keepOutTime scales each obstacle's own speed bound into the growth of its keep-out disk.
+  auto appendBranch = [&](const ocs2::ad_vector_t& x, const Scalar& keepOutTime) {
     const Vec2 c(x(RobotX::CX), x(RobotX::CY));
     for (int j = 0; j < numObstacles; ++j) {
-      const Vec2 o(parameters(2 * j), parameters(2 * j + 1));
-      const Scalar required = Scalar(params_.obstacleRadius) + keepOutGrowth + Scalar(hullRadius_);
+      const int obstacle = ObstacleP::DIM * j;
+      const Vec2 o(parameters(obstacle + ObstacleP::X), parameters(obstacle + ObstacleP::Y));
+      const Scalar required = parameters(obstacle + ObstacleP::RADIUS) + parameters(obstacle + ObstacleP::MAX_SPEED) * keepOutTime +
+                              Scalar(hullRadius_);
       // Squared form keeps this smooth at c == o.
       g(idx++) = (c - o).squaredNorm() - required * required;
     }
   };
 
   appendBranch(state.head(RobotX::DIM), Scalar(0));
-  appendBranch(state.segment(RobotX::DIM, RobotX::DIM), pessiScale * Scalar(params_.obstacleMaxSpeed) * elapsed);
+  appendBranch(state.segment(RobotX::DIM, RobotX::DIM), pessiScale * elapsed);
   return g;
 }
 

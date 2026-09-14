@@ -24,6 +24,7 @@ find_package(ocs2_legged_robot_ros REQUIRED)
 find_package(ocs2_self_collision_visualization REQUIRED)
 find_package(angles REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(opti_pessi_interface REQUIRED)
 
@@ -32,8 +33,10 @@ find_package(Boost REQUIRED COMPONENTS system filesystem log log_setup)
 
 # Generate custom interfaces/services in ROS 2 instead of add_service_files()
 rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/Obstacle.msg"
+  "msg/ObstacleArray.msg"
   "srv/KillNode.srv"
-  DEPENDENCIES std_msgs
+  DEPENDENCIES std_msgs geometry_msgs
 )
 
 ###########
@@ -75,6 +78,7 @@ ament_target_dependencies(${PROJECT_NAME}_lib
         ocs2_self_collision_visualization
         angles
         std_msgs
+        geometry_msgs
         visualization_msgs
         opti_pessi_interface
         )
@@ -155,6 +159,6 @@ install(DIRECTORY config launch
 ament_export_include_directories(include)
 ament_export_libraries(${PROJECT_NAME}_lib)
 ament_export_targets(${PROJECT_NAME} HAS_LIBRARY_TARGET)
-ament_export_dependencies(rclcpp legged_common legged_interface legged_wbc legged_estimation controller_interface pluginlib ocs2_legged_robot_ros ocs2_self_collision_visualization angles std_msgs visualization_msgs pinocchio opti_pessi_interface)
+ament_export_dependencies(rclcpp legged_common legged_interface legged_wbc legged_estimation controller_interface pluginlib ocs2_legged_robot_ros ocs2_self_collision_visualization angles std_msgs geometry_msgs visualization_msgs pinocchio opti_pessi_interface)
 
 ament_package()

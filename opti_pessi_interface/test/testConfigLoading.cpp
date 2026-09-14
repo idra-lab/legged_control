@@ -114,6 +114,14 @@ TEST(ConfigLoading, ScenarioS4IsAntagonist) {
   EXPECT_EQ(p.figName, "mpc_sim_2_");
 }
 
+TEST(ConfigLoading, ObstacleTypes) {
+  const auto p = load("scenario_S1.info");
+  EXPECT_DOUBLE_EQ(obstacleTypeOf(p, ObstacleType::Human).radius, 0.3);
+  EXPECT_DOUBLE_EQ(obstacleTypeOf(p, ObstacleType::Human).maxSpeed, 1.0);
+  EXPECT_DOUBLE_EQ(obstacleTypeOf(p, ObstacleType::Car).radius, 2.4);
+  EXPECT_DOUBLE_EQ(obstacleTypeOf(p, ObstacleType::Car).maxSpeed, 2.0);
+}
+
 TEST(ConfigLoading, RejectsUnknownMovement) {
   EXPECT_THROW(obstacleMovementFromString("teleport"), std::runtime_error);
   EXPECT_EQ(obstacleMovementFromString("ANTAGONIST"), ObstacleMovement::Antagonist);

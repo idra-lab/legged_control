@@ -132,6 +132,20 @@ struct Hyperplane {
   static constexpr int LAND_B = 3;
 };
 
+/**
+ * Per-obstacle block of the obstacle constraints' parameter vector (see
+ * OptiPessiReferenceManager::getObstacleParameters()). Radius and speed bound are parameters, not
+ * constants compiled into the CppAD libraries, so obstacles of different types can share one OCP and
+ * swap slots between solves.
+ */
+struct ObstacleP {
+  static constexpr int X = 0;
+  static constexpr int Y = 1;
+  static constexpr int RADIUS = 2;     // r_obs [m]
+  static constexpr int MAX_SPEED = 3;  // v_obs [m/s], the bound assumed by the pessimistic branch
+  static constexpr int DIM = 4;
+};
+
 /** Augmented state: optimistic branch || pessimistic branch || elapsed-time clock. */
 constexpr int AUG_STATE_DIM = 2 * RobotX::DIM + 1;
 
