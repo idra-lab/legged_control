@@ -3,11 +3,13 @@
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="robot">
 
     <xacro:arg name="robot_type" default="a1"/>
+    <xacro:arg name="camera" default="true"/>
 
     <xacro:include filename="$(find legged_unitree_description)/urdf/common/materials.xacro"/>
     <xacro:include filename="$(find legged_unitree_description)/urdf/common/leg.xacro"/>
     <xacro:include filename="$(find legged_unitree_description)/urdf/common/gazebo.xacro"/>
     <xacro:include filename="$(find legged_unitree_description)/urdf/common/imu.xacro"/>
+    <xacro:include filename="$(find legged_unitree_description)/urdf/common/d435i.xacro"/>
 
     <xacro:include filename="$(find legged_unitree_description)/urdf/$(arg robot_type)/const.xacro"/>
 
@@ -46,6 +48,11 @@
     </link>
 
     <xacro:IMU connected_to="base" imu_name="base_imu" xyz="0. 0. 0." rpy="0. 0. 0."/>
+
+    <!-- Front-mounted Intel RealSense D435i, pitched 20 deg down to see the terrain ahead -->
+    <xacro:if value="$(arg camera)">
+        <xacro:D435i name="camera" parent="base" xyz="${trunk_length/2 + 0.03} 0 0" rpy="0 ${20*pi/180} 0"/>
+    </xacro:if>
 
 
     <xacro:leg prefix="LF" mesh_path="${mesh_path}" mirror="1" mirror_dae="True" front_hind="1" front_hind_dae="True">

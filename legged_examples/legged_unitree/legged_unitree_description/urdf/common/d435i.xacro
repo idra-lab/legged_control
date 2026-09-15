@@ -1,0 +1,136 @@
+<?xml version="1.0"?>
+
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="d435i">
+    <!-- Intel RealSense D435i (simulated in Gazebo Harmonic).
+         Frames follow the realsense-ros convention:
+           ${name}_link                 x forward, origin at the depth (left IR) imager
+           ${name}_depth_frame          == ${name}_link
+           ${name}_depth_optical_frame  z forward, x right, y down
+           ${name}_color_frame          RGB imager, 15 mm to the left of the depth imager
+           ${name}_color_optical_frame  z forward, x right, y down
+         Published gz topics (bridged to ROS by legged_gazebo/config/d435i_bridge.yaml):
+           /${name}/color/image_raw         rgb8,    640x360 @ 30 Hz, HFOV 69.4 deg
+           /${name}/color/camera_info
+           /${name}/depth/image_rect_raw    32FC1 [m], 848x480 @ 30 Hz, HFOV 86 deg
+           /${name}/depth/camera_info
+         The D435i IMU is not simulated. No collision geometry, so contacts are unchanged. -->
+    <xacro:macro name="D435i" params="name:=camera parent xyz:='0 0 0' rpy:='0 0 0'">
+        <xacro:property name="d435i_mass" value="0.072"/>
+        <xacro:property name="d435i_length" value="0.025"/>
+        <xacro:property name="d435i_width" value="0.090"/>
+        <xacro:property name="d435i_height" value="0.025"/>
+        <!-- Depth imager sits 17.5 mm left of the housing center -->
+        <xacro:property name="d435i_depth_py" value="0.0175"/>
+        <xacro:property name="d435i_depth_to_color" value="0.015"/>
+
+        <joint name="${name}_joint" type="fixed">
+            <origin xyz="${xyz}" rpy="${rpy}"/>
+            <parent link="${parent}"/>
+            <child link="${name}_link"/>
+        </joint>
+        <link name="${name}_link">
+            <inertial>
+                <mass value="${d435i_mass}"/>
+                <origin rpy="0 0 0" xyz="${-d435i_length/2} ${-d435i_depth_py} 0"/>
+                <inertia ixx="${d435i_mass/12*(d435i_width**2 + d435i_height**2)}" ixy="0" ixz="0"
+                         iyy="${d435i_mass/12*(d435i_length**2 + d435i_height**2)}" iyz="0"
+                         izz="${d435i_mass/12*(d435i_length**2 + d435i_width**2)}"/>
+            </inertial>
+            <visual>
+                <origin rpy="0 0 0" xyz="${-d435i_length/2} ${-d435i_depth_py} 0"/>
+                <geometry>
+                    <box size="${d435i_length} ${d435i_width} ${d435i_height}"/>
+                </geometry>
+                <material name="d435i_aluminum">
+                    <color rgba="0.5 0.5 0.5 1"/>
+                </material>
+            </visual>
+        </link>
+
+        <joint name="${name}_depth_joint" type="fixed">
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <parent link="${name}_link"/>
+            <child link="${name}_depth_frame"/>
+        </joint>
+        <link name="${name}_depth_frame"/>
+
+        <joint name="${name}_depth_optical_joint" type="fixed">
+            <origin xyz="0 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
+            <parent link="${name}_depth_frame"/>
+            <child link="${name}_depth_optical_frame"/>
+        </joint>
+        <link name="${name}_depth_optical_frame"/>
+
+        <joint name="${name}_color_joint" type="fixed">
+            <origin xyz="0 ${d435i_depth_to_color} 0" rpy="0 0 0"/>
+            <parent link="${name}_link"/>
+            <child link="${name}_color_frame"/>
+        </joint>
+        <link name="${name}_color_frame"/>
+
+        <joint name="${name}_color_optical_joint" type="fixed">
+            <origin xyz="0 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
+            <parent link="${name}_color_frame"/>
+            <child link="${name}_color_optical_frame"/>
+        </joint>
+        <link name="${name}_color_optical_frame"/>
+
+        <!-- Gazebo cameras look along +x of the frame they are attached to,
+             so they go on the x-forward frames; gz_frame_id sets the ROS header frame. -->
+        <gazebo reference="${name}_color_frame">
+            <sensor name="${name}_color" type="camera">
+                <always_on>true</always_on>
+                <update_rate>30</update_rate>
+                <visualize>false</visualize>
+                <topic>${name}/color/image_raw</topic>
+                <gz_frame_id>${name}_color_optical_frame</gz_frame_id>
+                <camera name="${name}_color">
+                    <camera_info_topic>${name}/color/camera_info</camera_info_topic>
+                    <horizontal_fov>${69.4*pi/180}</horizontal_fov>
+                    <image>
+                        <width>640</width>
+                        <height>360</height>
+                        <format>R8G8B8</format>
+                    </image>
+                    <clip>
+                        <near>0.1</near>
+                        <far>50.0</far>
+                    </clip>
+                    <noise>
+                        <type>gaussian</type>
+                        <mean>0.0</mean>
+                        <stddev>0.007</stddev>
+                    </noise>
+                </camera>
+            </sensor>
+        </gazebo>
+
+        <gazebo reference="${name}_depth_frame">
+            <sensor name="${name}_depth" type="depth_camera">
+                <always_on>true</always_on>
+                <update_rate>30</update_rate>
+                <visualize>false</visualize>
+                <topic>${name}/depth/image_rect_raw</topic>
+                <gz_frame_id>${name}_depth_optical_frame</gz_frame_id>
+                <camera name="${name}_depth">
+                    <camera_info_topic>${name}/depth/camera_info</camera_info_topic>
+                    <horizontal_fov>${86.0*pi/180}</horizontal_fov>
+                    <image>
+                        <width>848</width>
+                        <height>480</height>
+                        <format>R_FLOAT32</format>
+                    </image>
+                    <clip>
+                        <near>0.105</near>
+                        <far>10.0</far>
+                    </clip>
+                    <noise>
+                        <type>gaussian</type>
+                        <mean>0.0</mean>
+                        <stddev>0.005</stddev>
+                    </noise>
+                </camera>
+            </sensor>
+        </gazebo>
+    </xacro:macro>
+</robot>
