@@ -419,6 +419,90 @@
       </link>
     </model>
 
+    <!-- Walking people. Actors are animated visuals only (no collision):
+         cameras/depth/lidar see them, but the robot will not bump into them.
+         Robot spawns at the world origin facing +x. Pose z=1.0 puts the
+         walk.dae hips at walking height; yaw must match walking direction. -->
+    <actor name="person_1">
+      <skin>
+        <filename>model://walking_actor/meshes/walk.dae</filename>
+        <scale>1.0</scale>
+      </skin>
+      <animation name="walking">
+        <filename>model://walking_actor/meshes/walk.dae</filename>
+        <scale>1.0</scale>
+        <interpolate_x>true</interpolate_x>
+      </animation>
+      <script>
+        <loop>true</loop>
+        <delay_start>0</delay_start>
+        <auto_start>true</auto_start>
+        <!-- Crosses in front of the robot, 3.5 m ahead, left to right and back -->
+        <trajectory id="0" type="walking">
+          <waypoint>
+            <time>0</time>
+            <pose>3.5 4.5 1.0 0 0 -1.5708</pose>
+          </waypoint>
+          <waypoint>
+            <time>7.5</time>
+            <pose>3.5 -4.5 1.0 0 0 -1.5708</pose>
+          </waypoint>
+          <waypoint>
+            <time>8.5</time>
+            <pose>3.5 -4.5 1.0 0 0 1.5708</pose>
+          </waypoint>
+          <waypoint>
+            <time>16</time>
+            <pose>3.5 4.5 1.0 0 0 1.5708</pose>
+          </waypoint>
+          <waypoint>
+            <time>17</time>
+            <pose>3.5 4.5 1.0 0 0 -1.5708</pose>
+          </waypoint>
+        </trajectory>
+      </script>
+    </actor>
+
+    <actor name="person_2">
+      <skin>
+        <filename>model://walking_actor/meshes/walk.dae</filename>
+        <scale>1.0</scale>
+      </skin>
+      <animation name="walking">
+        <filename>model://walking_actor/meshes/walk.dae</filename>
+        <scale>1.0</scale>
+        <interpolate_x>true</interpolate_x>
+      </animation>
+      <script>
+        <loop>true</loop>
+        <delay_start>3</delay_start>
+        <auto_start>true</auto_start>
+        <!-- Walks toward the robot along y=2 (passes on its left), then back -->
+        <trajectory id="0" type="walking">
+          <waypoint>
+            <time>0</time>
+            <pose>2.5 2.0 1.0 0 0 3.1416</pose>
+          </waypoint>
+          <waypoint>
+            <time>7.5</time>
+            <pose>-6.5 2.0 1.0 0 0 3.1416</pose>
+          </waypoint>
+          <waypoint>
+            <time>8.5</time>
+            <pose>-6.5 2.0 1.0 0 0 0</pose>
+          </waypoint>
+          <waypoint>
+            <time>16</time>
+            <pose>2.5 2.0 1.0 0 0 0</pose>
+          </waypoint>
+          <waypoint>
+            <time>17</time>
+            <pose>2.5 2.0 1.0 0 0 3.1416</pose>
+          </waypoint>
+        </trajectory>
+      </script>
+    </actor>
+
     <!-- <include>
       <uri>
         https://fuel.ignitionrobotics.org/1.0/MovAi/models/Tugbot
