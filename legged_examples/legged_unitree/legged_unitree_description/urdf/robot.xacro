@@ -51,7 +51,7 @@
 
     <!-- Front-mounted Intel RealSense D435i, pitched 20 deg down to see the terrain ahead -->
     <xacro:if value="$(arg camera)">
-        <xacro:D435i name="camera" parent="base" xyz="${trunk_length/2 + 0.03} 0 0" rpy="0 ${20*pi/180} 0"/>
+        <xacro:D435i name="camera" parent="base" xyz="${trunk_length/2 + 0.03} 0 0" rpy="0 ${5*pi/180} 0"/>
     </xacro:if>
 
 

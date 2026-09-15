@@ -13,6 +13,8 @@
            /${name}/color/camera_info
            /${name}/depth/image_rect_raw    32FC1 [m], 848x480 @ 30 Hz, HFOV 86 deg
            /${name}/depth/camera_info
+           /${name}/aligned_depth_to_color/image_raw    32FC1 [m], registered to color (640x360, HFOV 69.4 deg)
+           /${name}/aligned_depth_to_color/camera_info  (like realsense-ros align_depth.enable:=true)
          The D435i IMU is not simulated. No collision geometry, so contacts are unchanged. -->
     <xacro:macro name="D435i" params="name:=camera parent xyz:='0 0 0' rpy:='0 0 0'">
         <xacro:property name="d435i_mass" value="0.072"/>
@@ -100,6 +102,33 @@
                         <type>gaussian</type>
                         <mean>0.0</mean>
                         <stddev>0.007</stddev>
+                    </noise>
+                </camera>
+            </sensor>
+            <!-- Depth rendered from the color imager with the color intrinsics, so pixel (u,v)
+                 matches the color image 1:1. Stands in for realsense-ros depth-to-color alignment. -->
+            <sensor name="${name}_aligned_depth" type="depth_camera">
+                <always_on>true</always_on>
+                <update_rate>30</update_rate>
+                <visualize>false</visualize>
+                <topic>${name}/aligned_depth_to_color/image_raw</topic>
+                <gz_frame_id>${name}_color_optical_frame</gz_frame_id>
+                <camera name="${name}_aligned_depth">
+                    <camera_info_topic>${name}/aligned_depth_to_color/camera_info</camera_info_topic>
+                    <horizontal_fov>${69.4*pi/180}</horizontal_fov>
+                    <image>
+                        <width>640</width>
+                        <height>360</height>
+                        <format>R_FLOAT32</format>
+                    </image>
+                    <clip>
+                        <near>0.105</near>
+                        <far>10.0</far>
+                    </clip>
+                    <noise>
+                        <type>gaussian</type>
+                        <mean>0.0</mean>
+                        <stddev>0.005</stddev>
                     </noise>
                 </camera>
             </sensor>
