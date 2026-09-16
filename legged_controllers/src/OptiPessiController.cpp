@@ -957,9 +957,12 @@ void OptiPessiController::holdStance(const vector3_t& comPosition, scalar_t yaw)
     reference.force << 0.0, 0.0, 0.25 * params.mass * params.gravity;
     reference.touchdownForce = reference.force;
   }
-  optiPessiComReference_ = ComReference();
-  optiPessiComReference_.position = comPosition;
-  optiPessiComReference_.yaw = yaw;
+  // Built aside and assigned last: callers may pass optiPessiComReference_.position itself, which resetting the member
+  // first would zero before it is read (the goal-reached call did, sending the CoM reference to the odom origin).
+  ComReference reference;
+  reference.position = comPosition;
+  reference.yaw = yaw;
+  optiPessiComReference_ = reference;
 }
 
 void OptiPessiController::publishOptiPessiPlan() {
