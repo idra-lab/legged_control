@@ -25,6 +25,7 @@ find_package(ocs2_robotic_tools REQUIRED)
 add_library(${PROJECT_NAME} SHARED
   src/OptiPessiModelParameters.cpp
   src/LipKinematics.cpp
+  src/ObstacleDetour.cpp
   src/OptiPessiInterface.cpp
   src/SolverBackend.cpp
   src/dynamics/OptiPessiDynamicsAD.cpp

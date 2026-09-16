@@ -194,6 +194,7 @@ OptiPessiModelParameters loadOptiPessiModelParameters(const std::string& taskFil
   ocs2::loadData::loadPtreeValue(scenario, p.simTime, "simulation.simTime", verbose);
   ocs2::loadData::loadPtreeValue(scenario, p.goalTolerance, "simulation.goalTolerance", verbose);
   ocs2::loadData::loadPtreeValue(scenario, p.figName, "simulation.figName", verbose);
+  ocs2::loadData::loadPtreeValue(scenario, p.obstacleDetour, "simulation.obstacleDetour", verbose);
 
   if (verbose) {
     std::cerr << " #### =============================================================================" << std::endl;

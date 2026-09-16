@@ -563,6 +563,43 @@ void OptiPessiController::advanceOptiPessiPhase(const rclcpp::Time& time, const 
                 solve.gaitOffset, solve.warmStart, solve.numIterations, solve.performance.cost, solve.source, solve.pessiScale,
                 solve.trustworthy ? 1 : 0, solve.dynamicsResidual, solve.appliedViolation, solve.horizonViolation,
                 planCoversPhase ? "plan" : "capture-point stop, latest plan", optiPessiPlan_.phase, offset, optiPessiPlan_.source.c_str());
+
+    // Obstacle clearance at the end of the phase: distance from each obstacle centre to the convex hull of the four hips
+    // and the landed feet, measured and as the LIP predicted, against the type radius the OCP keeps out.
+    std::vector<ObstacleObservation> obstacles;
+    {
+      std::lock_guard<std::mutex> lock(optiPessiReferenceMutex_);
+      obstacles = optiPessiObstacles_;
+    }
+    const auto hullClearance = [&](const vector_t& state, const vector2_t& centre) {
+      std::array<vector2_t, 6> points{};
+      for (size_t f = 0; f < 4; ++f) {
+        points[f] = state.head<2>() + opti_pessi::applyR(state(RobotX::TH), opti_pessi::hipOf(params, static_cast<opti_pessi::Foot>(f)));
+      }
+      points[4] = state.segment<2>(RobotX::P0X);
+      points[5] = state.segment<2>(RobotX::P1X);
+      scalar_t best = -1e9;
+      constexpr int kNumDirections = 64;
+      for (int k = 0; k < kNumDirections; ++k) {
+        const scalar_t angle = 2.0 * M_PI * static_cast<scalar_t>(k) / kNumDirections;
+        const vector2_t a(std::cos(angle), std::sin(angle));
+        scalar_t support = -1e9;
+        for (const vector2_t& p : points) {
+          support = std::max(support, a.dot(p));
+        }
+        best = std::max(best, a.dot(centre) - support);
+      }
+      return best;
+    };
+    for (size_t j = 0; j < obstacles.size(); ++j) {
+      const vector2_t centre(obstacles[j].x, obstacles[j].y);
+      const opti_pessi::ObstacleTypeModel& model = opti_pessi::obstacleTypeOf(params, obstacles[j].type);
+      RCLCPP_INFO(this->get_node()->get_logger(),
+                  "[OptiPessi] phase %zu obstacle %zu: centre=(%.3f, %.3f) r=%.2f vmax=%.2f | hull clearance measured=%.3f "
+                  "predicted=%.3f (inside keep-out if < r)",
+                  optiPessiPhase_, j, centre.x(), centre.y(), model.radius, model.maxSpeed, hullClearance(successorState, centre),
+                  hullClearance(predicted, centre));
+    }
   }
   {
     std::lock_guard<std::mutex> lock(optiPessiPhaseMutex_);
@@ -1176,9 +1213,6 @@ void OptiPessiController::pushOptiPessiReferences(const vector_t& robotState) {
     seen = optiPessiObstacles_;
   }
   auto& referenceManager = *optiPessiInterface_->getOptiPessiReferenceManagerPtr();
-  if (goal.size() == 2) {
-    referenceManager.setGoal(goal);
-  }
 
   // Slots keep the message order, so a slot keeps its obstacle (and the hyperplanes warm-started for it) between solves.
   // With more obstacles than slots, the closest keep-out disks take them.
@@ -1216,6 +1250,18 @@ void OptiPessiController::pushOptiPessiReferences(const vector_t& robotState) {
     }
   }
   referenceManager.setObstacles(positions, radii, maxSpeeds);
+
+  // The OCP tracks a detour goal while an obstacle blocks the straight line to the goal: its short horizon never pays
+  // for walking around, and stalls at the grown keep-out otherwise. Goal-reached checks keep using the real goal.
+  if (goal.size() == 2) {
+    const bool wasActive = optiPessiDetour_->active();
+    const vector_t ocpGoal = optiPessiDetour_->detourGoal(robotState, goal, positions, radii, maxSpeeds);
+    referenceManager.setGoal(ocpGoal);
+    if (optiPessiDetour_->active() != wasActive) {
+      RCLCPP_INFO(ros2_node_->get_logger(), "[OptiPessi] obstacle detour %s: OCP goal (%.3f, %.3f), goal (%.3f, %.3f)",
+                  optiPessiDetour_->active() ? "on" : "off", ocpGoal(0), ocpGoal(1), goal(0), goal(1));
+    }
+  }
 }
 
 bool OptiPessiController::getOptiPessiGoal(vector_t& goal, size_t& sequence) {
@@ -1375,6 +1421,7 @@ void OptiPessiController::setupOptiPessiInterface(const std::string& optipessiFi
   char modelFolder[64];
   std::snprintf(modelFolder, sizeof(modelFolder), "/m%.3f_I%.4f", mass, inertia);
   optiPessiInterface_->setupOptimalControlProblem(libraryFolder + modelFolder, recompile, backend);
+  optiPessiDetour_ = std::make_unique<opti_pessi::ObstacleDetour>(optiPessiInterface_->modelParameters());
 }
 
 void OptiPessiController::setupLeggedInterface(const std::string& taskFile, const std::string& urdfFile, const std::string& referenceFile,

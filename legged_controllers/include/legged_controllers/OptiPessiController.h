@@ -41,6 +41,7 @@
 #include <legged_interface/LeggedInterface.h>
 #include <legged_wbc/OptiPessiWbc.h>
 
+#include <opti_pessi_interface/ObstacleDetour.h>
 #include <opti_pessi_interface/OptiPessiInterface.h>
 #include <opti_pessi_interface/OptiPessiMpc.h>
 #include <opti_pessi_interface/SolverBackend.h>
@@ -253,6 +254,10 @@ class OptiPessiController : public controller_interface::ControllerInterface {
   vector_t optiPessiGoal_;               // empty until the first goal arrives
   size_t optiPessiGoalSequence_ = 0;     // increments with every goal received
   std::vector<ObstacleObservation> optiPessiObstacles_;
+
+  // Detour goal around an obstacle blocking the line to the goal (see opti_pessi_interface/ObstacleDetour.h). MPC thread
+  // only (pushOptiPessiReferences()).
+  std::unique_ptr<opti_pessi::ObstacleDetour> optiPessiDetour_;
 
   /**
    * Latest Opti-Pessi plan, in robot coordinates. A phase starts on it at once -- shifted by the phases completed since
