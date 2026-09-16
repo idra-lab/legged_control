@@ -1,6 +1,14 @@
 //
 // Weighted whole-body control on explicit CoM and foot references.
 //
+// Same QP as WeightedWbc (x = [qdd, F, tau], same hard constraints from WbcBase, qpOASES); only the
+// weighted tasks differ, because a LIP footstep plan carries no joint references.
+//
+//   min_x  sum_k w_k^2 ||A_k x - b_k||^2 + 1e-6 ||x||^2     s.t. the hard constraints.
+//
+// Weights (swing, centroidal, force) = (100, 1, 0.01), so 1e4 : 1 : 1e-4 in the objective: the force
+// task only biases towards the planned alpha/beta/gamma split, the centroidal task wins.
+//
 #include <pinocchio/fwd.hpp>  // forward declarations must be included first.
 
 #include "legged_wbc/OptiPessiWbc.h"
@@ -18,6 +26,8 @@
 namespace legged {
 
 vector_t OptiPessiWbc::update(const WbcReference& reference, const vector_t& rbdStateMeasured) {
+  // Contact set from the REFERENCE, not the estimator: the phase clock decides when a foot is loaded,
+  // and the QP has to agree with the force reference it is handed.
   contactFlag_ = reference.contact;
   numContacts_ = 0;
   for (bool flag : contactFlag_) {
@@ -41,7 +51,7 @@ vector_t OptiPessiWbc::update(const WbcReference& reference, const vector_t& rbd
   ubA << constraints.b_,
          constraints.f_;  // clang-format on
 
-  // Cost
+  // Cost. Task::operator* scales both a_ and b_, so a weight w enters the objective as w^2.
   const Task swingFootTask = formulateSwingFootTask(reference);
   const Task centroidalTask = formulateCentroidalTask(reference);
   const Task forceTask = formulateReferenceForceTask(reference);
@@ -67,7 +77,8 @@ vector_t OptiPessiWbc::update(const WbcReference& reference, const vector_t& rbd
   if (solved) {
     lastSolution_ = qpSol;
   } else {
-    // getPrimalSolution() leaves qpSol untouched when the QP was not solved: hold the last solution instead.
+    // getPrimalSolution() leaves qpSol untouched on failure (WeightedWbc returns that uninitialised
+    // vector to the joints). Hold the last solved x instead.
     ++numQpFailures_;
     if (lastSolution_.size() != qpSol.size()) {
       lastSolution_.setZero(qpSol.size());
@@ -75,6 +86,7 @@ vector_t OptiPessiWbc::update(const WbcReference& reference, const vector_t& rbd
     qpSol = lastSolution_;
   }
 
+  // Achieved minus requested CoM acceleration: how much of the LIP plan the whole body delivered.
   lastCentroidalResidual_ = centroidalLinearA_ * qpSol - centroidalLinearB_;
   return qpSol;
 }
@@ -88,6 +100,7 @@ Task OptiPessiWbc::formulateConstraints() {
   return formulateFloatingBaseEomTask() + formulateTorqueLimitsTask() + formulateFrictionConeTask() + formulateNoContactMotionTask();
 }
 
+/** J_i qdd = Kp (p_ref - p) + Kd (dp_ref - dp) - dJ_i v, on the spline references of the swing pair. */
 Task OptiPessiWbc::formulateSwingFootTask(const WbcReference& reference) {
   eeKinematics_->setPinocchioInterface(pinocchioInterfaceMeasured_);
   const std::vector<vector3_t> posMeasured = eeKinematics_->getPosition(vector_t());
@@ -109,6 +122,7 @@ Task OptiPessiWbc::formulateSwingFootTask(const WbcReference& reference) {
   return {a, b, matrix_t(), vector_t()};
 }
 
+/** F = F_ref on all 12 force components; the swing feet's reference is zero, as their hard constraint. */
 Task OptiPessiWbc::formulateReferenceForceTask(const WbcReference& reference) const {
   matrix_t a = matrix_t::Zero(3 * info_.numThreeDofContacts, numDecisionVars_);
   vector_t b(a.rows());
@@ -120,6 +134,11 @@ Task OptiPessiWbc::formulateReferenceForceTask(const WbcReference& reference) co
   return {a, b, matrix_t(), vector_t()};
 }
 
+/**
+ * 6 rows on the MEASURED model: CoM acceleration + PD from the centroidal momentum matrix, then
+ * yaw PD to the reference and roll/pitch PD to zero. Using the measured momentum matrix is what lets
+ * this work without joint references -- the swinging legs are already part of A_g.
+ */
 Task OptiPessiWbc::formulateCentroidalTask(const WbcReference& reference) {
   const auto& model = pinocchioInterfaceMeasured_.getModel();
   auto& data = pinocchioInterfaceMeasured_.getData();

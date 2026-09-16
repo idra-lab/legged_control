@@ -1,5 +1,18 @@
 //
-// Refactored for ROS 2 Control
+// ros2_control plugin driving the quadruped with the Opti-Pessi LIP MPC instead of the centroidal NMPC.
+//
+// The planner decides ONE footstep per contact phase (next footholds, CoP alpha, force split beta/gamma,
+// phase duration dt), not a continuous trajectory. This class turns that decision into the continuous
+// CoM, yaw, foot and force references OptiPessiWbc tracks, on three threads:
+//
+//   control (update()) : state estimation, plan intake, LIP phase clock, references, WBC, command write-out
+//   MPC     (optiPessiMpcThread_) : pushOptiPessiObservation() then advanceMpc(), at mpcDesiredFrequency_
+//   spin    (spin_thread_) : goal / obstacle / contact callbacks
+//
+// The LIP loop closes ONCE PER PHASE: the 10-dof LIP state is measured at each phase boundary and handed
+// to the MPC. Within a phase the only feedback is the WBC's PD terms. It owns both models -- LeggedInterface
+// for the whole-body side (URDF, Pinocchio, estimator, WBC) and OptiPessiInterface for the planner -- but
+// the centroidal SqpMpc of LeggedInterface is deliberately not built.
 //
 
 #pragma once

@@ -1,3 +1,6 @@
+// Standalone benchmark of the planner against a scripted obstacle plant: no robot, no WBC, the LIP
+// itself is the plant (see ClosedLoopSimulation). Used to compare a scenario against the CasADi/IPOPT
+// reference and to report solve times; the Gazebo loop runs OptiPessiController instead.
 #include <algorithm>
 #include <cmath>
 #include <cstdio>

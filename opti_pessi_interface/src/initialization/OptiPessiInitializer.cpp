@@ -142,10 +142,11 @@ ocs2::PrimalSolution shiftPrimalSolution(const ocs2::PrimalSolution& solution, c
   //
   // Re-integrating (x_{i+1} = lipMap(x_i, u_i) from the new measured x_0) looks more principled --
   // it makes the guess satisfy the dynamics exactly -- but it is wrong here: the LIP is
-  // exponentially unstable, |dc_{i+1}/dc_i| = cosh(omega*dt) ~ 2.96, and the footholds in u are
-  // ABSOLUTE world positions. Any mismatch between the measured state and the previous plan is
-  // therefore amplified ~3x per knot, ~700x across the horizon, and compounds every MPC step. The
-  // solver then cannot repair the guess and simply returns it, and the closed loop diverges.
+  // exponentially unstable, |dc_{i+1}/dc_i| = cosh(omega*dt) ~ 1.6-1.9 over the configured dt range,
+  // and the footholds in u are ABSOLUTE world positions. Any mismatch between the measured state and
+  // the previous plan is therefore amplified at every knot, compounding along the horizon and again
+  // at every MPC step. The solver then cannot repair the guess and simply returns it, and the closed
+  // loop diverges.
   //
   // The reference implementation shifts the stored trajectory (ocp_quadruped.py:455-457,
   // `set_initial(x[:, i], x_guess[:, i + 1])`), which stays near the previous solution. Only the

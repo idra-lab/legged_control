@@ -64,7 +64,7 @@ void computeTangentialForces(const Eigen::Matrix<Scalar, 2, 1>& c, const Eigen::
   f1(1) = (Scalar(1) - gamma) * mass * ddc(1);
 }
 
-/** Vertical moment about the CoM produced by the two tangential foot forces. */
+/** Vertical moment about the CoM produced by the two tangential foot forces; ddtheta = tau / I. */
 template <typename Scalar>
 Scalar yawTorque(const Eigen::Matrix<Scalar, 2, 1>& c, const Eigen::Matrix<Scalar, 2, 1>& p0, const Eigen::Matrix<Scalar, 2, 1>& p1,
                  const Eigen::Matrix<Scalar, 2, 1>& f0, const Eigen::Matrix<Scalar, 2, 1>& f1) {
@@ -75,6 +75,13 @@ Scalar yawTorque(const Eigen::Matrix<Scalar, 2, 1>& c, const Eigen::Matrix<Scala
  * Exact discrete LIP step over one contact phase of duration u(RobotU::DT): the closed-form flow
  * of ddc = omega^2 (c - z) with constant CoP, plus a forward-Euler step for yaw. Maps
  * (x in R^10, u in R^8) to x_next in R^10.
+ *
+ * The yaw torque is evaluated ONCE, at the phase start, and held over the phase. The CoM part is
+ * exact; the yaw part is not, and OptiPessiController::updateComReference() integrates the same
+ * constant torque continuously, so at phase end the two differ by dt^2 tau / (2 I).
+ *
+ * The landing footholds are copied straight out of u: the planner decides them, the LIP does not
+ * predict them.
  */
 template <typename Vec>
 Vec lipMap(const Vec& x, const Vec& u, typename Vec::Scalar w, typename Vec::Scalar mass, typename Vec::Scalar inertia) {

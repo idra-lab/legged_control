@@ -27,6 +27,14 @@ bool OptiPessiMpc::run(scalar_t currentTime, const vector_t& currentState) {
   return MPC_BASE::run(currentTime, currentState) && published_;
 }
 
+/**
+ * One MPC step. The controller re-pushes the SAME phase until its clock advances, so this is called
+ * repeatedly on one problem and the warm start is keyed on the gait offset, not on wall-clock time.
+ *
+ * Unlike MPC_BASE, a solve does not necessarily produce something the controller may run: the
+ * outcome is graded (nominal / relaxed / saturated / nothing) and only a trustworthy plan becomes
+ * the next warm start. See solveWithRetries() and evaluateSolve() in OptiPessiInterface.cpp.
+ */
 void OptiPessiMpc::calculateController(scalar_t /*initTime*/, const vector_t& initState, scalar_t /*finalTime*/) {
   const int gaitOffset = referenceManagerPtr_->getGaitOffset();
   const vector_t robotState = extractRobotState(initState);
@@ -50,7 +58,9 @@ void OptiPessiMpc::calculateController(scalar_t /*initTime*/, const vector_t& in
   const SolveOutcome outcome = solveWithRetries(*solverPtr_, *evaluationProblemPtr_, params_, *referenceManagerPtr_, robotState, guessPtr,
                                                 /*realTimeIteration=*/false, /*verbose=*/false, acceptedScale);
 
-  // Only a feasible plan is worth carrying forward (see ClosedLoopSimulation).
+  // Only a plan feasible over the WHOLE horizon may seed the next solve: a shifted warm start reuses
+  // knots 1..N-1, so seeding from a plan that only satisfies the applied interval propagates the
+  // violation forward.
   hasSolution_ = outcome.planTrustworthy();
   if (hasSolution_) {
     lastSolution_ = outcome.solution;
@@ -67,9 +77,13 @@ void OptiPessiMpc::calculateController(scalar_t /*initTime*/, const vector_t& in
       plan.inputs.push_back(extractRobotInput(outcome.solution.inputTrajectory_[k]));
     }
     if (outcome.ok) {
+      // "relaxed" means the keep-out only grew at pessiScale * v_obs: feasible, but NOT robust to the
+      // full obstacle speed bound. The label travels with the plan so the logs can say so.
       plan.source = acceptedScale < 1.0 ? "relaxed" : "nominal";
       plan.trustworthy = outcome.planTrustworthy();
     } else if (outcome.appliedInput.allFinite() && outcome.appliedInput(RobotU::DT) > 0.0) {
+      // Last resort before the controller's capture-point fallback: clamp the failed first input and
+      // publish it only if the step it predicts stays inside the velocity limits.
       const vector_t candidate = saturateRobotInput(outcome.appliedInput, params_);
       if (saturatedStepUsable(robotState, candidate, params_)) {
         plan.inputs.front() = candidate;

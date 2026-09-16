@@ -1,5 +1,6 @@
 //
-// Refactored for ROS 2 Control
+// Opti-Pessi controller: LIP phase clock, reference synthesis and MPC hand-off. See OptiPessiController.h
+// for the thread layout and the once-per-phase loop closure.
 //
 
 #include <pinocchio/fwd.hpp>  // forward declarations must be included first.
@@ -934,6 +935,7 @@ vector3_t OptiPessiController::measureCenterOfMass() const {
   return com;
 }
 
+/** Phase boundary: the swing pair becomes stance with its touchdown forces, the old stance pair is unloaded. */
 void OptiPessiController::landSwingFeet() {
   for (FootReference& reference : optiPessiFootReferences_) {
     if (reference.contact) {
@@ -946,6 +948,7 @@ void OptiPessiController::landSwingFeet() {
   }
 }
 
+/** All four feet in contact carrying m g / 4, CoM and yaw held: the stand-up and goal-reached posture. */
 void OptiPessiController::holdStance(const vector3_t& comPosition, scalar_t yaw) {
   const auto& params = optiPessiInterface_->modelParameters();
   for (FootReference& reference : optiPessiFootReferences_) {
@@ -1127,6 +1130,7 @@ void OptiPessiController::publishOptiPessiTrajectories() {
   optiPessiTrajectoryPublisher_->publish(markerArray);
 }
 
+/** Swing foot at `time`: cubic in x and y with zero end velocities, SplineCpg in z through the apex. */
 void OptiPessiController::evaluateSwing(const vector3_t& liftoff, const vector3_t& touchdown, scalar_t duration, scalar_t swingHeight,
                                         scalar_t time, vector3_t& position, vector3_t& velocity) {
   const CubicSpline splineX({0.0, liftoff.x(), 0.0}, {duration, touchdown.x(), 0.0});

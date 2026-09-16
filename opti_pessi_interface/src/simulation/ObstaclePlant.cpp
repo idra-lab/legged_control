@@ -1,3 +1,8 @@
+// Scripted obstacle motion for the offline benchmark only. On the robot the obstacles come from
+// perception on /opti_pessi/obstacles; nothing here runs in that path.
+//
+// Every movement pattern must respect the maxSpeed the pessimistic branch assumes for that obstacle
+// type, or the safety argument is void and a collision proves nothing about the formulation.
 #include "opti_pessi_interface/simulation/ObstaclePlant.h"
 
 #include <algorithm>
