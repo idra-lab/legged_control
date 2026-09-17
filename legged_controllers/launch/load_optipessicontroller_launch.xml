@@ -7,6 +7,7 @@
   <arg name="multiplot"           default="false"/>
   <!-- Opti-Pessi costs/constraints are CppAD libraries with task.info values compiled in: regenerate after editing it -->
   <arg name="recompile"           default="false" description="Regenerate the Opti-Pessi CppAD libraries from opti_pessi_interface/config/task.info"/>
+  <arg name="obstacleDetour"      default="true"  description="Walk around obstacles blocking the line to the goal (opti_pessi_interface/ObstacleDetour.h)"/>
 
   <arg name="joy_dev" default="/dev/input/js0"/>
   <arg name="teleop_config" default="$(find-pkg-share legged_controllers)/config/joy.yaml"/>
@@ -37,6 +38,7 @@
     <param name="scenarioFile" value="$(var scenarioFile)"/>
     <param name="libraryFolder" value="$(var libraryFolder)"/>
     <param name="recompile" value="$(var recompile)"/>
+    <param name="obstacleDetour" value="$(var obstacleDetour)"/>
   </node>
 
   <!-- If not using the joypad, keep using the old keyboard based program to select the gaits -->

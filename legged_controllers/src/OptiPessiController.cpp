@@ -85,6 +85,9 @@ controller_interface::CallbackReturn OptiPessiController::on_init() {
   if (!node->has_parameter("backend")) {
     node->declare_parameter<std::string>("backend", "Ipm");
   }
+  if (!node->has_parameter("obstacleDetour")) {
+    node->declare_parameter<bool>("obstacleDetour", true);
+  }
 
   std::string urdfFile = node->get_parameter("urdfFile").as_string();
   std::string taskFile = node->get_parameter("taskFile").as_string();
@@ -94,6 +97,7 @@ controller_interface::CallbackReturn OptiPessiController::on_init() {
   std::string libraryFolder = node->get_parameter("libraryFolder").as_string();
   bool recompile = node->get_parameter("recompile").as_bool();
   std::string backendStr = node->get_parameter("backend").as_string();
+  optiPessiDetourEnabled_ = node->get_parameter("obstacleDetour").as_bool();
   opti_pessi::SolverBackend backend = opti_pessi::SolverBackend::Sqp;
   if (backendStr == "Ipm") {
     backend = opti_pessi::SolverBackend::Ipm;
@@ -1234,7 +1238,12 @@ void OptiPessiController::pushOptiPessiReferences(const vector_t& robotState) {
 
   // The OCP tracks a detour goal while an obstacle blocks the straight line to the goal: its short horizon never pays
   // for walking around, and stalls at the grown keep-out otherwise. Goal-reached checks keep using the real goal.
+  // With the obstacleDetour parameter false, the OCP tracks the goal itself.
   if (goal.size() == 2) {
+    if (!optiPessiDetourEnabled_) {
+      referenceManager.setGoal(goal);
+      return;
+    }
     const bool wasActive = optiPessiDetour_->active();
     const vector_t ocpGoal = optiPessiDetour_->detourGoal(robotState, goal, positions, radii, maxSpeeds);
     referenceManager.setGoal(ocpGoal);

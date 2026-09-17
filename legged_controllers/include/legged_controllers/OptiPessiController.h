@@ -259,6 +259,7 @@ class OptiPessiController : public controller_interface::ControllerInterface {
   // Detour goal around an obstacle blocking the line to the goal (see opti_pessi_interface/ObstacleDetour.h). MPC thread
   // only (pushOptiPessiReferences()).
   std::unique_ptr<opti_pessi::ObstacleDetour> optiPessiDetour_;
+  bool optiPessiDetourEnabled_ = true;  // "obstacleDetour" parameter, set in on_init()
 
   /**
    * Latest Opti-Pessi plan, in robot coordinates. A phase starts on it at once -- shifted by the phases completed since
