@@ -17,13 +17,10 @@ namespace opti_pessi {
 /**
  * IpmMpc for the Opti-Pessi OCP, run through MPC_MRT_Interface.
  *
- * Every solve starts at knot 0 (see definitions.h) and makes the closed loop's recovery attempts (solveWithRetries():
- * cold retry, keep-out continuation), so the solver's own last iterate -- what MPC_MRT_Interface buffers -- is not
- * necessarily the solution that won. The plan to apply is therefore published here (getLatestPlan()): the robot inputs
- * of the accepted solution, or those of a failed solve with its first input saturated when that step stays within
- * bounds, as ClosedLoopSimulation applies it. The MRT buffer only feeds visualization.
+ * Every solve starts at knot 0 (see definitions.h) and is a single attempt with no failure checks: the robot inputs of
+ * whatever solution the solver returns are published here (getLatestPlan()). The MRT buffer only feeds visualization.
  *
- * Warm starts follow ClosedLoopSimulation: only a trustworthy plan is carried forward. On a phase change it is shifted
+ * Every solution is carried forward as the next warm start. On a phase change it is shifted
  * one knot first (shiftPrimalSolution): its knot-0 footholds are the ones the current stance feet already stand on, and
  * reusing it unshifted would put both feet of each side in the same place. Anything else starts cold.
  */
@@ -49,8 +46,8 @@ class OptiPessiMpc final : public ocs2::MPC_BASE {
     size_t phase = 0;              // contact phase (gait offset) it was solved for
     vector_t startState;           // measured 10-dof LIP state it was solved from
     std::vector<vector_t> inputs;  // robot inputs of knots 0..N-1
-    bool trustworthy = false;      // the whole horizon is feasible, so its later knots may be applied shifted
-    const char* source = "none";   // "nominal", "relaxed" (pessiScale < 1) or "saturated" (failed solve, first input clamped)
+    bool trustworthy = false;      // the whole horizon is feasible (diagnostics only)
+    const char* source = "none";   // "nominal" (evaluateSolve() accepted it) or "unchecked"
   };
 
   /** Sequence number of the latest published plan, cheap to poll from any thread. */
@@ -84,7 +81,7 @@ class OptiPessiMpc final : public ocs2::MPC_BASE {
   std::shared_ptr<OptiPessiReferenceManager> referenceManagerPtr_;
   OptiPessiModelParameters params_;
   std::unique_ptr<ocs2::OptimalControlProblem> evaluationProblemPtr_;  // own copy: the solver's CppAD models are not shared
-  ocs2::PrimalSolution lastSolution_;  // last trustworthy solution, the next warm start
+  ocs2::PrimalSolution lastSolution_;  // last solution, the next warm start
   bool hasSolution_ = false;
   bool published_ = false;
   int lastGaitOffset_ = 0;

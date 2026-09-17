@@ -39,13 +39,13 @@ cost
 limits
 {
   alphaReduction  0.1    ; CoP margin: alpha in [eps, 1-eps], keeps both feet loaded
-  dtMin           0.2    ; [s]
+  dtMin           0.1    ; [s]
   dtMax           0.25   ; [s]
   dtCost0         0.25   ; preferred contact-phase duration [s]
   footHipMax      0.1    ; foot-to-hip reachability radius [m]
-  dcxMax          1.5    ; body-frame longitudinal speed [m/s]
-  dcyMax          0.25   ; body-frame lateral speed [m/s]
-  dthetaMax       0.8    ; yaw rate [rad/s]
+  dcxMax          2.5    ; body-frame longitudinal speed [m/s]
+  dcyMax          0.45   ; body-frame lateral speed [m/s]
+  dthetaMax       0.4    ; yaw rate [rad/s]
 }
 
 ; Keep-out model of each obstacle class a controller receives on its obstacle topic

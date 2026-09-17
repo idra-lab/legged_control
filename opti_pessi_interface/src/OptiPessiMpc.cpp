@@ -31,15 +31,14 @@ bool OptiPessiMpc::run(scalar_t currentTime, const vector_t& currentState) {
  * One MPC step. The controller re-pushes the SAME phase until its clock advances, so this is called
  * repeatedly on one problem and the warm start is keyed on the gait offset, not on wall-clock time.
  *
- * Unlike MPC_BASE, a solve does not necessarily produce something the controller may run: the
- * outcome is graded (nominal / relaxed / saturated / nothing) and only a trustworthy plan becomes
- * the next warm start. See solveWithRetries() and evaluateSolve() in OptiPessiInterface.cpp.
+ * No failure handling: every solve that returns a full input trajectory is published and becomes
+ * the next warm start, whether or not evaluateSolve() accepts it.
  */
 void OptiPessiMpc::calculateController(scalar_t /*initTime*/, const vector_t& initState, scalar_t /*finalTime*/) {
   const int gaitOffset = referenceManagerPtr_->getGaitOffset();
   const vector_t robotState = extractRobotState(initState);
 
-  // Warm start from the last trustworthy plan: shifted one knot on the next phase, as-is on the same phase.
+  // Warm start from the last solution: shifted one knot on the next phase, as-is on the same phase.
   const char* warmStart = "cold";
   ocs2::PrimalSolution guess;
   const ocs2::PrimalSolution* guessPtr = nullptr;
@@ -54,42 +53,28 @@ void OptiPessiMpc::calculateController(scalar_t /*initTime*/, const vector_t& in
     }
   }
 
+  // A single solve (realTimeIteration skips the cold retry and the keep-out continuation), used as it comes.
   scalar_t acceptedScale = 1.0;
   const SolveOutcome outcome = solveWithRetries(*solverPtr_, *evaluationProblemPtr_, params_, *referenceManagerPtr_, robotState, guessPtr,
-                                                /*realTimeIteration=*/false, /*verbose=*/false, acceptedScale);
+                                                /*realTimeIteration=*/true, /*verbose=*/false, acceptedScale);
 
-  // Only a plan feasible over the WHOLE horizon may seed the next solve: a shifted warm start reuses
-  // knots 1..N-1, so seeding from a plan that only satisfies the applied interval propagates the
-  // violation forward.
-  hasSolution_ = outcome.planTrustworthy();
+  const auto numKnots = static_cast<size_t>(params_.N);
+  hasSolution_ = outcome.solution.inputTrajectory_.size() >= numKnots;
   if (hasSolution_) {
     lastSolution_ = outcome.solution;
   }
   lastGaitOffset_ = gaitOffset;
 
-  // What the controller may apply: the accepted solution, or a failed one whose saturated first step stays in bounds.
+  // The solver's solution is published whatever its outcome; "unchecked" marks one that did not pass evaluateSolve().
   Plan plan;
-  const auto numKnots = static_cast<size_t>(params_.N);
-  if (outcome.solution.inputTrajectory_.size() >= numKnots) {
+  if (hasSolution_) {
     plan.phase = static_cast<size_t>(std::max(gaitOffset, 0));
     plan.startState = robotState;
     for (size_t k = 0; k < numKnots; ++k) {
       plan.inputs.push_back(extractRobotInput(outcome.solution.inputTrajectory_[k]));
     }
-    if (outcome.ok) {
-      // "relaxed" means the keep-out only grew at pessiScale * v_obs: feasible, but NOT robust to the
-      // full obstacle speed bound. The label travels with the plan so the logs can say so.
-      plan.source = acceptedScale < 1.0 ? "relaxed" : "nominal";
-      plan.trustworthy = outcome.planTrustworthy();
-    } else if (outcome.appliedInput.allFinite() && outcome.appliedInput(RobotU::DT) > 0.0) {
-      // Last resort before the controller's capture-point fallback: clamp the failed first input and
-      // publish it only if the step it predicts stays inside the velocity limits.
-      const vector_t candidate = saturateRobotInput(outcome.appliedInput, params_);
-      if (saturatedStepUsable(robotState, candidate, params_)) {
-        plan.inputs.front() = candidate;
-        plan.source = "saturated";
-      }
-    }
+    plan.source = outcome.ok ? "nominal" : "unchecked";
+    plan.trustworthy = outcome.planTrustworthy();
   }
   const char* const source = plan.source;
   published_ = plan.source != Plan().source;

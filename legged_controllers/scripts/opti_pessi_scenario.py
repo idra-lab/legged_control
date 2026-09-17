@@ -26,17 +26,17 @@ from visualization_msgs.msg import Marker, MarkerArray
 
 from legged_controllers.msg import Obstacle, ObstacleArray
 
-SCALE = 1.0
+SCALE = 10.0
 FRAME = "odom"
 BASE_FRAME = "base"
 HUMAN_RADIUS = 0.3  # opti_pessi_interface/config/task.info: obstacleTypes.human.radius
 
 # goal, obstacle start, movement, speed [m/s], direction -- straight from scenario_S*.info
 SCENARIOS = {
-    1: dict(goal=(10.0, 0.0), obstacle=(5.0, 1.0), movement="straight", speed=0.0, direction=(0.0, -1.0)),
-    2: dict(goal=(10.0, 0.2), obstacle=(5.0, 1.0), movement="patrol", speed=0.25, direction=(0.0, -1.0)),
-    3: dict(goal=(1.0, 0.2), obstacle=(0.0, 1.0), movement="circle", speed=0.375, direction=(0.0, -1.0)),
-    4: dict(goal=(1.0, 0.2), obstacle=(0.3, 0.8), movement="antagonist", speed=0.25, direction=(0.0, -1.0)),
+    1: dict(goal=(1.0, 0.0), obstacle=(5.0, 1.0), movement="straight", speed=0.0, direction=(0.0, -1.0)),
+    2: dict(goal=(1.0, 0.2), obstacle=(0.5, 0.5), movement="patrol", speed=0.25, direction=(0.0, -1.0)),
+    3: dict(goal=(1.0, 0.2), obstacle=(0.3, 0.15), movement="circle", speed=0.375, direction=(0.0, -1.0)),
+    4: dict(goal=(1.0, 0.2), obstacle=(0.3, 0.05), movement="antagonist", speed=0.25, direction=(0.0, -1.0)),
 }
 PATROL_LENGTH = 2.0 * SCALE
 

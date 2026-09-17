@@ -151,13 +151,13 @@ class OptiPessiController : public controller_interface::ControllerInterface {
 
   /**
    * Copies a plan just published by OptiPessiMpc into optiPessiPlan_ if it belongs to this walk and is newer than the
-   * stored one: solved for the current phase from the state it started from (a saturated plan does not replace an
-   * accepted one of the same phase), or for a later earlier phase than the stored one.
+   * stored one: solved for the current phase from the state it started from, or for a later earlier phase than the
+   * stored one.
    */
   void storeAcceptedPlan(const opti_pessi::OptiPessiMpc::Plan& plan);
 
   /**
-   * No usable plan and the robot nearly at rest: stops the MPC, lowers the swinging feet where they are, holds the CoM
+   * A new goal after the goal was reached: stops the MPC, lowers the swinging feet where they are, holds the CoM
    * at comHeight above the measured one and hands over to standUp()'s settling stage, which restarts from phase 0.
    */
   void restartFromStance();
@@ -194,7 +194,7 @@ class OptiPessiController : public controller_interface::ControllerInterface {
     vector3_t touchdownForce = vector3_t::Zero();  // contact force at the end of the phase
   };
 
-  /** Draws the active Opti-Pessi policy in odom: pessimistic CoM path per knot, obstacles, goal. */
+  /** Draws the active Opti-Pessi policy in odom: pessimistic CoM path per knot, obstacles, goal, detour goal. */
   void publishOptiPessiPlan();
 
   /**
@@ -254,6 +254,7 @@ class OptiPessiController : public controller_interface::ControllerInterface {
   vector_t optiPessiGoal_;               // empty until the first goal arrives
   size_t optiPessiGoalSequence_ = 0;     // increments with every goal received
   std::vector<ObstacleObservation> optiPessiObstacles_;
+  vector_t optiPessiDetourGoal_;         // OCP goal while a detour is active, empty otherwise. Written by the MPC thread.
 
   // Detour goal around an obstacle blocking the line to the goal (see opti_pessi_interface/ObstacleDetour.h). MPC thread
   // only (pushOptiPessiReferences()).
@@ -261,7 +262,7 @@ class OptiPessiController : public controller_interface::ControllerInterface {
 
   /**
    * Latest Opti-Pessi plan, in robot coordinates. A phase starts on it at once -- shifted by the phases completed since
-   * it was solved if its horizon is trustworthy, otherwise as a capture-point stop -- and switches to its own plan when
+   * it was solved, with no checks -- and switches to its own plan when
    * the MPC thread delivers one. Control thread only.
    */
   struct AcceptedPlan {
@@ -269,14 +270,11 @@ class OptiPessiController : public controller_interface::ControllerInterface {
     size_t phase = 0;              // phase the plan was solved for
     vector_t startState;           // measured 10-dof LIP state it was solved from
     std::vector<vector_t> inputs;  // robot inputs of knots 0..N-1
-    bool trustworthy = false;      // later knots may be applied shifted
+    bool trustworthy = false;      // diagnostics only
     std::string source;            // OptiPessiMpc::Plan::source
   };
   AcceptedPlan optiPessiPlan_{};
   size_t optiPessiPlanSequence_ = 0;     // OptiPessiMpc::Plan::sequence of the last plan looked at
-  // task.info: optiPessiController
-  size_t optiPessiMaxPlanShift_ = 1;     // knots a trustworthy plan may be shifted before the capture-point stop takes over
-  scalar_t optiPessiRestartSpeed_ = 0.1;  // CoM speed below which a phase without a usable plan restarts from stance [m/s]
 
   // Swing/stance references of the four feet, indexed by opti_pessi::Foot. Control thread only.
   std::array<vector3_t, 4> optiPessiLiftoffPositions_{};  // measured feet at the start of the current phase
@@ -311,7 +309,6 @@ class OptiPessiController : public controller_interface::ControllerInterface {
     scalar_t durationMax = std::numeric_limits<scalar_t>::lowest();
     vector_t firstFootholds;                      // footholds of the first policy applied in the phase
     scalar_t footholdDrift = 0.0;                 // largest move of any foothold coordinate since then [m]
-    bool fallback = false;                        // a capture-point stop ran in the phase
     size_t policyUpdates = 0;                     // new MPC policies loaded during the phase
   };
   PhaseDiagnostics optiPessiPhaseDiagnostics_{};
