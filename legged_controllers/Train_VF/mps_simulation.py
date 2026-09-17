@@ -181,29 +181,36 @@ if __name__ == '__main__':
     only_mpc = True
     only_rl = False
     nom_rl = False
+    sensor_based = True
 
 
     grav_tens = torch.tensor([[0., 0., -1.]], device='cuda:0', dtype=torch.double)
 
-    if backup_trot:
-        backup_policy = BackupPolicy(config)
-        running_mean_backup = copy.copy(backup_policy.actor_network.running_mean_std.running_mean)
-        running_var_backup = copy.copy(backup_policy.actor_network.running_mean_std.running_var)
-        count_backup = copy.copy(backup_policy.actor_network.running_mean_std.count)
-
-        backup_policy.commands = np.array(config['robot']['cmd_backup'])
-    else:
-        if stop_backup:
-            backup_policy = BackupStop(config)
-            backup_policy.last_action= np.zeros(12)
-        else:
-            backup_policy = RlVelocityController('aliengo', dt, use_nn_se=True)
-            backup_policy.velocity_cmd = np.zeros(3)
-
-    if only_rl or nom_rl:
-        nominal_policy = RlVelocityControllerNoSE('aliengo', dt)
+    if sensor_based:
+        nominal_policy = RlVelocityController('aliengo', dt, use_nn_se=True, debug=False, policy="velocity")
         nominal_policy.velocity_cmd = np.array([0.5, 0, 0])
-    #backup_policy.commands = np.array([-0.25, 0., 0.])
+    else:
+        if backup_trot:
+            backup_policy = BackupPolicy(config)
+            running_mean_backup = copy.copy(backup_policy.actor_network.running_mean_std.running_mean)
+            running_var_backup = copy.copy(backup_policy.actor_network.running_mean_std.running_var)
+            count_backup = copy.copy(backup_policy.actor_network.running_mean_std.count)
+
+            backup_policy.commands = np.array(config['robot']['cmd_backup'])
+        else:
+            if stop_backup:
+                backup_policy = BackupStop(config)
+                backup_policy.last_action= np.zeros(12)
+            else:
+                backup_policy = RlVelocityController('aliengo', dt, use_nn_se=True)
+                backup_policy.velocity_cmd = np.zeros(3)
+
+                
+
+        if only_rl or nom_rl:
+            nominal_policy = RlVelocityControllerNoSE('aliengo', dt)
+            nominal_policy.velocity_cmd = np.array([0.5, 0, 0])
+        #backup_policy.commands = np.array([-0.25, 0., 0.])
     
 
     
@@ -333,8 +340,13 @@ if __name__ == '__main__':
         if not prev_rec and isrec:
             sim_time_push = 0
 
-        if (only_rl or nom_rl) and isrec:
+        if (only_rl or nom_rl) and isrec and not sensor_based:
             qDes = nominal_policy.action(data_new[7], body_ang_vel, proj_gravity, data_new[2], data_new[3], policy_type="default")
+            pubSub.publish_is_reset(False)
+            pubSub.publish_rl(qDes, np.zeros(12), ffw_torques)
+            pubSub.publish_button([3])
+        if sensor_based and isrec:
+            qDes_no = nominal_policy.action(data_new[6], None, body_ang_vel, proj_gravity, data_new[2], data_new[3], policy_type="default")
             pubSub.publish_is_reset(False)
             pubSub.publish_rl(qDes, np.zeros(12), ffw_torques)
             pubSub.publish_button([3])
@@ -371,11 +383,11 @@ if __name__ == '__main__':
             
             pubSub.publish_is_rec(isrec)
         
-        if isrec and use_backup and use_nn and not stop_backup and not nom_rl:
+        if isrec and use_backup and use_nn and not stop_backup and not nom_rl and not sensor_based:
             qDes_no = backup_policy.action(data_new[6], None, body_ang_vel, proj_gravity, data_new[2], data_new[3], policy_type="safe")
             if not only_rl:
                 pubSub.publish_rl(qDes_no, np.zeros(12), ffw_torques)
-        if not isrec and use_backup and use_nn:
+        if not isrec and use_backup and use_nn and not sensor_based:
             if backup_trot:
                 qDes = backup_policy.compute_actions(data_new[4], data_new[5], data_new[2], data_new[3])
                 #qDes = backup_policy.compute_actions(data_new[0][3:], data_new[1][3:], data_new[2], data_new[3])
@@ -386,8 +398,14 @@ if __name__ == '__main__':
                     qDes = backup_policy.computeBackup(data_new[2], data_new[3], data_new[6])
                 else:
                     qDes = backup_policy.action(data_new[6], None, body_ang_vel, proj_gravity, data_new[2], data_new[3], policy_type="safe")
+
             pubSub.publish_is_rec(isrec)
             pubSub.publish_rl(qDes,np.zeros(12),ffw_torques)
+
+        if not isrec and sensor_based:
+            qDes_no = nominal_policy.action(data_new[6], None, body_ang_vel, proj_gravity, data_new[2], data_new[3], policy_type="safe")
+            pubSub.publish_is_rec(isrec)
+            pubSub.publish_rl(qDes_no, np.zeros(12), ffw_torques)
             
         #pubSub.publish_is_rec(False)
         #if stop_count == 1000:

@@ -9,7 +9,7 @@ np.set_printoptions(threshold=np.inf, precision=5, linewidth=1000, suppress=True
 
 
 if __name__ == '__main__':
-    dm = DatasetManager(use_nn = False, backup_trot=False, only_mpc = True, only_rl = False)
+    dm = DatasetManager(use_nn = True, backup_trot=False, only_mpc = False, only_rl = True, sensor=True)
     #try:
     dm.run_batch_simulations(n_episodes=100, save_path_relative="observation_datasets", noise_std=10.0, seed = int(time.time()))
 

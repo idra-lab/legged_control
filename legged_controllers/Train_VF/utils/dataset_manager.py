@@ -21,7 +21,7 @@ from controller_manager import controller_manager_interface
 
 
 class DatasetManager():
-    def __init__(self, use_nn=False, backup_trot=True, only_mpc = False, only_rl = True):
+    def __init__(self, use_nn=False, backup_trot=True, only_mpc = False, only_rl = True, sensor=False):
         # -------------------------------
         # Simulation Thresholds and Constants
         # -------------------------------
@@ -50,6 +50,7 @@ class DatasetManager():
         self.backup_trot = backup_trot
         self.only_mpc = only_mpc
         self.only_rl = only_rl
+        self.sensor = sensor
         self.init_ros()
         '''rospy.init_node('communicate_aliengo')
         
@@ -61,7 +62,11 @@ class DatasetManager():
         full_path = os.path.realpath(__file__)
         config_path = os.path.dirname(full_path) + '/config.yaml'
         self.config = load_config(config_path)
-        if self.backup_trot:
+        if self.sensor:
+            self.nominal_policy = RlVelocityController('aliengo', self.dt, use_nn_se=True, debug=False, policy="velocity")
+            self.nominal_policy.velocity_cmd = np.array([0, 0, 0])
+            self.ffw_torques = np.zeros(12)
+        elif self.backup_trot:
             self.backup_policy = BackupPolicy(self.config)
             self.running_mean_backup = copy.copy(self.backup_policy.actor_network.running_mean_std.running_mean)
             self.running_var_backup = copy.copy(self.backup_policy.actor_network.running_mean_std.running_var)
@@ -140,6 +145,8 @@ class DatasetManager():
         response = service(**kwargs)
 
     def reset(self):
+        if self.sensor:
+            self.nominal_policy._velocity_started = False
         reset_iter = 1
         #time.sleep(2)
         reset_max = 2
@@ -359,7 +366,8 @@ class DatasetManager():
         print('self.pubSub.joint_pos',data_new[2])
         print('self.pubSub.joint_vel',data_new[3])
 
-        self.pubSub.publish_button([3]) # Trot
+        if not self.sensor:
+            self.pubSub.publish_button([3]) # Trot
         time.sleep(1)
         for self.step in range(max_steps):
             # Update messages
@@ -405,11 +413,26 @@ class DatasetManager():
                     push_vel[1] =  vy #+ push_vel[1]
                     #print(data_new[0], push_vel)
                     self.pubSub.publish_state(data_new[0], push_vel)
-                cmd_vel = np.array([random_cmd[0], random_cmd[1], 0, 0, 0, 0, random_cmd[2]])
-                self.pubSub.publish_vel(cmd_vel)
-                self.pubSub.publish_rl(np.zeros(12),np.zeros(12),torque_noise)
 
-                if not self.backup_trot and self.use_nn:
+                if self.sensor:
+                    body_ang_vel = copy.copy(data_new[5])
+                    proj_gravity = quat_rotate_inverse(
+                        torch.tensor(data_new[4], device='cuda:0', dtype=torch.double).unsqueeze(0),
+                        #torch.tensor(data_new[0][3:], device='cuda:0', dtype=torch.double).unsqueeze(0),
+                        self.grav_tens
+                    )[0].cpu().numpy()
+
+                    self.nominal_policy.velocity_cmd = np.array([random_cmd[0], random_cmd[1], random_cmd[2]])
+                    qDes = self.nominal_policy.action(data_new[6], None, body_ang_vel, proj_gravity, data_new[2], data_new[3], policy_type="default")
+                    self.pubSub.publish_is_rec(True)
+                    
+                    self.pubSub.publish_rl(qDes,np.zeros(12),self.ffw_torques+torque_noise)
+                else:
+                    cmd_vel = np.array([random_cmd[0], random_cmd[1], 0, 0, 0, 0, random_cmd[2]])
+                    self.pubSub.publish_vel(cmd_vel)
+                    self.pubSub.publish_rl(np.zeros(12),np.zeros(12),torque_noise)
+
+                if not self.backup_trot and self.use_nn and not self.sensor:
                     body_ang_vel = copy.copy(data_new[5])
                     proj_gravity = quat_rotate_inverse(
                         torch.tensor(data_new[4], device='cuda:0', dtype=torch.double).unsqueeze(0),
@@ -421,7 +444,20 @@ class DatasetManager():
             else:#switch to backup policy
                 if np.mod(self.sim_time, 0.5) == 0:
                     print(colored(f"TIME: {self.sim_time}", "red"))
-                if not self.use_nn:
+                if self.sensor:
+                    body_ang_vel = copy.copy(data_new[5])
+                    proj_gravity = quat_rotate_inverse(
+                        torch.tensor(data_new[4], device='cuda:0', dtype=torch.double).unsqueeze(0),
+                        #torch.tensor(data_new[0][3:], device='cuda:0', dtype=torch.double).unsqueeze(0),
+                        self.grav_tens
+                    )[0].cpu().numpy()
+
+                    
+                    qDes = self.nominal_policy.action(data_new[6], None, body_ang_vel, proj_gravity, data_new[2], data_new[3], policy_type="safe")
+                    self.pubSub.publish_is_rec(False)
+                    
+                    self.pubSub.publish_rl(qDes,np.zeros(12),self.ffw_torques+torque_noise)
+                elif not self.use_nn:
                     cmd_vel = np.array([0, 0, 0, 0, 0, 0, 0.])
                     self.pubSub.publish_vel(cmd_vel)
                     #self.pubSub.publish_button([2])
@@ -507,7 +543,7 @@ class DatasetManager():
 
                 stats = np.array(stats, dtype=int)
 
-                np.save(os.path.join(save_path, "observations_mpc_controller_100 1_5_original_radius.npy"), padded_obs)
+                np.save(os.path.join(save_path, "observations_sensor_100_1_5_original_radius.npy"), padded_obs)
 
                 print(f"Episodi completati: {i+1}")
                 print(f"Caduti: {np.sum(stats[:, 0])}, CP raggiunto: {np.sum(stats[:, 1])}")
