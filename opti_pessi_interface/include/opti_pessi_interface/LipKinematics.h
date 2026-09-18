@@ -133,8 +133,8 @@ vector_t lipMapScalar(const vector_t& x, const vector_t& u, scalar_t w, scalar_t
 /**
  * State-dependent part of the running cost, shared by the stage and the final cost.
  *
- * The wtheta term is algebraically identically zero (it is the heading-alignment term of the
- * Python reference, where wtheta = 0). It is kept so this port stays a 1:1 image of the original.
+ * The wtheta term turns the robot to face the goal. It replaces the heading-alignment term of the
+ * Python reference, which is algebraically identically zero (there wtheta = 0).
  */
 template <typename Scalar>
 Scalar runningStateCost(const Eigen::Matrix<Scalar, 2, 1>& c, const Scalar& theta, const Eigen::Matrix<Scalar, 2, 1>& dc,
@@ -143,20 +143,15 @@ Scalar runningStateCost(const Eigen::Matrix<Scalar, 2, 1>& c, const Scalar& thet
   Scalar cost = Scalar(params.wc) * e.dot(e);
   cost += Scalar(params.wdc) * dc.dot(dc);
   cost += Scalar(params.wdtheta) * dtheta * dtheta;
-  const Scalar dc2 = dc.dot(dc);
   const Scalar ct = wrapCos(theta);
   const Scalar st = wrapSin(theta);
   // const Scalar align = dc2 * ct * ct - dc(0) * dc(0) + dc2 * st * st - dc(1) * dc(1);
-  // Heading-alignment term as it was presumably meant: |dc| * sin(angle between dc and theta), zero
-  // when the velocity is parallel (or antiparallel) to the heading. Enabling it makes the cost differ
-  // from the Python reference (ocp_quadruped.py:35), which is why it stays commented out.
-  // const Scalar align = dc(0) * st - dc(1) * ct;
   // cost += Scalar(params.wtheta) * align * align;
 
-  // e = atan2(dcy, dcx) - theta, l'errore di heading avvolto in (-pi, pi]
-  const Scalar dcNorm = wrapSqrt(dc2 + Scalar(1e-4));        // eps: da fermo nessun heading preferito
-  const Scalar cosErr = (dc(0) * ct + dc(1) * st) / dcNorm;  // = cos(e)
-  cost += Scalar(params.wtheta) * (Scalar(1) - cosErr);      
+  const Eigen::Matrix<Scalar, 2, 1> toGoal = cGoal - c;
+  const Scalar d = wrapSqrt(toGoal.dot(toGoal) + Scalar(1e-4));
+  const Scalar forward = toGoal(0) * ct + toGoal(1) * st;  // = d cos(e)
+  cost += Scalar(params.wtheta) * (d - forward) * d / (d * d + Scalar(0.25));
   return cost;
 }
 
