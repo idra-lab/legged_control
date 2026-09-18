@@ -319,14 +319,6 @@ optiPessiWbc
     rollPitchKd     20
 }
 
-; OptiPessiController: a phase starts at once on the latest plan, shifted by the phases completed since it was solved
-; (trustworthy plans only, up to maxPlanShift), until its own plan arrives. Without a usable plan the phase is a
-; capture-point stop; once the CoM is slower than restartSpeed the robot restarts from stance instead.
-optiPessiController
-{
-    maxPlanShift    1
-    restartSpeed    0.1   ; [m/s]
-}
 
 ; State Estimation
 kalmanFilter

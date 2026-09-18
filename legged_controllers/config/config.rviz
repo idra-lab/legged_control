@@ -309,8 +309,21 @@ Visualization Manager:
       Value: true
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
+      Name: Opti-Pessi Scenario Obstacles
+      Namespaces:
+        {}
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /opti_pessi/scenario_obstacles
+      Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
       Name: Opti-Pessi Trajectory
       Namespaces:
+        CoM Orientation: true
         CoM Trajectory: true
         EE Trajectories: true
         Future footholds: true

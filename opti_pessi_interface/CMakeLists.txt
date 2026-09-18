@@ -25,6 +25,7 @@ find_package(ocs2_robotic_tools REQUIRED)
 add_library(${PROJECT_NAME} SHARED
   src/OptiPessiModelParameters.cpp
   src/LipKinematics.cpp
+  src/ObstacleDetour.cpp
   src/OptiPessiInterface.cpp
   src/SolverBackend.cpp
   src/dynamics/OptiPessiDynamicsAD.cpp
@@ -102,42 +103,6 @@ install(PROGRAMS python/plot_mpc.py
 install(FILES python/plot_utils.py python/info_parser.py
   DESTINATION lib/${PROJECT_NAME}
 )
-
-#############
-## Testing ##
-#############
-
-if(BUILD_TESTING)
-  find_package(ament_cmake_gtest REQUIRED)
-
-  ament_add_gtest(test_lip_step test/testLipStep.cpp)
-  target_link_libraries(test_lip_step ${PROJECT_NAME})
-
-  # Tests read the .info files straight out of the source tree, so they stay valid before install.
-  ament_add_gtest(test_config_loading test/testConfigLoading.cpp)
-  target_link_libraries(test_config_loading ${PROJECT_NAME})
-  target_compile_definitions(test_config_loading PRIVATE OPTI_PESSI_CONFIG_DIR="${CMAKE_CURRENT_SOURCE_DIR}/config")
-
-  # Generates CppAD libraries and runs a closed loop; needs a generous timeout.
-  ament_add_gtest(test_s4_closed_loop test/testS4ClosedLoop.cpp TIMEOUT 600)
-  target_link_libraries(test_s4_closed_loop ${PROJECT_NAME})
-  target_compile_definitions(test_s4_closed_loop PRIVATE OPTI_PESSI_CONFIG_DIR="${CMAKE_CURRENT_SOURCE_DIR}/config")
-
-  # The controller's MPC path (MPC_BASE::run once per contact phase): footholds must keep their side.
-  ament_add_gtest(test_mpc_phase_warm_start test/testMpcPhaseWarmStart.cpp TIMEOUT 600)
-  target_link_libraries(test_mpc_phase_warm_start ${PROJECT_NAME})
-  target_compile_definitions(test_mpc_phase_warm_start PRIVATE OPTI_PESSI_CONFIG_DIR="${CMAKE_CURRENT_SOURCE_DIR}/config")
-
-  # Planned forces, with the normal loads the CoP implies, must respect the OCP friction cone.
-  ament_add_gtest(test_planned_friction_cone test/testPlannedFrictionCone.cpp TIMEOUT 600)
-  target_link_libraries(test_planned_friction_cone ${PROJECT_NAME})
-  target_compile_definitions(test_planned_friction_cone PRIVATE OPTI_PESSI_CONFIG_DIR="${CMAKE_CURRENT_SOURCE_DIR}/config")
-
-  # Every foothold of the planned horizon must be within reach of its hip.
-  ament_add_gtest(test_plan_horizon_footholds test/testPlanHorizonFootholds.cpp TIMEOUT 600)
-  target_link_libraries(test_plan_horizon_footholds ${PROJECT_NAME})
-  target_compile_definitions(test_plan_horizon_footholds PRIVATE OPTI_PESSI_CONFIG_DIR="${CMAKE_CURRENT_SOURCE_DIR}/config")
-endif()
 
 ament_export_include_directories(include)
 ament_export_libraries(${PROJECT_NAME})

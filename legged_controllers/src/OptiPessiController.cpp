@@ -1,5 +1,6 @@
 //
-// Refactored for ROS 2 Control
+// Opti-Pessi controller: LIP phase clock, reference synthesis and MPC hand-off. See OptiPessiController.h
+// for the thread layout and the once-per-phase loop closure.
 //
 
 #include <pinocchio/fwd.hpp>  // forward declarations must be included first.
@@ -84,6 +85,9 @@ controller_interface::CallbackReturn OptiPessiController::on_init() {
   if (!node->has_parameter("backend")) {
     node->declare_parameter<std::string>("backend", "Ipm");
   }
+  if (!node->has_parameter("obstacleDetour")) {
+    node->declare_parameter<bool>("obstacleDetour", true);
+  }
 
   std::string urdfFile = node->get_parameter("urdfFile").as_string();
   std::string taskFile = node->get_parameter("taskFile").as_string();
@@ -93,6 +97,7 @@ controller_interface::CallbackReturn OptiPessiController::on_init() {
   std::string libraryFolder = node->get_parameter("libraryFolder").as_string();
   bool recompile = node->get_parameter("recompile").as_bool();
   std::string backendStr = node->get_parameter("backend").as_string();
+  optiPessiDetourEnabled_ = node->get_parameter("obstacleDetour").as_bool();
   opti_pessi::SolverBackend backend = opti_pessi::SolverBackend::Ipm;
   if (backendStr == "Ipm") {
     backend = opti_pessi::SolverBackend::Ipm;
@@ -114,12 +119,6 @@ controller_interface::CallbackReturn OptiPessiController::on_init() {
   // LeggedInterface first: the Opti-Pessi model takes its mass and inertia from the URDF.
   setupLeggedInterface(taskFile, urdfFile, referenceFile, verbose);
   setupOptiPessiInterface(optipessiFile, scenarioFile, libraryFolder, recompile, backend);
-  {
-    boost::property_tree::ptree pt;
-    boost::property_tree::read_info(taskFile, pt);
-    loadData::loadPtreeValue(pt, optiPessiMaxPlanShift_, "optiPessiController.maxPlanShift", verbose);
-    loadData::loadPtreeValue(pt, optiPessiRestartSpeed_, "optiPessiController.restartSpeed", verbose);
-  }
   // setupLeggedMpc();
   setupOptiPessiMpc();
   // setupLeggedMrt();
@@ -430,44 +429,36 @@ void OptiPessiController::advanceOptiPessiPhase(const rclcpp::Time& time, const 
   }
 
   // Every solve starts at knot 0 (see opti_pessi_interface/definitions.h). Until the MPC thread delivers this phase's
-  // own plan, the latest plan runs shifted by the phases completed since it was solved, from the state measured at the
-  // start of this phase -- if its horizon is trustworthy; otherwise the phase is a capture-point stop, as in
-  // ClosedLoopSimulation. The LIP clock never waits for a solve. The input lasts u(DT) seconds.
+  // own plan, the latest plan runs shifted by the phases completed since it was solved (its last knot past the
+  // horizon), from the state measured at the start of this phase. The plan is applied as it comes, with no checks
+  // except on its duration (below). The LIP clock never waits for a solve. The input lasts u(DT) seconds.
   const auto& params = optiPessiInterface_->modelParameters();
   const size_t offset = optiPessiPhase_ - optiPessiPlan_.phase;
-  const bool planCoversPhase =
-      offset == 0 || (optiPessiPlan_.trustworthy && offset <= optiPessiMaxPlanShift_ && offset < optiPessiPlan_.inputs.size());
+  const size_t lastKnot = optiPessiPlan_.inputs.size() - 1;
   const vector_t robotState = offset == 0 ? optiPessiPlan_.startState : optiPessiRobotState_;
-  vector_t appliedInput;
-  if (planCoversPhase) {
-    appliedInput = optiPessiPlan_.inputs[offset];
-  } else {
-    const scalar_t speed = robotState.segment(opti_pessi::RobotX::DCX, 2).norm();
-    if (speed < optiPessiRestartSpeed_) {
-      RCLCPP_WARN(this->get_node()->get_logger(),
-                  "[OptiPessi] phase %zu: no usable plan since phase %zu and |dc|=%.3f < %.2f m/s, restarting from stance", optiPessiPhase_,
-                  optiPessiPlan_.phase, speed, optiPessiRestartSpeed_);
-      restartFromStance();
-      return;
-    }
-    appliedInput = opti_pessi::fallbackInput(params, robotState, static_cast<int>(optiPessiPhase_));
-    if (!optiPessiPhaseDiagnostics_.fallback) {
-      optiPessiPhaseDiagnostics_.fallback = true;
-      RCLCPP_WARN(this->get_node()->get_logger(),
-                  "[OptiPessi] phase %zu: no usable plan (latest: phase %zu, %s, trustworthy=%d), capture-point stop from |dc|=%.3f m/s",
-                  optiPessiPhase_, optiPessiPlan_.phase, optiPessiPlan_.source.c_str(), optiPessiPlan_.trustworthy ? 1 : 0, speed);
-    }
-  }
+  vector_t appliedInput = optiPessiPlan_.inputs[std::min(offset, lastKnot)];
   if (offset > 0) {
     optiPessiWaitTime_ += period.seconds();
   }
-  const scalar_t phaseDuration = appliedInput(opti_pessi::RobotU::DT);
+
+  // A plan arriving mid-phase may bring touchdown forward, but not closer than optiPessiMinLandingTime_ from now (or
+  // than the previous touchdown, if that was sooner). Without this, a late plan with a shorter dt than the time already
+  // spent ends the phase at once and the swing feet become the stance pair in mid-air. The floor never moves touchdown
+  // later than the previous tick had it, so re-solves cannot stretch a phase forever. At phase start
+  // optiPessiPhaseDuration_ is 0 and the floor is 0. The stretched dt is the one applied everywhere below.
+  const scalar_t plannedDuration = appliedInput(opti_pessi::RobotU::DT);
+  const scalar_t landingFloor =
+      optiPessiPhaseElapsed_ + std::min(optiPessiPhaseDuration_ - optiPessiPhaseElapsed_, optiPessiMinLandingTime_);
+  const scalar_t phaseDuration = std::max(plannedDuration, landingFloor);
+  optiPessiPhaseDuration_ = phaseDuration;
+  appliedInput(opti_pessi::RobotU::DT) = phaseDuration;
 
   // Plan stability over the phase: the MPC keeps re-solving it, and each new policy can move dt and the footholds.
   {
     PhaseDiagnostics& diagnostics = optiPessiPhaseDiagnostics_;
-    diagnostics.durationMin = std::min(diagnostics.durationMin, phaseDuration);
-    diagnostics.durationMax = std::max(diagnostics.durationMax, phaseDuration);
+    diagnostics.durationMin = std::min(diagnostics.durationMin, plannedDuration);
+    diagnostics.durationMax = std::max(diagnostics.durationMax, plannedDuration);
+    diagnostics.durationStretch = std::max(diagnostics.durationStretch, phaseDuration - plannedDuration);
     const vector_t footholds = appliedInput.head(4);
     if (diagnostics.firstFootholds.size() == 0) {
       diagnostics.firstFootholds = footholds;
@@ -477,8 +468,7 @@ void OptiPessiController::advanceOptiPessiPhase(const rclcpp::Time& time, const 
 
   // The next knot is the stance the swing feet land in, so its forces are their touchdown forces.
   const vector_t nextState = opti_pessi::lipMapScalar(robotState, appliedInput, params.omega(), params.mass, params.inertia);
-  const vector_t nextInput = planCoversPhase ? optiPessiPlan_.inputs[std::min(offset + 1, optiPessiPlan_.inputs.size() - 1)]
-                                             : opti_pessi::fallbackInput(params, nextState, static_cast<int>(optiPessiPhase_) + 1);
+  const vector_t nextInput = optiPessiPlan_.inputs[std::min(offset + 1, lastKnot)];
 
   optiPessiPhaseElapsed_ += period.seconds();
   updateFootReferences(robotState, appliedInput, nextState, nextInput, optiPessiPhaseElapsed_);
@@ -489,10 +479,6 @@ void OptiPessiController::advanceOptiPessiPhase(const rclcpp::Time& time, const 
 
   // Phase over: measure the robot for the next phase's stance pair and hand it to the MPC thread.
   const vector_t successorState = measureLipState(optiPessiPhase_ + 1, optiPessiLiftoffPositions_);
-  if (opti_pessi::isInsane(successorState, appliedInput, params)) {
-    RCLCPP_WARN(this->get_node()->get_logger(), "[OptiPessi] phase %zu: measured state or applied input outside the LIP bounds",
-                optiPessiPhase_);
-  }
 
   // Diagnostics of the phase just ended, in sim time: how long the LIP clock waited for its policy, how far the
   // measured robot ended from the LIP prediction (plan realizable?) and from the WBC references (tracking?), and
@@ -541,11 +527,11 @@ void OptiPessiController::advanceOptiPessiPhase(const rclcpp::Time& time, const 
       const auto s1 = static_cast<size_t>(swing[1]);
       RCLCPP_INFO(this->get_node()->get_logger(),
                   "[OptiPessi] phase %zu touchdown: %s height=%.3f contact=%d, %s height=%.3f contact=%d | dt seen=[%.3f, %.3f] "
-                  "foothold drift=%.3f policy updates=%zu",
+                  "stretched=%.3f foothold drift=%.3f policy updates=%zu",
                   optiPessiPhase_, kFootNames[s0], optiPessiLiftoffPositions_[s0].z() - optiPessiFootReferences_[s0].position.z(),
                   measuredContacts[s0] ? 1 : 0, kFootNames[s1],
                   optiPessiLiftoffPositions_[s1].z() - optiPessiFootReferences_[s1].position.z(), measuredContacts[s1] ? 1 : 0,
-                  d.durationMin, d.durationMax, d.footholdDrift, d.policyUpdates);
+                  d.durationMin, d.durationMax, d.durationStretch, d.footholdDrift, d.policyUpdates);
     }
     optiPessiPhaseDiagnostics_ = PhaseDiagnostics();
 
@@ -561,7 +547,44 @@ void OptiPessiController::advanceOptiPessiPhase(const rclcpp::Time& time, const 
                 optiPessiPhase_, dcBody(0), dcBody(1), predicted(RobotX::DTH), params.dcxMax, params.dcyMax, params.dthetaMax,
                 solve.gaitOffset, solve.warmStart, solve.numIterations, solve.performance.cost, solve.source, solve.pessiScale,
                 solve.trustworthy ? 1 : 0, solve.dynamicsResidual, solve.appliedViolation, solve.horizonViolation,
-                planCoversPhase ? "plan" : "capture-point stop, latest plan", optiPessiPlan_.phase, offset, optiPessiPlan_.source.c_str());
+                "plan", optiPessiPlan_.phase, offset, optiPessiPlan_.source.c_str());
+
+    // Obstacle clearance at the end of the phase: distance from each obstacle centre to the convex hull of the four hips
+    // and the landed feet, measured and as the LIP predicted, against the type radius the OCP keeps out.
+    std::vector<ObstacleObservation> obstacles;
+    {
+      std::lock_guard<std::mutex> lock(optiPessiReferenceMutex_);
+      obstacles = optiPessiObstacles_;
+    }
+    const auto hullClearance = [&](const vector_t& state, const vector2_t& centre) {
+      std::array<vector2_t, 6> points{};
+      for (size_t f = 0; f < 4; ++f) {
+        points[f] = state.head<2>() + opti_pessi::applyR(state(RobotX::TH), opti_pessi::hipOf(params, static_cast<opti_pessi::Foot>(f)));
+      }
+      points[4] = state.segment<2>(RobotX::P0X);
+      points[5] = state.segment<2>(RobotX::P1X);
+      scalar_t best = -1e9;
+      constexpr int kNumDirections = 64;
+      for (int k = 0; k < kNumDirections; ++k) {
+        const scalar_t angle = 2.0 * M_PI * static_cast<scalar_t>(k) / kNumDirections;
+        const vector2_t a(std::cos(angle), std::sin(angle));
+        scalar_t support = -1e9;
+        for (const vector2_t& p : points) {
+          support = std::max(support, a.dot(p));
+        }
+        best = std::max(best, a.dot(centre) - support);
+      }
+      return best;
+    };
+    for (size_t j = 0; j < obstacles.size(); ++j) {
+      const vector2_t centre(obstacles[j].x, obstacles[j].y);
+      const opti_pessi::ObstacleTypeModel& model = opti_pessi::obstacleTypeOf(params, obstacles[j].type);
+      RCLCPP_INFO(this->get_node()->get_logger(),
+                  "[OptiPessi] phase %zu obstacle %zu: centre=(%.3f, %.3f) r=%.2f vmax=%.2f | hull clearance measured=%.3f "
+                  "predicted=%.3f (inside keep-out if < r)",
+                  optiPessiPhase_, j, centre.x(), centre.y(), model.radius, model.maxSpeed, hullClearance(successorState, centre),
+                  hullClearance(predicted, centre));
+    }
   }
   {
     std::lock_guard<std::mutex> lock(optiPessiPhaseMutex_);
@@ -569,6 +592,7 @@ void OptiPessiController::advanceOptiPessiPhase(const rclcpp::Time& time, const 
     ++optiPessiPhase_;
   }
   optiPessiPhaseElapsed_ -= phaseDuration;
+  optiPessiPhaseDuration_ = 0.0;
   landSwingFeet();
 
   RCLCPP_INFO(this->get_node()->get_logger(), "[OptiPessi] phase %zu: dt=%.3f c=(%.3f, %.3f) theta=%.3f v=(%.3f, %.3f)",
@@ -838,6 +862,7 @@ void OptiPessiController::standUp(const rclcpp::Duration& period) {
     optiPessiPhase_ = 0;
   }
   optiPessiPhaseElapsed_ = 0.0;
+  optiPessiPhaseDuration_ = 0.0;
   optiPessiPlan_ = AcceptedPlan();  // a plan from before a restart was solved for other feet
 
   const PhaseDiagnostics& d = optiPessiPhaseDiagnostics_;
@@ -868,11 +893,6 @@ void OptiPessiController::storeAcceptedPlan(const opti_pessi::OptiPessiMpc::Plan
                             (plan.startState - optiPessiRobotState_).cwiseAbs().maxCoeff() < 1e-9;
   const bool newerEarlierPhase = plan.phase < optiPessiPhase_ && (!optiPessiPlan_.valid || plan.phase > optiPessiPlan_.phase);
   if (!forThisPhase && !newerEarlierPhase) {
-    return;
-  }
-  // Re-solves of a phase keep coming: a failed one must not replace a solve of the same phase that was accepted.
-  const bool saturated = std::string(plan.source) == "saturated";
-  if (saturated && optiPessiPlan_.valid && optiPessiPlan_.phase == plan.phase && optiPessiPlan_.source != "saturated") {
     return;
   }
 
@@ -934,6 +954,7 @@ vector3_t OptiPessiController::measureCenterOfMass() const {
   return com;
 }
 
+/** Phase boundary: the swing pair becomes stance with its touchdown forces, the old stance pair is unloaded. */
 void OptiPessiController::landSwingFeet() {
   for (FootReference& reference : optiPessiFootReferences_) {
     if (reference.contact) {
@@ -946,6 +967,7 @@ void OptiPessiController::landSwingFeet() {
   }
 }
 
+/** All four feet in contact carrying m g / 4, CoM and yaw held: the stand-up and goal-reached posture. */
 void OptiPessiController::holdStance(const vector3_t& comPosition, scalar_t yaw) {
   const auto& params = optiPessiInterface_->modelParameters();
   for (FootReference& reference : optiPessiFootReferences_) {
@@ -954,16 +976,17 @@ void OptiPessiController::holdStance(const vector3_t& comPosition, scalar_t yaw)
     reference.force << 0.0, 0.0, 0.25 * params.mass * params.gravity;
     reference.touchdownForce = reference.force;
   }
-  optiPessiComReference_ = ComReference();
-  optiPessiComReference_.position = comPosition;
-  optiPessiComReference_.yaw = yaw;
+  // Built aside and assigned last: callers may pass optiPessiComReference_.position itself, which resetting the member
+  // first would zero before it is read (the goal-reached call did, sending the CoM reference to the odom origin).
+  ComReference reference;
+  reference.position = comPosition;
+  reference.yaw = yaw;
+  optiPessiComReference_ = reference;
 }
 
 void OptiPessiController::publishOptiPessiPlan() {
-  using opti_pessi::RobotX;
   using visualization_msgs::msg::Marker;
   const auto& params = optiPessiInterface_->modelParameters();
-  const PrimalSolution& policy = optiPessiMrtInterface_->getPolicy();
   const auto stamp = ros2_node_->get_clock()->now();  // same clock as the odom -> base TF of robotVisualizer_
 
   auto makeMarker = [&](const std::string& ns, int id, int32_t type, float r, float g, float b, float a) {
@@ -998,23 +1021,16 @@ void OptiPessiController::publishOptiPessiPlan() {
   clear.action = Marker::DELETEALL;
   markers.markers.push_back(clear);
 
-  // Planned CoM path of the pessimistic branch at the LIP height, one point per knot. The optimistic
-  // branch, the one executed, is drawn with its feet by publishOptiPessiTrajectories().
-  Marker pessimisticCom = makeMarker("pessimistic_com", 0, Marker::LINE_STRIP, 0.9F, 0.2F, 0.1F, 1.0F);
-  pessimisticCom.scale.x = 0.01;
-  for (const vector_t& x : policy.stateTrajectory_) {
-    pessimisticCom.points.push_back(point(x(RobotX::DIM + RobotX::CX), x(RobotX::DIM + RobotX::CY), params.comHeight));
-  }
-  markers.markers.push_back(pessimisticCom);
-
   // Obstacles and goal as last received (odom), each obstacle at the keep-out radius of its type: humans orange, cars
   // blue. The reference manager is not read here, the MPC thread writes it.
   std::vector<ObstacleObservation> obstacles;
   vector_t goalPosition;
+  vector_t detourGoalPosition;
   {
     std::lock_guard<std::mutex> lock(optiPessiReferenceMutex_);
     obstacles = optiPessiObstacles_;
     goalPosition = optiPessiGoal_;
+    detourGoalPosition = optiPessiDetourGoal_;
   }
   for (size_t j = 0; j < obstacles.size(); ++j) {
     const bool car = obstacles[j].type == opti_pessi::ObstacleType::Car;
@@ -1033,12 +1049,27 @@ void OptiPessiController::publishOptiPessiPlan() {
     markers.markers.push_back(goal);
   }
 
+  // The actual local goal tracked by the OCP while an obstacle detour is active (cyan).
+  if (detourGoalPosition.size() == 2) {
+    Marker detourGoal = makeMarker("detour_goal", 0, Marker::SPHERE, 0.0F, 0.9F, 0.9F, 1.0F);
+    detourGoal.pose.position = point(detourGoalPosition(0), detourGoalPosition(1), 0.05);
+    detourGoal.scale.x = detourGoal.scale.y = detourGoal.scale.z = 0.1;
+    markers.markers.push_back(detourGoal);
+
+    Marker detourLine = makeMarker("detour_goal", 1, Marker::LINE_STRIP, 0.1F, 0.4F, 1.0F, 0.9F);
+    detourLine.scale.x = 0.01;
+    detourLine.points.push_back(getPointMsg(measureCenterOfMass()));
+    detourLine.points.push_back(detourGoal.pose.position);
+    markers.markers.push_back(detourLine);
+  }
+
   optiPessiPlanPublisher_->publish(markers);
 }
 
 void OptiPessiController::publishOptiPessiTrajectories() {
   using opti_pessi::RobotU;
   using opti_pessi::RobotX;
+  using visualization_msgs::msg::Marker;
   using vector2_t = Eigen::Matrix<scalar_t, 2, 1>;
   const auto& params = optiPessiInterface_->modelParameters();
   const PrimalSolution& policy = optiPessiMrtInterface_->getPolicy();
@@ -1055,6 +1086,7 @@ void OptiPessiController::publishOptiPessiTrajectories() {
 
   feet_array_t<std::vector<geometry_msgs::msg::Point>> feetPoints;
   std::vector<geometry_msgs::msg::Point> comPoints;
+  std::vector<Marker> comOrientations;
   visualization_msgs::msg::Marker footholds;
   footholds.type = visualization_msgs::msg::Marker::SPHERE_LIST;
   footholds.scale.x = footholds.scale.y = footholds.scale.z = robotVisualizer_->footMarkerDiameter_;
@@ -1094,12 +1126,34 @@ void OptiPessiController::publishOptiPessiTrajectories() {
     const vector2_t p1(x(RobotX::P1X), x(RobotX::P1Y));
     const vector2_t cop = opti_pessi::computeCop(p0, p1, u(RobotU::ALPHA));
 
+    // Use the same continuous yaw reference as updateComReference().
+    vector2_t f0, f1;
+    opti_pessi::computeTangentialForces(c, p0, p1, u(RobotU::ALPHA), u(RobotU::BETA), u(RobotU::GAMMA), w, params.mass, f0, f1);
+    const scalar_t yawAcceleration = opti_pessi::yawTorque(c, p0, p1, f0, f1) / params.inertia;
+
     for (size_t s = (i == 0 ? 0 : 1); s <= samplesPerPhase; ++s) {
       const scalar_t t = dt * static_cast<scalar_t>(s) / static_cast<scalar_t>(samplesPerPhase);
       const scalar_t ch = std::cosh(w * t);
       const scalar_t sh = std::sinh(w * t);
       const vector2_t com = ch * c + (sh / w) * dc + (1.0 - ch) * cop;
       comPoints.push_back(getPointMsg(vector3_t(com(0), com(1), params.comHeight)));
+
+      // Sparse arrows keep the CoM path readable: start, then midpoint and end of each phase.
+      if (s % (samplesPerPhase / 2) == 0) {
+        const scalar_t yaw = x(RobotX::TH) + t * x(RobotX::DTH) + 0.5 * t * t * yawAcceleration;
+        Marker orientation;
+        orientation.ns = "CoM Orientation";
+        orientation.type = Marker::ARROW;
+        orientation.action = Marker::ADD;
+        orientation.pose.position = comPoints.back();
+        orientation.pose.orientation.z = std::sin(0.5 * yaw);
+        orientation.pose.orientation.w = std::cos(0.5 * yaw);
+        orientation.scale.x = 0.18;
+        orientation.scale.y = 0.025;
+        orientation.scale.z = 0.025;
+        orientation.color = getColor(Color::red);
+        comOrientations.push_back(std::move(orientation));
+      }
 
       for (size_t k = 0; k < 2; ++k) {
         feetPoints[static_cast<size_t>(stance[k])].push_back(getPointMsg(stancePositions[k]));
@@ -1112,6 +1166,10 @@ void OptiPessiController::publishOptiPessiTrajectories() {
   }
 
   visualization_msgs::msg::MarkerArray markerArray;
+  // Clear old arrows as well when the horizon becomes shorter.
+  Marker clear;
+  clear.action = Marker::DELETEALL;
+  markerArray.markers.push_back(clear);
   for (size_t i = 0; i < feetPoints.size(); ++i) {
     markerArray.markers.emplace_back(
         getLineMsg(std::move(feetPoints[i]), robotVisualizer_->feetColorMap_[i], robotVisualizer_->trajectoryLineWidth_));
@@ -1120,6 +1178,9 @@ void OptiPessiController::publishOptiPessiTrajectories() {
   markerArray.markers.emplace_back(getLineMsg(std::move(comPoints), Color::red, robotVisualizer_->trajectoryLineWidth_));
   markerArray.markers.back().ns = "CoM Trajectory";
   markerArray.markers.push_back(std::move(footholds));
+  for (auto& orientation : comOrientations) {
+    markerArray.markers.push_back(std::move(orientation));
+  }
 
   // Same clock as the odom -> base TF of robotVisualizer_.
   assignHeader(markerArray.markers.begin(), markerArray.markers.end(), getHeaderMsg("odom", ros2_node_->get_clock()->now()));
@@ -1127,6 +1188,7 @@ void OptiPessiController::publishOptiPessiTrajectories() {
   optiPessiTrajectoryPublisher_->publish(markerArray);
 }
 
+/** Swing foot at `time`: cubic in x and y with zero end velocities, SplineCpg in z through the apex. */
 void OptiPessiController::evaluateSwing(const vector3_t& liftoff, const vector3_t& touchdown, scalar_t duration, scalar_t swingHeight,
                                         scalar_t time, vector3_t& position, vector3_t& velocity) {
   const CubicSpline splineX({0.0, liftoff.x(), 0.0}, {duration, touchdown.x(), 0.0});
@@ -1169,9 +1231,6 @@ void OptiPessiController::pushOptiPessiReferences(const vector_t& robotState) {
     seen = optiPessiObstacles_;
   }
   auto& referenceManager = *optiPessiInterface_->getOptiPessiReferenceManagerPtr();
-  if (goal.size() == 2) {
-    referenceManager.setGoal(goal);
-  }
 
   // Slots keep the message order, so a slot keeps its obstacle (and the hyperplanes warm-started for it) between solves.
   // With more obstacles than slots, the closest keep-out disks take them.
@@ -1209,6 +1268,27 @@ void OptiPessiController::pushOptiPessiReferences(const vector_t& robotState) {
     }
   }
   referenceManager.setObstacles(positions, radii, maxSpeeds);
+
+  // The OCP tracks a detour goal while an obstacle blocks the straight line to the goal: its short horizon never pays
+  // for walking around, and stalls at the grown keep-out otherwise. Goal-reached checks keep using the real goal.
+  // With the obstacleDetour parameter false, the OCP tracks the goal itself.
+  if (goal.size() == 2) {
+    if (!optiPessiDetourEnabled_) {
+      referenceManager.setGoal(goal);
+      return;
+    }
+    const bool wasActive = optiPessiDetour_->active();
+    const vector_t ocpGoal = optiPessiDetour_->detourGoal(robotState, goal, positions, radii, maxSpeeds);
+    referenceManager.setGoal(ocpGoal);
+    {
+      std::lock_guard<std::mutex> lock(optiPessiReferenceMutex_);
+      optiPessiDetourGoal_ = optiPessiDetour_->active() ? ocpGoal : vector_t();
+    }
+    if (optiPessiDetour_->active() != wasActive) {
+      RCLCPP_INFO(ros2_node_->get_logger(), "[OptiPessi] obstacle detour %s: OCP goal (%.3f, %.3f), goal (%.3f, %.3f)",
+                  optiPessiDetour_->active() ? "on" : "off", ocpGoal(0), ocpGoal(1), goal(0), goal(1));
+    }
+  }
 }
 
 bool OptiPessiController::getOptiPessiGoal(vector_t& goal, size_t& sequence) {
@@ -1368,6 +1448,7 @@ void OptiPessiController::setupOptiPessiInterface(const std::string& optipessiFi
   char modelFolder[64];
   std::snprintf(modelFolder, sizeof(modelFolder), "/m%.3f_I%.4f", mass, inertia);
   optiPessiInterface_->setupOptimalControlProblem(libraryFolder + modelFolder, recompile, backend);
+  optiPessiDetour_ = std::make_unique<opti_pessi::ObstacleDetour>(optiPessiInterface_->modelParameters());
 }
 
 void OptiPessiController::setupLeggedInterface(const std::string& taskFile, const std::string& urdfFile, const std::string& referenceFile,

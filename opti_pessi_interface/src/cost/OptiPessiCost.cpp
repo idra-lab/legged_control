@@ -41,6 +41,7 @@ ocs2::ad_scalar_t OptiPessiStageCost::costFunction(ocs2::ad_scalar_t, const ocs2
   using Scalar = ocs2::ad_scalar_t;
   using Vec2 = Eigen::Matrix<Scalar, 2, 1>;
 
+  // head() == the OPTIMISTIC branch. The pessimistic one is never read here: it carries no cost.
   const ocs2::ad_vector_t x = state.head(RobotX::DIM);
   const ocs2::ad_vector_t u = input.head(RobotU::DIM);
 

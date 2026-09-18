@@ -92,6 +92,9 @@ struct OptiPessiModelParameters {
   scalar_t simTime = 30.0;
   scalar_t goalTolerance = 0.1;
   std::string figName = "mpc_sim_";
+  // Walk around obstacles blocking the line to the goal (ObstacleDetour). Off by default so the scenarios stay
+  // comparable with the CasADi reference, which has no such layer; the Gazebo controller always uses it.
+  bool obstacleDetour = false;
 
   /** LIP natural frequency omega = sqrt(g/h). */
   scalar_t omega() const { return std::sqrt(gravity / comHeight); }

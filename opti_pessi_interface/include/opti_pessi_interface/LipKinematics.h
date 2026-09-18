@@ -24,6 +24,8 @@ inline ocs2::ad_scalar_t wrapCos(const ocs2::ad_scalar_t& x) { return CppAD::cos
 inline ocs2::ad_scalar_t wrapSin(const ocs2::ad_scalar_t& x) { return CppAD::sin(x); }
 inline ocs2::ad_scalar_t wrapCosh(const ocs2::ad_scalar_t& x) { return CppAD::cosh(x); }
 inline ocs2::ad_scalar_t wrapSinh(const ocs2::ad_scalar_t& x) { return CppAD::sinh(x); }
+inline scalar_t wrapSqrt(scalar_t x) { return std::sqrt(x); }
+inline ocs2::ad_scalar_t wrapSqrt(const ocs2::ad_scalar_t& x) { return CppAD::sqrt(x); }
 
 /** R01(theta) * v, i.e. R(-theta) * v : world -> body. */
 template <typename Scalar, typename Derived>
@@ -64,7 +66,7 @@ void computeTangentialForces(const Eigen::Matrix<Scalar, 2, 1>& c, const Eigen::
   f1(1) = (Scalar(1) - gamma) * mass * ddc(1);
 }
 
-/** Vertical moment about the CoM produced by the two tangential foot forces. */
+/** Vertical moment about the CoM produced by the two tangential foot forces; ddtheta = tau / I. */
 template <typename Scalar>
 Scalar yawTorque(const Eigen::Matrix<Scalar, 2, 1>& c, const Eigen::Matrix<Scalar, 2, 1>& p0, const Eigen::Matrix<Scalar, 2, 1>& p1,
                  const Eigen::Matrix<Scalar, 2, 1>& f0, const Eigen::Matrix<Scalar, 2, 1>& f1) {
@@ -75,6 +77,13 @@ Scalar yawTorque(const Eigen::Matrix<Scalar, 2, 1>& c, const Eigen::Matrix<Scala
  * Exact discrete LIP step over one contact phase of duration u(RobotU::DT): the closed-form flow
  * of ddc = omega^2 (c - z) with constant CoP, plus a forward-Euler step for yaw. Maps
  * (x in R^10, u in R^8) to x_next in R^10.
+ *
+ * The yaw torque is evaluated ONCE, at the phase start, and held over the phase. The CoM part is
+ * exact; the yaw part is not, and OptiPessiController::updateComReference() integrates the same
+ * constant torque continuously, so at phase end the two differ by dt^2 tau / (2 I).
+ *
+ * The landing footholds are copied straight out of u: the planner decides them, the LIP does not
+ * predict them.
  */
 template <typename Vec>
 Vec lipMap(const Vec& x, const Vec& u, typename Vec::Scalar w, typename Vec::Scalar mass, typename Vec::Scalar inertia) {
@@ -124,8 +133,8 @@ vector_t lipMapScalar(const vector_t& x, const vector_t& u, scalar_t w, scalar_t
 /**
  * State-dependent part of the running cost, shared by the stage and the final cost.
  *
- * The wtheta term is algebraically identically zero (it is the heading-alignment term of the
- * Python reference, where wtheta = 0). It is kept so this port stays a 1:1 image of the original.
+ * The wtheta term turns the robot to face the goal. It replaces the heading-alignment term of the
+ * Python reference, which is algebraically identically zero (there wtheta = 0).
  */
 template <typename Scalar>
 Scalar runningStateCost(const Eigen::Matrix<Scalar, 2, 1>& c, const Scalar& theta, const Eigen::Matrix<Scalar, 2, 1>& dc,
@@ -134,11 +143,15 @@ Scalar runningStateCost(const Eigen::Matrix<Scalar, 2, 1>& c, const Scalar& thet
   Scalar cost = Scalar(params.wc) * e.dot(e);
   cost += Scalar(params.wdc) * dc.dot(dc);
   cost += Scalar(params.wdtheta) * dtheta * dtheta;
-  const Scalar dc2 = dc.dot(dc);
   const Scalar ct = wrapCos(theta);
   const Scalar st = wrapSin(theta);
-  const Scalar align = dc2 * ct * ct - dc(0) * dc(0) + dc2 * st * st - dc(1) * dc(1);
-  cost += Scalar(params.wtheta) * align * align;
+  // const Scalar align = dc2 * ct * ct - dc(0) * dc(0) + dc2 * st * st - dc(1) * dc(1);
+  // cost += Scalar(params.wtheta) * align * align;
+
+  const Eigen::Matrix<Scalar, 2, 1> toGoal = cGoal - c;
+  const Scalar d = wrapSqrt(toGoal.dot(toGoal) + Scalar(1e-4));
+  const Scalar forward = toGoal(0) * ct + toGoal(1) * st;  // = d cos(e)
+  cost += Scalar(params.wtheta) * (d - forward) * d / (d * d + Scalar(0.25));
   return cost;
 }
 

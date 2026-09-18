@@ -7,6 +7,7 @@
 #include <iostream>
 
 #include "opti_pessi_interface/LipKinematics.h"
+#include "opti_pessi_interface/ObstacleDetour.h"
 #include "opti_pessi_interface/initialization/OptiPessiInitializer.h"
 #include "opti_pessi_interface/simulation/ObstaclePlant.h"
 
@@ -86,6 +87,8 @@ ClosedLoopResult runClosedLoopSimulation(OptiPessiInterface& interface, ocs2::Ip
   // control step cannot keep up with that disk as it inflates, so the better the start, the further
   // the iterate has fallen behind by the time the obstacle matters.
 
+  ObstacleDetour detour(params);
+
   const scalar_t goalToleranceSq = params.goalTolerance * params.goalTolerance;
   auto goalDistanceSq = [&](int step) {
     return std::pow(X(RobotX::CX, step) - params.goal(0), 2) + std::pow(X(RobotX::CY, step) - params.goal(1), 2);
@@ -94,7 +97,17 @@ ClosedLoopResult runClosedLoopSimulation(OptiPessiInterface& interface, ocs2::Ip
   while (t < params.simTime && goalDistanceSq(n) > goalToleranceSq) {
     referenceManagerPtr->setGaitOffset(n);
     referenceManagerPtr->setObstacles(plant.positions);
-    referenceManagerPtr->setGoal(params.goal);
+    // The OCP tracks a detour goal while an obstacle blocks the line to the real goal (see ObstacleDetour.h); the
+    // termination test below keeps using the real goal.
+    const bool detourWasActive = detour.active();
+    referenceManagerPtr->setGoal(params.obstacleDetour ? detour.detourGoal(X.col(n), params.goal, referenceManagerPtr->getObstacles(),
+                                                                           referenceManagerPtr->getObstacleRadii(),
+                                                                           referenceManagerPtr->getObstacleMaxSpeeds())
+                                                       : params.goal);
+    if (detour.active() != detourWasActive) {
+      std::printf("  step %d: obstacle detour %s, OCP goal (%.2f, %.2f)\n", n, detour.active() ? "ON" : "OFF",
+                  referenceManagerPtr->getGoal()(0), referenceManagerPtr->getGoal()(1));
+    }
 
     if (verbose) {
       std::printf("Sim step: %d  time: %.2f\n", n, t);

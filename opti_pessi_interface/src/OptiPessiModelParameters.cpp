@@ -1,3 +1,10 @@
+// Loads the two config files into one parameter struct: task.info (model, cost, limits, horizon) and
+// the scenario file (goal, obstacle count and plant).
+//
+// Almost everything loaded here is COMPILED INTO the generated CppAD libraries. The exceptions are the
+// per-slot obstacle parameters and the goal, which the reference manager passes at runtime. Editing
+// task.info therefore requires recompile:=true, or a stale libraryFolder silently yields a different
+// controller. See OptiPessiInterface::setupOptimalControlProblem().
 #include "opti_pessi_interface/OptiPessiModelParameters.h"
 
 #include <algorithm>
@@ -187,6 +194,7 @@ OptiPessiModelParameters loadOptiPessiModelParameters(const std::string& taskFil
   ocs2::loadData::loadPtreeValue(scenario, p.simTime, "simulation.simTime", verbose);
   ocs2::loadData::loadPtreeValue(scenario, p.goalTolerance, "simulation.goalTolerance", verbose);
   ocs2::loadData::loadPtreeValue(scenario, p.figName, "simulation.figName", verbose);
+  ocs2::loadData::loadPtreeValue(scenario, p.obstacleDetour, "simulation.obstacleDetour", verbose);
 
   if (verbose) {
     std::cerr << " #### =============================================================================" << std::endl;
