@@ -146,6 +146,7 @@ class DatasetManager():
 
     def reset(self):
         if self.sensor:
+            self.pubSub.publish_is_reset(True)
             self.nominal_policy._velocity_started = False
         reset_iter = 1
         #time.sleep(2)
@@ -425,6 +426,7 @@ class DatasetManager():
                     self.nominal_policy.velocity_cmd = np.array([random_cmd[0], random_cmd[1], random_cmd[2]])
                     qDes = self.nominal_policy.action(data_new[6], None, body_ang_vel, proj_gravity, data_new[2], data_new[3], policy_type="default")
                     self.pubSub.publish_is_rec(True)
+                    self.pubSub.publish_is_reset(False)
                     
                     self.pubSub.publish_rl(qDes,np.zeros(12),self.ffw_torques+torque_noise)
                 else:
@@ -551,7 +553,7 @@ class DatasetManager():
                 print(f"Shape of observations: {padded_obs.shape}")
                 exit()
 
-            if self.use_nn:
+            if self.use_nn and not self.sensor:
                 if self.backup_trot:
                     self.backup_policy.actor_network.running_mean_std.running_mean = self.running_mean_backup
                     self.backup_policy.actor_network.running_mean_std.running_var = self.running_var_backup

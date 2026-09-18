@@ -172,14 +172,14 @@ if __name__ == '__main__':
     prev_rec = True
     manual_switch = False
     isrec = True
-    use_nn = False
+    use_nn = True
     stop = False
     stop_backup = False
     only_backup = False
     backup_trot = False
     push_once = False
-    only_mpc = True
-    only_rl = False
+    only_mpc = False
+    only_rl = True
     nom_rl = False
     sensor_based = True
 
@@ -215,7 +215,7 @@ if __name__ == '__main__':
 
     
     if sim:
-        launch_world = launchFileNode('legged_unitree_description','empty_world.launch', additional_args=['use_sim_time:=true', 'gz_gui:=false'])
+        launch_world = launchFileNode('legged_unitree_description','empty_world.launch', additional_args=['use_sim_time:=true', 'gz_gui:=true'])
         launch_world.start()
         time.sleep(1)
     else:
@@ -238,7 +238,7 @@ if __name__ == '__main__':
         nom_rl_arg = 'nom_rl:=true' 
     else:
         nom_rl_arg = 'nom_rl:=false' 
-    launch_controller = launchFileNode('legged_controllers', 'load_controller.launch', additional_args=['joy:=true', nn_arg, 'mps:=true', 'joy_msg:=true', only_rl_arg, only_mpc_arg, nom_rl_arg,'rviz:=false'])
+    launch_controller = launchFileNode('legged_controllers', 'load_controller.launch', additional_args=['joy:=true', nn_arg, 'mps:=true', 'joy_msg:=true', only_rl_arg, only_mpc_arg, nom_rl_arg,'rviz:=true'])
     launch_controller.start()
     #time.sleep(2)
 
@@ -321,7 +321,7 @@ if __name__ == '__main__':
             #torch.tensor(data_new[0][3:], device='cuda:0', dtype=torch.double).unsqueeze(0),
             grav_tens
         )[0].cpu().numpy()
-        if not manual_switch and (sim_time > 0.5) and (decimation_counter % decimation)==0 and sim_time_push > 1:
+        if False:#not manual_switch and (sim_time > 0.5) and (decimation_counter % decimation)==0 and sim_time_push > 1:
             isrec, V_safe = vf.computeValueFnc(body_ang_vel, proj_gravity, joint_pos=data_new[2], joint_vel=data_new[3], threshold=threshold, vf_additional_term = 0.0)
             pubSub.publish_vf(V_safe)
             if only_button_switch:
@@ -346,7 +346,7 @@ if __name__ == '__main__':
             pubSub.publish_rl(qDes, np.zeros(12), ffw_torques)
             pubSub.publish_button([3])
         if sensor_based and isrec:
-            qDes_no = nominal_policy.action(data_new[6], None, body_ang_vel, proj_gravity, data_new[2], data_new[3], policy_type="default")
+            qDes = nominal_policy.action(data_new[6], None, body_ang_vel, proj_gravity, data_new[2], data_new[3], policy_type="default")
             pubSub.publish_is_reset(False)
             pubSub.publish_rl(qDes, np.zeros(12), ffw_torques)
             pubSub.publish_button([3])
