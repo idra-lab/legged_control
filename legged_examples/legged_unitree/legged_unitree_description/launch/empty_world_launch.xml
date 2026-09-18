@@ -1,6 +1,7 @@
 <launch>
   <arg name="robot_type" default="aliengo" description="Robot type: [a1, aliengo, go1, laikago]"/>
   <arg name="use_sim_time" default="true"/>
+  <arg name="server" default="true" description="If true, run Gazebo headless (server only). If false, include GUI."/>
 
   <let name="legged_robot_description" value="$(command 'xacro $(find-pkg-share legged_unitree_description)/urdf/robot.xacro robot_type:=$(var robot_type)')"/>
 
@@ -11,7 +12,14 @@
     <param name="use_sim_time" value="$(var use_sim_time)"/>
   </node>
 
-  <include file="$(find-pkg-share ros_gz_sim)/launch/gz_sim.launch.py">
+  <!-- server:=true -->
+  <include file="$(find-pkg-share ros_gz_sim)/launch/gz_server.launch.py" if="$(var server)">
+    <arg name="world_sdf_file" value="$(find-pkg-share legged_gazebo)/worlds/empty_world.world"/>
+    <arg name="gz_args" value="-r"/>
+  </include>
+
+  <!-- server:=false -->
+  <include file="$(find-pkg-share ros_gz_sim)/launch/gz_sim.launch.py" unless="$(var server)">
     <arg name="gz_args" value="-r $(find-pkg-share legged_gazebo)/worlds/empty_world.world"/>
   </include>
 
