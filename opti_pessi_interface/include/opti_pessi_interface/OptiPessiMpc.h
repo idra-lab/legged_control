@@ -17,12 +17,15 @@ namespace opti_pessi {
 /**
  * IpmMpc for the Opti-Pessi OCP, run through MPC_MRT_Interface.
  *
- * Every solve starts at knot 0 (see definitions.h) and is a single attempt with no failure checks: the robot inputs of
- * whatever solution the solver returns are published here (getLatestPlan()). The MRT buffer only feeds visualization.
+ * Every solve starts at knot 0 (see definitions.h) and is a single attempt. Its robot inputs are published here
+ * (getLatestPlan()) as "nominal" when evaluateSolve() accepts it, as "unchecked" when it does not and the phase has no
+ * nominal plan yet. A rejected re-solve of a phase that has one is dropped: the nominal plan stays. The MRT buffer only
+ * feeds visualization.
  *
- * Every solution is carried forward as the next warm start. On a phase change it is shifted
- * one knot first (shiftPrimalSolution): its knot-0 footholds are the ones the current stance feet already stand on, and
- * reusing it unshifted would put both feet of each side in the same place. Anything else starts cold.
+ * Only accepted solutions are carried forward as the next warm start, so the solver never restarts from its own failed
+ * output. On a phase change the solution is shifted one knot first (shiftPrimalSolution): its knot-0 footholds are the
+ * ones the current stance feet already stand on, and reusing it unshifted would put both feet of each side in the same
+ * place. A phase whose shifted warm start was rejected re-solves cold, and so does anything else.
  */
 class OptiPessiMpc final : public ocs2::MPC_BASE {
  public:
@@ -62,7 +65,7 @@ class OptiPessiMpc final : public ocs2::MPC_BASE {
     const char* warmStart = "none";  // "cold", "shifted" (new phase) or "same phase"
     size_t numIterations = 0;        // of the last attempt
     ocs2::PerformanceIndex performance;  // of the last attempt
-    const char* source = "none";     // Plan::source of what was published, "none" if nothing
+    const char* source = "none";     // Plan::source of what was published; "rejected" if the phase kept its nominal plan; "none" if nothing
     scalar_t pessiScale = 1.0;       // keep-out scale of the returned outcome
     bool trustworthy = false;
     scalar_t dynamicsResidual = 0.0;  // |x_1^solver - lipMap(x_0, u_0)|
@@ -81,10 +84,13 @@ class OptiPessiMpc final : public ocs2::MPC_BASE {
   std::shared_ptr<OptiPessiReferenceManager> referenceManagerPtr_;
   OptiPessiModelParameters params_;
   std::unique_ptr<ocs2::OptimalControlProblem> evaluationProblemPtr_;  // own copy: the solver's CppAD models are not shared
-  ocs2::PrimalSolution lastSolution_;  // last solution, the next warm start
+  ocs2::PrimalSolution lastSolution_;  // last solution evaluateSolve() accepted, the next warm start
   bool hasSolution_ = false;
   bool published_ = false;
-  int lastGaitOffset_ = 0;
+  int lastGaitOffset_ = 0;            // phase lastSolution_ was solved for
+  vector_t lastStartState_;           // measured LIP state lastSolution_ was solved from
+  bool shiftRejected_ = false;        // the shifted lastSolution_ was rejected as warm start of phase lastGaitOffset_ + 1
+  bool solverStateRejected_ = false;  // the solver's slacks and duals come from a rejected solve
 
   mutable std::mutex planMutex_;
   Plan latestPlan_;

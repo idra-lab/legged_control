@@ -21,6 +21,8 @@ void OptiPessiMpc::reset() {
   MPC_BASE::reset();
   hasSolution_ = false;
   published_ = false;
+  shiftRejected_ = false;
+  solverStateRejected_ = false;
 }
 
 bool OptiPessiMpc::run(scalar_t currentTime, const vector_t& currentState) {
@@ -31,43 +33,65 @@ bool OptiPessiMpc::run(scalar_t currentTime, const vector_t& currentState) {
  * One MPC step. The controller re-pushes the SAME phase until its clock advances, so this is called
  * repeatedly on one problem and the warm start is keyed on the gait offset, not on wall-clock time.
  *
- * No failure handling: every solve that returns a full input trajectory is published and becomes
- * the next warm start, whether or not evaluateSolve() accepts it.
+ * A solve that evaluateSolve() rejects never becomes a warm start: warm-starting from it left the solver stuck on its own
+ * failed output (fewer iterations every solve, same violated plan) until the robot fell. It is still published, as
+ * "unchecked", while its phase has no nominal plan; a phase that has one keeps it.
  */
 void OptiPessiMpc::calculateController(scalar_t /*initTime*/, const vector_t& initState, scalar_t /*finalTime*/) {
   const int gaitOffset = referenceManagerPtr_->getGaitOffset();
   const vector_t robotState = extractRobotState(initState);
 
-  // Warm start from the last solution: shifted one knot on the next phase, as-is on the same phase.
+  // lastSolution_ was accepted for this very problem, so the phase already has a published nominal plan. The start state
+  // is compared too because a restart from stance begins at phase 0 again without resetting the MPC.
+  const bool samePhase = hasSolution_ && gaitOffset == lastGaitOffset_ && lastStartState_.size() == robotState.size() &&
+                         (lastStartState_ - robotState).cwiseAbs().maxCoeff() < 1e-9;
+
+  // Warm start from the last accepted solution: as-is on the same phase, shifted one knot on the next phase unless that
+  // shifted guess was already rejected there. Anything else starts cold.
   const char* warmStart = "cold";
   ocs2::PrimalSolution guess;
   const ocs2::PrimalSolution* guessPtr = nullptr;
+  bool shifted = false;
   if (!settings().coldStart_ && hasSolution_) {
-    if (gaitOffset == lastGaitOffset_ + 1) {
+    if (samePhase) {
+      warmStart = "same phase";
+      guessPtr = &lastSolution_;
+    } else if (gaitOffset == lastGaitOffset_ + 1 && !shiftRejected_) {
       warmStart = "shifted";
       guess = shiftPrimalSolution(lastSolution_, robotState);
       guessPtr = &guess;
-    } else if (gaitOffset == lastGaitOffset_) {
-      warmStart = "same phase";
-      guessPtr = &lastSolution_;
+      shifted = true;
     }
   }
+  // The guess sets only the primal trajectories: the solver warm-starts its slacks and duals from its own previous run.
+  // After a rejected run those are cleared, so they are initialized again around the guess.
+  if (guessPtr != nullptr && solverStateRejected_) {
+    solverPtr_->reset();
+  }
 
-  // A single solve (realTimeIteration skips the cold retry and the keep-out continuation), used as it comes.
+  // A single solve (realTimeIteration skips the cold retry and the keep-out continuation).
   scalar_t acceptedScale = 1.0;
   const SolveOutcome outcome = solveWithRetries(*solverPtr_, *evaluationProblemPtr_, params_, *referenceManagerPtr_, robotState, guessPtr,
                                                 /*realTimeIteration=*/true, /*verbose=*/false, acceptedScale);
 
   const auto numKnots = static_cast<size_t>(params_.N);
-  hasSolution_ = outcome.solution.inputTrajectory_.size() >= numKnots;
-  if (hasSolution_) {
+  const bool complete = outcome.solution.inputTrajectory_.size() >= numKnots;
+  const bool accepted = complete && outcome.ok;
+  solverStateRejected_ = !accepted;
+  if (accepted) {
     lastSolution_ = outcome.solution;
+    lastGaitOffset_ = gaitOffset;
+    lastStartState_ = robotState;
+    hasSolution_ = true;
+    shiftRejected_ = false;
+  } else if (shifted) {
+    shiftRejected_ = true;
   }
-  lastGaitOffset_ = gaitOffset;
 
-  // The solver's solution is published whatever its outcome; "unchecked" marks one that did not pass evaluateSolve().
+  // A rejected solve is published, as "unchecked", only while its phase has no nominal plan.
+  const bool keepNominal = !accepted && samePhase;
   Plan plan;
-  if (hasSolution_) {
+  if (complete && !keepNominal) {
     plan.phase = static_cast<size_t>(std::max(gaitOffset, 0));
     plan.startState = robotState;
     for (size_t k = 0; k < numKnots; ++k) {
@@ -90,7 +114,7 @@ void OptiPessiMpc::calculateController(scalar_t /*initTime*/, const vector_t& in
   statistics.warmStart = warmStart;
   statistics.numIterations = solverPtr_->getIterationsLog().size();
   statistics.performance = solverPtr_->getPerformanceIndeces();
-  statistics.source = source;
+  statistics.source = keepNominal ? "rejected" : source;
   statistics.pessiScale = acceptedScale;
   statistics.trustworthy = outcome.planTrustworthy();
   statistics.dynamicsResidual = outcome.dynamicsResidual;
