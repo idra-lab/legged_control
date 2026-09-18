@@ -132,7 +132,8 @@ class OptiPessiController : public controller_interface::ControllerInterface {
   /**
    * Runs the LIP clock: evaluates the policy of the current phase into the foot and CoM references, and
    * at the end of a phase measures the robot for the next one. While the MPC has not solved the current
-   * phase the references coast; once the goal is reached they stand.
+   * phase the references coast; once the goal is reached they stand. A plan that arrives mid-phase may
+   * shorten the phase, but never below optiPessiMinLandingTime_ from now (see optiPessiPhaseDuration_).
    */
   void advanceOptiPessiPhase(const rclcpp::Time& time, const rclcpp::Duration& period);
 
@@ -240,6 +241,7 @@ class OptiPessiController : public controller_interface::ControllerInterface {
   size_t optiPessiPhase_ = 0;              // contact phases completed, i.e. the gait offset of the current solve
   vector_t optiPessiRobotState_;           // measured 10-dof LIP state at the start of the current phase
   scalar_t optiPessiPhaseElapsed_ = 0.0;   // seconds spent in the current phase
+  scalar_t optiPessiPhaseDuration_ = 0.0;  // duration applied on the last tick: u(DT), stretched if needed so the swing feet can land; 0 at phase start
   bool optiPessiGoalReached_ = false;
   size_t optiPessiReachedGoalSequence_ = 0;  // goal sequence optiPessiGoalReached_ refers to. Control thread only.
 
@@ -281,6 +283,7 @@ class OptiPessiController : public controller_interface::ControllerInterface {
   std::array<vector3_t, 4> optiPessiLiftoffPositions_{};  // measured feet at the start of the current phase
   std::array<FootReference, 4> optiPessiFootReferences_{};
   scalar_t optiPessiSwingHeight_ = 0.08;                   // swing apex above liftoff [m]
+  scalar_t optiPessiMinLandingTime_ = 0.08;                // least time a mid-phase plan may leave the swing feet to land [s]
   ComReference optiPessiComReference_{};                   // CoM and heading reference of the WBC. Control thread only.
 
   // Stand-up stage after activation (see standUp()). Control thread only.
@@ -308,6 +311,7 @@ class OptiPessiController : public controller_interface::ControllerInterface {
     feet_array_t<size_t> frictionSaturated{};     // ticks a reference stance foot's WBC force sits on the friction pyramid
     scalar_t durationMin = std::numeric_limits<scalar_t>::max();     // phase duration u(DT) over the policies applied in the phase
     scalar_t durationMax = std::numeric_limits<scalar_t>::lowest();
+    scalar_t durationStretch = 0.0;               // largest amount the applied duration exceeded u(DT) so the swing feet could land [s]
     vector_t firstFootholds;                      // footholds of the first policy applied in the phase
     scalar_t footholdDrift = 0.0;                 // largest move of any foothold coordinate since then [m]
     size_t policyUpdates = 0;                     // new MPC policies loaded during the phase

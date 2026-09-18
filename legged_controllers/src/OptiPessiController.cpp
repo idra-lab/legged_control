@@ -430,23 +430,35 @@ void OptiPessiController::advanceOptiPessiPhase(const rclcpp::Time& time, const 
 
   // Every solve starts at knot 0 (see opti_pessi_interface/definitions.h). Until the MPC thread delivers this phase's
   // own plan, the latest plan runs shifted by the phases completed since it was solved (its last knot past the
-  // horizon), from the state measured at the start of this phase. The plan is applied as it comes, with no checks.
-  // The LIP clock never waits for a solve. The input lasts u(DT) seconds.
+  // horizon), from the state measured at the start of this phase. The plan is applied as it comes, with no checks
+  // except on its duration (below). The LIP clock never waits for a solve. The input lasts u(DT) seconds.
   const auto& params = optiPessiInterface_->modelParameters();
   const size_t offset = optiPessiPhase_ - optiPessiPlan_.phase;
   const size_t lastKnot = optiPessiPlan_.inputs.size() - 1;
   const vector_t robotState = offset == 0 ? optiPessiPlan_.startState : optiPessiRobotState_;
-  const vector_t appliedInput = optiPessiPlan_.inputs[std::min(offset, lastKnot)];
+  vector_t appliedInput = optiPessiPlan_.inputs[std::min(offset, lastKnot)];
   if (offset > 0) {
     optiPessiWaitTime_ += period.seconds();
   }
-  const scalar_t phaseDuration = appliedInput(opti_pessi::RobotU::DT);
+
+  // A plan arriving mid-phase may bring touchdown forward, but not closer than optiPessiMinLandingTime_ from now (or
+  // than the previous touchdown, if that was sooner). Without this, a late plan with a shorter dt than the time already
+  // spent ends the phase at once and the swing feet become the stance pair in mid-air. The floor never moves touchdown
+  // later than the previous tick had it, so re-solves cannot stretch a phase forever. At phase start
+  // optiPessiPhaseDuration_ is 0 and the floor is 0. The stretched dt is the one applied everywhere below.
+  const scalar_t plannedDuration = appliedInput(opti_pessi::RobotU::DT);
+  const scalar_t landingFloor =
+      optiPessiPhaseElapsed_ + std::min(optiPessiPhaseDuration_ - optiPessiPhaseElapsed_, optiPessiMinLandingTime_);
+  const scalar_t phaseDuration = std::max(plannedDuration, landingFloor);
+  optiPessiPhaseDuration_ = phaseDuration;
+  appliedInput(opti_pessi::RobotU::DT) = phaseDuration;
 
   // Plan stability over the phase: the MPC keeps re-solving it, and each new policy can move dt and the footholds.
   {
     PhaseDiagnostics& diagnostics = optiPessiPhaseDiagnostics_;
-    diagnostics.durationMin = std::min(diagnostics.durationMin, phaseDuration);
-    diagnostics.durationMax = std::max(diagnostics.durationMax, phaseDuration);
+    diagnostics.durationMin = std::min(diagnostics.durationMin, plannedDuration);
+    diagnostics.durationMax = std::max(diagnostics.durationMax, plannedDuration);
+    diagnostics.durationStretch = std::max(diagnostics.durationStretch, phaseDuration - plannedDuration);
     const vector_t footholds = appliedInput.head(4);
     if (diagnostics.firstFootholds.size() == 0) {
       diagnostics.firstFootholds = footholds;
@@ -515,11 +527,11 @@ void OptiPessiController::advanceOptiPessiPhase(const rclcpp::Time& time, const 
       const auto s1 = static_cast<size_t>(swing[1]);
       RCLCPP_INFO(this->get_node()->get_logger(),
                   "[OptiPessi] phase %zu touchdown: %s height=%.3f contact=%d, %s height=%.3f contact=%d | dt seen=[%.3f, %.3f] "
-                  "foothold drift=%.3f policy updates=%zu",
+                  "stretched=%.3f foothold drift=%.3f policy updates=%zu",
                   optiPessiPhase_, kFootNames[s0], optiPessiLiftoffPositions_[s0].z() - optiPessiFootReferences_[s0].position.z(),
                   measuredContacts[s0] ? 1 : 0, kFootNames[s1],
                   optiPessiLiftoffPositions_[s1].z() - optiPessiFootReferences_[s1].position.z(), measuredContacts[s1] ? 1 : 0,
-                  d.durationMin, d.durationMax, d.footholdDrift, d.policyUpdates);
+                  d.durationMin, d.durationMax, d.durationStretch, d.footholdDrift, d.policyUpdates);
     }
     optiPessiPhaseDiagnostics_ = PhaseDiagnostics();
 
@@ -580,6 +592,7 @@ void OptiPessiController::advanceOptiPessiPhase(const rclcpp::Time& time, const 
     ++optiPessiPhase_;
   }
   optiPessiPhaseElapsed_ -= phaseDuration;
+  optiPessiPhaseDuration_ = 0.0;
   landSwingFeet();
 
   RCLCPP_INFO(this->get_node()->get_logger(), "[OptiPessi] phase %zu: dt=%.3f c=(%.3f, %.3f) theta=%.3f v=(%.3f, %.3f)",
@@ -849,6 +862,7 @@ void OptiPessiController::standUp(const rclcpp::Duration& period) {
     optiPessiPhase_ = 0;
   }
   optiPessiPhaseElapsed_ = 0.0;
+  optiPessiPhaseDuration_ = 0.0;
   optiPessiPlan_ = AcceptedPlan();  // a plan from before a restart was solved for other feet
 
   const PhaseDiagnostics& d = optiPessiPhaseDiagnostics_;
