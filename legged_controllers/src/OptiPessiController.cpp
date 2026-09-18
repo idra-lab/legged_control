@@ -98,7 +98,7 @@ controller_interface::CallbackReturn OptiPessiController::on_init() {
   bool recompile = node->get_parameter("recompile").as_bool();
   std::string backendStr = node->get_parameter("backend").as_string();
   optiPessiDetourEnabled_ = node->get_parameter("obstacleDetour").as_bool();
-  opti_pessi::SolverBackend backend = opti_pessi::SolverBackend::Sqp;
+  opti_pessi::SolverBackend backend = opti_pessi::SolverBackend::Ipm;
   if (backendStr == "Ipm") {
     backend = opti_pessi::SolverBackend::Ipm;
   } else if (backendStr == "Sqp") {
