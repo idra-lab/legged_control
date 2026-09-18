@@ -32,7 +32,7 @@ cost
   wp        0.5     ; foothold distance to the nominal hip
   wa        0.5     ; CoP centering, (alpha - 1/2)^2
   wdt       1e-2    ; contact-phase duration, (dt - dtCost0)^2
-  wtheta    5.0     ; heading alignment
+  wtheta    10.0    ; heading alignment
   wdtheta   2.0     ; yaw rate
 }
 
@@ -45,7 +45,7 @@ limits
   footHipMax      0.1    ; foot-to-hip reachability radius [m]
   dcxMax          2.5    ; body-frame longitudinal speed [m/s]
   dcyMax          0.45   ; body-frame lateral speed [m/s]
-  dthetaMax       0.4    ; yaw rate [rad/s]
+  dthetaMax       0.6    ; yaw rate [rad/s]
 }
 
 ; Keep-out model of each obstacle class a controller receives on its obstacle topic

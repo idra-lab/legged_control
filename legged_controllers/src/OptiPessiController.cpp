@@ -971,10 +971,8 @@ void OptiPessiController::holdStance(const vector3_t& comPosition, scalar_t yaw)
 }
 
 void OptiPessiController::publishOptiPessiPlan() {
-  using opti_pessi::RobotX;
   using visualization_msgs::msg::Marker;
   const auto& params = optiPessiInterface_->modelParameters();
-  const PrimalSolution& policy = optiPessiMrtInterface_->getPolicy();
   const auto stamp = ros2_node_->get_clock()->now();  // same clock as the odom -> base TF of robotVisualizer_
 
   auto makeMarker = [&](const std::string& ns, int id, int32_t type, float r, float g, float b, float a) {
@@ -1009,15 +1007,6 @@ void OptiPessiController::publishOptiPessiPlan() {
   clear.action = Marker::DELETEALL;
   markers.markers.push_back(clear);
 
-  // Planned CoM path of the pessimistic branch at the LIP height, one point per knot. The optimistic
-  // branch, the one executed, is drawn with its feet by publishOptiPessiTrajectories().
-  Marker pessimisticCom = makeMarker("pessimistic_com", 0, Marker::LINE_STRIP, 0.9F, 0.2F, 0.1F, 1.0F);
-  pessimisticCom.scale.x = 0.01;
-  for (const vector_t& x : policy.stateTrajectory_) {
-    pessimisticCom.points.push_back(point(x(RobotX::DIM + RobotX::CX), x(RobotX::DIM + RobotX::CY), params.comHeight));
-  }
-  markers.markers.push_back(pessimisticCom);
-
   // Obstacles and goal as last received (odom), each obstacle at the keep-out radius of its type: humans orange, cars
   // blue. The reference manager is not read here, the MPC thread writes it.
   std::vector<ObstacleObservation> obstacles;
@@ -1046,19 +1035,18 @@ void OptiPessiController::publishOptiPessiPlan() {
     markers.markers.push_back(goal);
   }
 
-  // Temporary goal the OCP tracks while an obstacle detour is active (cyan), with a line from it to the goal.
+  // The actual local goal tracked by the OCP while an obstacle detour is active (cyan).
   if (detourGoalPosition.size() == 2) {
     Marker detourGoal = makeMarker("detour_goal", 0, Marker::SPHERE, 0.0F, 0.9F, 0.9F, 1.0F);
     detourGoal.pose.position = point(detourGoalPosition(0), detourGoalPosition(1), 0.05);
     detourGoal.scale.x = detourGoal.scale.y = detourGoal.scale.z = 0.1;
     markers.markers.push_back(detourGoal);
-    if (goalPosition.size() == 2) {
-      Marker detourLine = makeMarker("detour_goal", 1, Marker::LINE_STRIP, 0.0F, 0.9F, 0.9F, 0.6F);
-      detourLine.scale.x = 0.01;
-      detourLine.points.push_back(point(detourGoalPosition(0), detourGoalPosition(1), 0.05));
-      detourLine.points.push_back(point(goalPosition(0), goalPosition(1), 0.05));
-      markers.markers.push_back(detourLine);
-    }
+
+    Marker detourLine = makeMarker("detour_goal", 1, Marker::LINE_STRIP, 0.1F, 0.4F, 1.0F, 0.9F);
+    detourLine.scale.x = 0.01;
+    detourLine.points.push_back(getPointMsg(measureCenterOfMass()));
+    detourLine.points.push_back(detourGoal.pose.position);
+    markers.markers.push_back(detourLine);
   }
 
   optiPessiPlanPublisher_->publish(markers);
@@ -1067,6 +1055,7 @@ void OptiPessiController::publishOptiPessiPlan() {
 void OptiPessiController::publishOptiPessiTrajectories() {
   using opti_pessi::RobotU;
   using opti_pessi::RobotX;
+  using visualization_msgs::msg::Marker;
   using vector2_t = Eigen::Matrix<scalar_t, 2, 1>;
   const auto& params = optiPessiInterface_->modelParameters();
   const PrimalSolution& policy = optiPessiMrtInterface_->getPolicy();
@@ -1083,6 +1072,7 @@ void OptiPessiController::publishOptiPessiTrajectories() {
 
   feet_array_t<std::vector<geometry_msgs::msg::Point>> feetPoints;
   std::vector<geometry_msgs::msg::Point> comPoints;
+  std::vector<Marker> comOrientations;
   visualization_msgs::msg::Marker footholds;
   footholds.type = visualization_msgs::msg::Marker::SPHERE_LIST;
   footholds.scale.x = footholds.scale.y = footholds.scale.z = robotVisualizer_->footMarkerDiameter_;
@@ -1122,12 +1112,34 @@ void OptiPessiController::publishOptiPessiTrajectories() {
     const vector2_t p1(x(RobotX::P1X), x(RobotX::P1Y));
     const vector2_t cop = opti_pessi::computeCop(p0, p1, u(RobotU::ALPHA));
 
+    // Use the same continuous yaw reference as updateComReference().
+    vector2_t f0, f1;
+    opti_pessi::computeTangentialForces(c, p0, p1, u(RobotU::ALPHA), u(RobotU::BETA), u(RobotU::GAMMA), w, params.mass, f0, f1);
+    const scalar_t yawAcceleration = opti_pessi::yawTorque(c, p0, p1, f0, f1) / params.inertia;
+
     for (size_t s = (i == 0 ? 0 : 1); s <= samplesPerPhase; ++s) {
       const scalar_t t = dt * static_cast<scalar_t>(s) / static_cast<scalar_t>(samplesPerPhase);
       const scalar_t ch = std::cosh(w * t);
       const scalar_t sh = std::sinh(w * t);
       const vector2_t com = ch * c + (sh / w) * dc + (1.0 - ch) * cop;
       comPoints.push_back(getPointMsg(vector3_t(com(0), com(1), params.comHeight)));
+
+      // Sparse arrows keep the CoM path readable: start, then midpoint and end of each phase.
+      if (s % (samplesPerPhase / 2) == 0) {
+        const scalar_t yaw = x(RobotX::TH) + t * x(RobotX::DTH) + 0.5 * t * t * yawAcceleration;
+        Marker orientation;
+        orientation.ns = "CoM Orientation";
+        orientation.type = Marker::ARROW;
+        orientation.action = Marker::ADD;
+        orientation.pose.position = comPoints.back();
+        orientation.pose.orientation.z = std::sin(0.5 * yaw);
+        orientation.pose.orientation.w = std::cos(0.5 * yaw);
+        orientation.scale.x = 0.18;
+        orientation.scale.y = 0.025;
+        orientation.scale.z = 0.025;
+        orientation.color = getColor(Color::red);
+        comOrientations.push_back(std::move(orientation));
+      }
 
       for (size_t k = 0; k < 2; ++k) {
         feetPoints[static_cast<size_t>(stance[k])].push_back(getPointMsg(stancePositions[k]));
@@ -1140,6 +1152,10 @@ void OptiPessiController::publishOptiPessiTrajectories() {
   }
 
   visualization_msgs::msg::MarkerArray markerArray;
+  // Clear old arrows as well when the horizon becomes shorter.
+  Marker clear;
+  clear.action = Marker::DELETEALL;
+  markerArray.markers.push_back(clear);
   for (size_t i = 0; i < feetPoints.size(); ++i) {
     markerArray.markers.emplace_back(
         getLineMsg(std::move(feetPoints[i]), robotVisualizer_->feetColorMap_[i], robotVisualizer_->trajectoryLineWidth_));
@@ -1148,6 +1164,9 @@ void OptiPessiController::publishOptiPessiTrajectories() {
   markerArray.markers.emplace_back(getLineMsg(std::move(comPoints), Color::red, robotVisualizer_->trajectoryLineWidth_));
   markerArray.markers.back().ns = "CoM Trajectory";
   markerArray.markers.push_back(std::move(footholds));
+  for (auto& orientation : comOrientations) {
+    markerArray.markers.push_back(std::move(orientation));
+  }
 
   // Same clock as the odom -> base TF of robotVisualizer_.
   assignHeader(markerArray.markers.begin(), markerArray.markers.end(), getHeaderMsg("odom", ros2_node_->get_clock()->now()));

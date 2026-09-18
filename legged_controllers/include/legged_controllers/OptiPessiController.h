@@ -194,12 +194,12 @@ class OptiPessiController : public controller_interface::ControllerInterface {
     vector3_t touchdownForce = vector3_t::Zero();  // contact force at the end of the phase
   };
 
-  /** Draws the active Opti-Pessi policy in odom: pessimistic CoM path per knot, obstacles, goal, detour goal. */
+  /** Draws the Opti-Pessi references in odom: obstacles, goal, detour goal. */
   void publishOptiPessiPlan();
 
   /**
    * Draws the executed (optimistic) plan over the horizon like LeggedRobotVisualizer's optimized state
-   * trajectory: continuous CoM path of the LIP flow, per-foot stance/swing paths, future footholds.
+   * trajectory: continuous CoM path of the LIP flow with desired yaw arrows, per-foot stance/swing paths, future footholds.
    */
   void publishOptiPessiTrajectories();
 

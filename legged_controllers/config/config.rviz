@@ -323,6 +323,7 @@ Visualization Manager:
       Enabled: true
       Name: Opti-Pessi Trajectory
       Namespaces:
+        CoM Orientation: true
         CoM Trajectory: true
         EE Trajectories: true
         Future footholds: true

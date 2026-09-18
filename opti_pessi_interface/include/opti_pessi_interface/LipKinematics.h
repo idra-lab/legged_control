@@ -24,6 +24,8 @@ inline ocs2::ad_scalar_t wrapCos(const ocs2::ad_scalar_t& x) { return CppAD::cos
 inline ocs2::ad_scalar_t wrapSin(const ocs2::ad_scalar_t& x) { return CppAD::sin(x); }
 inline ocs2::ad_scalar_t wrapCosh(const ocs2::ad_scalar_t& x) { return CppAD::cosh(x); }
 inline ocs2::ad_scalar_t wrapSinh(const ocs2::ad_scalar_t& x) { return CppAD::sinh(x); }
+inline scalar_t wrapSqrt(scalar_t x) { return std::sqrt(x); }
+inline ocs2::ad_scalar_t wrapSqrt(const ocs2::ad_scalar_t& x) { return CppAD::sqrt(x); }
 
 /** R01(theta) * v, i.e. R(-theta) * v : world -> body. */
 template <typename Scalar, typename Derived>
@@ -144,8 +146,17 @@ Scalar runningStateCost(const Eigen::Matrix<Scalar, 2, 1>& c, const Scalar& thet
   const Scalar dc2 = dc.dot(dc);
   const Scalar ct = wrapCos(theta);
   const Scalar st = wrapSin(theta);
-  const Scalar align = dc2 * ct * ct - dc(0) * dc(0) + dc2 * st * st - dc(1) * dc(1);
-  cost += Scalar(params.wtheta) * align * align;
+  // const Scalar align = dc2 * ct * ct - dc(0) * dc(0) + dc2 * st * st - dc(1) * dc(1);
+  // Heading-alignment term as it was presumably meant: |dc| * sin(angle between dc and theta), zero
+  // when the velocity is parallel (or antiparallel) to the heading. Enabling it makes the cost differ
+  // from the Python reference (ocp_quadruped.py:35), which is why it stays commented out.
+  // const Scalar align = dc(0) * st - dc(1) * ct;
+  // cost += Scalar(params.wtheta) * align * align;
+
+  // e = atan2(dcy, dcx) - theta, l'errore di heading avvolto in (-pi, pi]
+  const Scalar dcNorm = wrapSqrt(dc2 + Scalar(1e-4));        // eps: da fermo nessun heading preferito
+  const Scalar cosErr = (dc(0) * ct + dc(1) * st) / dcNorm;  // = cos(e)
+  cost += Scalar(params.wtheta) * (Scalar(1) - cosErr);      
   return cost;
 }
 
