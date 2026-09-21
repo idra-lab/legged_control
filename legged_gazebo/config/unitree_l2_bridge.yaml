@@ -1,12 +1,13 @@
 # gz -> ROS bridge for the simulated Unitree 4D LiDAR L2 (urdf/common/unitree_l2.xacro).
-# ROS topics match the unilidar_sdk2 ROS 2 driver defaults.
-- ros_topic_name: "/unilidar/cloud"
+# gz topics are fixed by the sensor: a gpu_lidar with <topic>unilidar/scan</topic>
+# publishes its cloud on unilidar/scan/points. ROS topics are the FAST-LIO defaults.
+- ros_topic_name: "/livox/lidar"
   gz_topic_name: "/unilidar/scan/points"
   ros_type_name: "sensor_msgs/msg/PointCloud2"
   gz_type_name: "gz.msgs.PointCloudPacked"
   direction: GZ_TO_ROS
 
-- ros_topic_name: "/unilidar/imu"
+- ros_topic_name: "/livox/imu"
   gz_topic_name: "/unilidar/imu"
   ros_type_name: "sensor_msgs/msg/Imu"
   gz_type_name: "gz.msgs.IMU"

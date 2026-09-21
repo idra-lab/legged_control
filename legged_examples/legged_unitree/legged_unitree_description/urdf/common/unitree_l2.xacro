@@ -11,8 +11,8 @@
            ${name}_imu    built-in IMU, axes parallel to ${name}_lidar. Its offset is not in the
                           manual, so it sits at the ${name}_lidar origin.
          Published gz topics (bridged to ROS by legged_gazebo/config/unitree_l2_bridge.yaml):
-           /${name}/scan/points   PointCloudPacked (x y z intensity ring), bridged to /${name}/cloud
-           /${name}/imu           bridged to /${name}/imu (needs the gz::sim::systems::Imu world system)
+           /${name}/scan/points   PointCloudPacked (x y z intensity ring), bridged to /livox/lidar
+           /${name}/imu           bridged to /livox/imu (needs the gz::sim::systems::Imu world system)
          The real scan pattern is non-repetitive; here it is a uniform samples_h x samples_v grid.
          The default 180 x 36 grid at 10 Hz gives ~64800 points/s, close to the datasheet rate.
          Rays with no return are +inf, so the cloud is not dense.

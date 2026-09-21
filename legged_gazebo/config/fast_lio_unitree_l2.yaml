@@ -1,0 +1,63 @@
+# FAST-LIO (src/FAST_LIO_SLAM_ROS2/FAST_LIO_ROS2) on the simulated Unitree L2 of the Aliengo
+# (urdf/common/unitree_l2.xacro, mounted like on the Go2 in urdf/robot.xacro).
+#
+# The L2 hangs upside down, so imu_R rotates the IMU readings into a frame with the
+# base orientation (the unilidar_lidar_joint rotation, rpy="0 2.8782 0"). FAST-LIO then
+# estimates that upright frame: camera_init, /Odometry and /cloud_registered_body are
+# gravity-aligned when the robot starts level. The IMU sits at the lidar origin, so the
+# lidar->body extrinsic is the same rotation with zero translation.
+# Keep imu_R and extrinsic_R in sync with the mount in robot.xacro.
+/**:
+    ros__parameters:
+        feature_extract_enable: false
+        point_filter_num: 1              # unused by the default handler
+        max_iteration: 3
+        filter_size_surf: 0.3
+        filter_size_map: 0.3
+        cube_side_length: 1000.0
+        runtime_pos_log_enable: false
+        map_file_path: ""
+
+        common:
+            lid_topic: "/livox/lidar"
+            imu_topic: "/livox/imu"
+            body_frame: "unilidar_lio"   # not unilidar_lidar: that one is already in the URDF TF tree
+            time_sync_en: false
+            time_offset_lidar_to_imu: 0.0
+
+        preprocess:
+            # Not 1-4 (Livox, Velodyne, Ouster, MID360): the default handler reads plain x y z intensity
+            # and applies no per-point motion compensation, right for the instantaneous Gazebo scans
+            lidar_type: 5
+            scan_line: 36
+            blind: 0.7                   # drops the legs: front legs are 0.1-0.35 m, hind legs ~0.5-0.65 m away
+            timestamp_unit: 3
+            scan_rate: 10
+
+        mapping:
+            acc_cov: 0.1
+            gyr_cov: 0.1
+            b_acc_cov: 0.0001
+            b_gyr_cov: 0.0001
+            fov_degree: 360.0
+            det_range: 30.0              # L2 max range
+            extrinsic_est_en: false      # exact in simulation
+            extrinsic_T: [0.0, 0.0, 0.0]
+            extrinsic_R: [-0.965512, 0.0, 0.260358,
+                           0.0,      1.0, 0.0,
+                          -0.260358, 0.0, -0.965512]
+            imu_R: [-0.965512, 0.0, 0.260358,
+                     0.0,      1.0, 0.0,
+                    -0.260358, 0.0, -0.965512]
+
+        publish:
+            path_en: true
+            effect_map_en: false
+            map_en: true
+            scan_publish_en: true
+            dense_publish_en: true
+            scan_bodyframe_pub_en: true  # SC-PGO keyframes
+
+        pcd_save:
+            pcd_save_en: false
+            interval: -1
