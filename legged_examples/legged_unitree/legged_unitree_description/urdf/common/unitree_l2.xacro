@@ -1,0 +1,107 @@
+<?xml version="1.0"?>
+
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="unitree_l2">
+    <!-- Unitree 4D LiDAR L2 (simulated in Gazebo Harmonic), the lidar the Go2 carries under its chin.
+         Datasheet (L2 User Manual v1.1): 360 x 90 deg dome, 360 x 96 deg in NEGA mode (factory default),
+         0.05 m blind zone, 30 m range, <= 2 cm accuracy, 64000 effective points/s, 6-axis IMU at 500 Hz,
+         75 x 75 x 65 mm, 230 g.
+         Frames follow the unilidar_sdk2 ROS 2 driver defaults:
+           ${name}_lidar  point cloud frame: origin at the bottom center of the housing,
+                          +z toward the dome, +x opposite the cable outlet
+           ${name}_imu    built-in IMU, axes parallel to ${name}_lidar. Its offset is not in the
+                          manual, so it sits at the ${name}_lidar origin.
+         Published gz topics (bridged to ROS by legged_gazebo/config/unitree_l2_bridge.yaml):
+           /${name}/scan/points   PointCloudPacked (x y z intensity ring), bridged to /${name}/cloud
+           /${name}/imu           bridged to /${name}/imu (needs the gz::sim::systems::Imu world system)
+         The real scan pattern is non-repetitive; here it is a uniform samples_h x samples_v grid.
+         The default 180 x 36 grid at 10 Hz gives ~64800 points/s, close to the datasheet rate.
+         Rays with no return are +inf, so the cloud is not dense.
+         No collision geometry, so contacts are unchanged. -->
+    <xacro:macro name="UnitreeL2" params="name:=unilidar parent xyz:='0 0 0' rpy:='0 0 0'
+                                          nega_mode:=true imu:=true
+                                          update_rate:=10 samples_h:=180 samples_v:=36">
+        <xacro:property name="l2_mass" value="0.230"/>
+        <xacro:property name="l2_width" value="0.075"/>
+        <xacro:property name="l2_height" value="0.065"/>
+        <!-- NEGA mode extends the dome 6 deg below the base plane -->
+        <xacro:property name="l2_min_elevation" value="${-6*pi/180 if nega_mode else 0}"/>
+
+        <joint name="${name}_lidar_joint" type="fixed">
+            <origin xyz="${xyz}" rpy="${rpy}"/>
+            <parent link="${parent}"/>
+            <child link="${name}_lidar"/>
+        </joint>
+        <link name="${name}_lidar">
+            <inertial>
+                <mass value="${l2_mass}"/>
+                <origin rpy="0 0 0" xyz="0 0 ${l2_height/2}"/>
+                <inertia ixx="${l2_mass/12*(l2_width**2 + l2_height**2)}" ixy="0" ixz="0"
+                         iyy="${l2_mass/12*(l2_width**2 + l2_height**2)}" iyz="0"
+                         izz="${l2_mass/12*(2*l2_width**2)}"/>
+            </inertial>
+            <visual>
+                <origin rpy="0 0 0" xyz="0 0 ${l2_height/2}"/>
+                <geometry>
+                    <box size="${l2_width} ${l2_width} ${l2_height}"/>
+                </geometry>
+                <material name="l2_black">
+                    <color rgba="0.1 0.1 0.1 1"/>
+                </material>
+            </visual>
+        </link>
+
+        <joint name="${name}_imu_joint" type="fixed">
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <parent link="${name}_lidar"/>
+            <child link="${name}_imu"/>
+        </joint>
+        <link name="${name}_imu"/>
+
+        <gazebo reference="${name}_lidar">
+            <sensor name="${name}_lidar" type="gpu_lidar">
+                <always_on>true</always_on>
+                <update_rate>${update_rate}</update_rate>
+                <visualize>false</visualize>
+                <topic>${name}/scan</topic>
+                <gz_frame_id>${name}_lidar</gz_frame_id>
+                <lidar>
+                    <scan>
+                        <horizontal>
+                            <samples>${samples_h}</samples>
+                            <resolution>1</resolution>
+                            <min_angle>${-pi}</min_angle>
+                            <max_angle>${pi - 2*pi/samples_h}</max_angle>
+                        </horizontal>
+                        <vertical>
+                            <samples>${samples_v}</samples>
+                            <resolution>1</resolution>
+                            <min_angle>${l2_min_elevation}</min_angle>
+                            <max_angle>${pi/2}</max_angle>
+                        </vertical>
+                    </scan>
+                    <range>
+                        <min>0.05</min>
+                        <max>30.0</max>
+                        <resolution>0.0045</resolution>
+                    </range>
+                    <noise>
+                        <type>gaussian</type>
+                        <mean>0.0</mean>
+                        <stddev>0.01</stddev>
+                    </noise>
+                </lidar>
+            </sensor>
+        </gazebo>
+
+        <xacro:if value="${imu}">
+            <gazebo reference="${name}_imu">
+                <sensor name="${name}_imu" type="imu">
+                    <always_on>true</always_on>
+                    <update_rate>500</update_rate>
+                    <topic>${name}/imu</topic>
+                    <gz_frame_id>${name}_imu</gz_frame_id>
+                </sensor>
+            </gazebo>
+        </xacro:if>
+    </xacro:macro>
+</robot>

@@ -4,12 +4,14 @@
 
     <xacro:arg name="robot_type" default="a1"/>
     <xacro:arg name="camera" default="true"/>
+    <xacro:arg name="lidar" default="true"/>
 
     <xacro:include filename="$(find legged_unitree_description)/urdf/common/materials.xacro"/>
     <xacro:include filename="$(find legged_unitree_description)/urdf/common/leg.xacro"/>
     <xacro:include filename="$(find legged_unitree_description)/urdf/common/gazebo.xacro"/>
     <xacro:include filename="$(find legged_unitree_description)/urdf/common/imu.xacro"/>
     <xacro:include filename="$(find legged_unitree_description)/urdf/common/d435i.xacro"/>
+    <xacro:include filename="$(find legged_unitree_description)/urdf/common/unitree_l2.xacro"/>
 
     <xacro:include filename="$(find legged_unitree_description)/urdf/$(arg robot_type)/const.xacro"/>
 
@@ -52,6 +54,13 @@
     <!-- Front-mounted Intel RealSense D435i, pitched 20 deg down to see the terrain ahead -->
     <xacro:if value="$(arg camera)">
         <xacro:D435i name="camera" parent="base" xyz="${trunk_length/2 + 0.03} 0 0" rpy="0 ${5*pi/180} 0"/>
+    </xacro:if>
+
+    <!-- Unitree 4D LiDAR L2 mounted like on the Go2 (go2_description radar_joint, rpy="0 2.8782 0"):
+         upside down under the chin, dome tilted 15 deg forward, so it sees the terrain ahead and around
+         the feet. The base plate hangs 2 cm below the belly so the NEGA-mode rays clear the trunk. -->
+    <xacro:if value="$(arg lidar)">
+        <xacro:UnitreeL2 name="unilidar" parent="base" xyz="${trunk_length/2 - 0.03} 0 ${-trunk_height/2 - 0.02}" rpy="0 2.8782 0"/>
     </xacro:if>
 
 

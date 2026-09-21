@@ -2,11 +2,12 @@
   <arg name="robot_type" default="aliengo" description="Robot type: [a1, aliengo, go1, laikago]"/>
   <arg name="use_sim_time" default="true"/>
   <arg name="camera" default="true" description="Mount the Intel RealSense D435i and bridge its rgb/depth images"/>
+  <arg name="lidar" default="true" description="Mount the Unitree 4D LiDAR L2 and bridge its point cloud/IMU"/>
   <arg name="server" default="true" description="If true, run Gazebo headless (server only). If false, include GUI."/>
 
-  <let name="legged_robot_description" value="$(command 'xacro $(find-pkg-share legged_unitree_description)/urdf/robot.xacro robot_type:=$(var robot_type) camera:=$(var camera)')"/>
+  <let name="legged_robot_description" value="$(command 'xacro $(find-pkg-share legged_unitree_description)/urdf/robot.xacro robot_type:=$(var robot_type) camera:=$(var camera) lidar:=$(var lidar)')"/>
 
-  <node pkg="legged_common" exec="generate_urdf.sh" output="screen" name="generate_urdf" args="$(find-pkg-share legged_unitree_description)/urdf/robot.xacro $(var robot_type) $(var camera)"/>
+  <node pkg="legged_common" exec="generate_urdf.sh" output="screen" name="generate_urdf" args="$(find-pkg-share legged_unitree_description)/urdf/robot.xacro $(var robot_type) $(var camera) $(var lidar)"/>
 
   <node pkg="robot_state_publisher" exec="robot_state_publisher" name="robot_state_publisher" output="screen">
     <param name="robot_description" value="$(var legged_robot_description)"/>
@@ -32,6 +33,11 @@
 
   <node if="$(var camera)" pkg="ros_gz_bridge" exec="parameter_bridge" name="camera_bridge" output="screen">
     <param name="config_file" value="$(find-pkg-share legged_gazebo)/config/d435i_bridge.yaml"/>
+    <param name="use_sim_time" value="$(var use_sim_time)"/>
+  </node>
+
+  <node if="$(var lidar)" pkg="ros_gz_bridge" exec="parameter_bridge" name="lidar_bridge" output="screen">
+    <param name="config_file" value="$(find-pkg-share legged_gazebo)/config/unitree_l2_bridge.yaml"/>
     <param name="use_sim_time" value="$(var use_sim_time)"/>
   </node>
 </launch>

@@ -17,6 +17,8 @@
         <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
             <render_engine>ogre2</render_engine>
         </plugin>
+        <!-- Drives <sensor type="imu"> (Unitree L2 built-in IMU); the base IMU is read by LeggedHWSim -->
+        <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
 
         <!-- A global light source -->
         <light type="directional" name="sun">
