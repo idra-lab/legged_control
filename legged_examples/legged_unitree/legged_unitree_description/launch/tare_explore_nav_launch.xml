@@ -1,0 +1,49 @@
+<launch>
+  <!-- Terrain analysis + TARE exploration on top of fast_lio_slam_launch.xml, driving OptiPessiController, with one rviz
+       showing robot, LIO, terrain, exploration and OptiPessi plans. Start it after fast_lio_slam_launch.xml, once the
+       robot stands (OptiPessi stands until the first goal).
+       Topics: TARE reads /Odometry, /cloud_registered (FAST-LIO), /terrain_map, /terrain_map_ext (tare_planner/config/aliengo.yaml)
+               and publishes /way_point (frame map); way_point_to_opti_pessi_goal.py relays it to /opti_pessi/goal in odom.
+       TF:  odom -> lio_map -> camera_init -> map, as in far_planner_nav_launch.xml.
+       auto_start:=false waits for  ros2 topic pub -1 /start_exploration std_msgs/msg/Bool "{data: true}".
+       ros2 topic pub -1 /reset_waypoint std_msgs/msg/Empty "{}" stops the robot where it is (TARE waypoint = robot position). -->
+  <arg name="use_sim_time" default="true"/>
+  <arg name="terrain" default="true" description="Run terrainAnalysis and terrainAnalysisExt (false if already running)"/>
+  <arg name="rviz" default="true"/>
+  <arg name="tare_config" default="aliengo" description="Config file stem in tare_planner/config"/>
+  <arg name="auto_start" default="true" description="Explore at once; false waits for /start_exploration"/>
+  <arg name="relay" default="true" description="Relay /way_point to /opti_pessi/goal (false: TARE plans, the robot stays)"/>
+  <arg name="lio_map_z" default="0.4" description="Base height above odom when FAST-LIO started (aliengo comHeight)"/>
+
+  <node pkg="tf2_ros" exec="static_transform_publisher" name="odom_to_lio_map"
+    args="--z $(var lio_map_z) --frame-id odom --child-frame-id lio_map"/>
+  <node pkg="tf2_ros" exec="static_transform_publisher" name="camera_init_to_map"
+    args="--frame-id camera_init --child-frame-id map"/>
+
+  <node if="$(var terrain)" pkg="terrain_analysis" exec="terrainAnalysis" name="terrainAnalysis" output="screen">
+    <param name="use_sim_time" value="$(var use_sim_time)"/>
+    <remap from="/state_estimation" to="/Odometry"/>
+    <remap from="/registered_scan" to="/cloud_registered"/>
+  </node>
+  <node if="$(var terrain)" pkg="terrain_analysis_ext" exec="terrainAnalysisExt" name="terrainAnalysisExt" output="screen">
+    <param name="use_sim_time" value="$(var use_sim_time)"/>
+    <remap from="/state_estimation" to="/Odometry"/>
+    <remap from="/registered_scan" to="/cloud_registered"/>
+  </node>
+
+  <!-- name must stay tare_planner_node: the yaml is keyed by node name -->
+  <node pkg="tare_planner" exec="tare_planner_node" name="tare_planner_node" output="screen">
+    <param from="$(find-pkg-share tare_planner)/$(var tare_config).yaml"/>
+    <param name="use_sim_time" value="$(var use_sim_time)"/>
+    <param name="kAutoStart" value="$(var auto_start)"/>
+  </node>
+
+  <node if="$(var relay)" pkg="legged_controllers" exec="way_point_to_opti_pessi_goal.py" name="way_point_to_opti_pessi_goal" output="screen">
+    <param name="use_sim_time" value="$(var use_sim_time)"/>
+  </node>
+
+  <node if="$(var rviz)" pkg="rviz2" exec="rviz2" name="tare_nav_rviz"
+    args="-d $(find-pkg-share legged_unitree_description)/rviz/tare_explore_nav.rviz">
+    <param name="use_sim_time" value="$(var use_sim_time)"/>
+  </node>
+</launch>

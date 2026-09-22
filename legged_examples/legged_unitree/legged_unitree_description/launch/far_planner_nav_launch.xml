@@ -1,0 +1,46 @@
+<launch>
+  <!-- Terrain analysis + FAR planner on top of fast_lio_slam_launch.xml, with one rviz showing robot, LIO, terrain and plans.
+       Start it after fast_lio_slam_launch.xml.
+       Topics: /Odometry and /cloud_registered (FAST-LIO, camera_init) replace the autonomy stack's /state_estimation and /registered_scan.
+       TF:  odom -> lio_map -> camera_init -> map
+         odom -> lio_map: joins the legged estimator tree (odom -> base) to the FAST-LIO tree. lio_map is the base frame
+                          when FAST-LIO started, so with the robot standing at the odom origin it sits comHeight above it.
+         camera_init -> map: terrainAnalysis(Ext) stamp their clouds "map", but the points are in camera_init. -->
+  <arg name="use_sim_time" default="false"/>
+  <arg name="terrain" default="true" description="Run terrainAnalysis and terrainAnalysisExt (false if already running)"/>
+  <arg name="rviz" default="true"/>
+  <arg name="far_config" default="default" description="Config file stem in far_planner/config"/>
+  <arg name="lio_map_z" default="0.4" description="Base height above odom when FAST-LIO started (aliengo comHeight)"/>
+
+  <node pkg="tf2_ros" exec="static_transform_publisher" name="odom_to_lio_map"
+    args="--z $(var lio_map_z) --frame-id odom --child-frame-id lio_map"/>
+  <node pkg="tf2_ros" exec="static_transform_publisher" name="camera_init_to_map"
+    args="--frame-id camera_init --child-frame-id map"/>
+
+  <node if="$(var terrain)" pkg="terrain_analysis" exec="terrainAnalysis" name="terrainAnalysis" output="screen">
+    <param name="use_sim_time" value="$(var use_sim_time)"/>
+    <remap from="/state_estimation" to="/Odometry"/>
+    <remap from="/registered_scan" to="/cloud_registered"/>
+  </node>
+  <node if="$(var terrain)" pkg="terrain_analysis_ext" exec="terrainAnalysisExt" name="terrainAnalysisExt" output="screen">
+    <param name="use_sim_time" value="$(var use_sim_time)"/>
+    <remap from="/state_estimation" to="/Odometry"/>
+    <remap from="/registered_scan" to="/cloud_registered"/>
+  </node>
+
+  <!-- name must stay far_planner: the yaml is keyed by node name -->
+  <node pkg="far_planner" exec="far_planner" name="far_planner" output="screen">
+    <param from="$(find-pkg-share far_planner)/config/$(var far_config).yaml"/>
+    <param name="use_sim_time" value="$(var use_sim_time)"/>
+    <remap from="/odom_world" to="/Odometry"/>
+    <remap from="/terrain_cloud" to="/terrain_map_ext"/>
+    <remap from="/scan_cloud" to="/terrain_map"/>
+    <remap from="/terrain_local_cloud" to="/cloud_registered"/>
+  </node>
+
+  <!-- Publish Point tool sends the FAR goal (/goal_point); click on a cloud, not empty space -->
+  <node if="$(var rviz)" pkg="rviz2" exec="rviz2" name="far_nav_rviz"
+    args="-d $(find-pkg-share legged_unitree_description)/rviz/far_planner_nav.rviz">
+    <param name="use_sim_time" value="$(var use_sim_time)"/>
+  </node>
+</launch>

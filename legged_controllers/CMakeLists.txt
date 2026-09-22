@@ -146,6 +146,7 @@ install(DIRECTORY include/
 # Install executable scripts to standard ROS 2 workspace layout
 install(PROGRAMS scripts/kill_node_sigint_service.py
                  scripts/opti_pessi_scenario.py
+                 scripts/way_point_to_opti_pessi_goal.py
         DESTINATION lib/${PROJECT_NAME}
         )
 

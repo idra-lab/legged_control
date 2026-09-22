@@ -10,7 +10,7 @@ find_package(ament_cmake REQUIRED)
 
 # Mark resource files for installation into the ROS 2 share directory
 install(
-        DIRECTORY meshes urdf launch
+        DIRECTORY meshes urdf launch rviz
         DESTINATION share/${PROJECT_NAME}
 )
 
