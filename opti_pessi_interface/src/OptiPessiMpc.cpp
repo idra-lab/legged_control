@@ -20,13 +20,13 @@ OptiPessiMpc::OptiPessiMpc(ocs2::mpc::Settings mpcSettings, ocs2::ipm::Settings 
 void OptiPessiMpc::reset() {
   MPC_BASE::reset();
   hasSolution_ = false;
-  published_ = false;
+  nominalPublished_ = false;
   shiftRejected_ = false;
   solverStateRejected_ = false;
 }
 
 bool OptiPessiMpc::run(scalar_t currentTime, const vector_t& currentState) {
-  return MPC_BASE::run(currentTime, currentState) && published_;
+  return MPC_BASE::run(currentTime, currentState) && nominalPublished_;
 }
 
 /**
@@ -34,8 +34,9 @@ bool OptiPessiMpc::run(scalar_t currentTime, const vector_t& currentState) {
  * repeatedly on one problem and the warm start is keyed on the gait offset, not on wall-clock time.
  *
  * A solve that evaluateSolve() rejects never becomes a warm start: warm-starting from it left the solver stuck on its own
- * failed output (fewer iterations every solve, same violated plan) until the robot fell. It is still published, as
- * "unchecked", while its phase has no nominal plan; a phase that has one keeps it.
+ * failed output (fewer iterations every solve, same violated plan) until the robot fell. Nor is it executed: while its
+ * phase has no nominal plan it is published as "failed", without inputs, and the controller stops the robot in stance
+ * and restarts the MPC cold. A phase that has a nominal plan keeps it.
  */
 void OptiPessiMpc::calculateController(scalar_t /*initTime*/, const vector_t& initState, scalar_t /*finalTime*/) {
   const int gaitOffset = referenceManagerPtr_->getGaitOffset();
@@ -88,40 +89,49 @@ void OptiPessiMpc::calculateController(scalar_t /*initTime*/, const vector_t& in
     shiftRejected_ = true;
   }
 
-  // A rejected solve is published, as "unchecked", only while its phase has no nominal plan.
+  // A rejected solve (or an incomplete one) is published as a failure, without inputs, only while its phase has no
+  // nominal plan. A phase that has one keeps it.
   const bool keepNominal = !accepted && samePhase;
   Plan plan;
-  if (complete && !keepNominal) {
+  if (!keepNominal) {
     plan.phase = static_cast<size_t>(std::max(gaitOffset, 0));
     plan.startState = robotState;
-    for (size_t k = 0; k < numKnots; ++k) {
-      plan.inputs.push_back(extractRobotInput(outcome.solution.inputTrajectory_[k]));
+    if (accepted) {
+      for (size_t k = 0; k < numKnots; ++k) {
+        plan.inputs.push_back(extractRobotInput(outcome.solution.inputTrajectory_[k]));
+      }
+      plan.source = "nominal";
+    } else {
+      plan.failed = true;
+      plan.source = "failed";
     }
-    plan.source = outcome.ok ? "nominal" : "unchecked";
     plan.trustworthy = outcome.planTrustworthy();
   }
-  const char* const source = plan.source;
-  published_ = plan.source != Plan().source;
-  if (published_) {
-    std::lock_guard<std::mutex> lock(planMutex_);
-    plan.sequence = planSequence_ + 1;
-    latestPlan_ = std::move(plan);
-    planSequence_ = latestPlan_.sequence;
-  }
+  nominalPublished_ = accepted;
 
+  // Statistics first: a controller that reads the plan as soon as it is published then finds the statistics of its solve.
   SolveStatistics statistics;
   statistics.gaitOffset = gaitOffset;
   statistics.warmStart = warmStart;
   statistics.numIterations = solverPtr_->getIterationsLog().size();
   statistics.performance = solverPtr_->getPerformanceIndeces();
-  statistics.source = keepNominal ? "rejected" : source;
+  statistics.source = keepNominal ? "rejected" : plan.source;
   statistics.pessiScale = acceptedScale;
   statistics.trustworthy = outcome.planTrustworthy();
   statistics.dynamicsResidual = outcome.dynamicsResidual;
   statistics.appliedViolation = outcome.constraintViolation;
   statistics.horizonViolation = outcome.horizonViolation;
-  std::lock_guard<std::mutex> lock(statisticsMutex_);
-  lastSolveStatistics_ = statistics;
+  {
+    std::lock_guard<std::mutex> lock(statisticsMutex_);
+    lastSolveStatistics_ = statistics;
+  }
+
+  if (!keepNominal) {
+    std::lock_guard<std::mutex> lock(planMutex_);
+    plan.sequence = planSequence_ + 1;
+    latestPlan_ = std::move(plan);
+    planSequence_ = latestPlan_.sequence;
+  }
 }
 
 OptiPessiMpc::Plan OptiPessiMpc::getLatestPlan() const {

@@ -340,11 +340,16 @@ controller_interface::CallbackReturn OptiPessiController::on_activate(const rclc
   optiPessiStandElapsed_ = 0.0;
   optiPessiStandingUp_ = true;
   optiPessiGoalReached_ = false;
+  optiPessiStopping_ = false;
+  optiPessiFailedSolveStops_ = 0;
+  optiPessiStandFootprintValid_ = false;
+  optiPessiRecoveryStep_ = 0;
   optiPessiPhaseDiagnostics_ = PhaseDiagnostics();
   optiPessiQpFailuresAtPhaseStart_ = wbc_->getNumQpFailures();
   mpcRunning_ = false;
-  // A policy left from an earlier activation must not count as the first policy of this one.
+  // A policy left from an earlier activation must not count as the first policy of this one, nor warm-start its solves.
   optiPessiMrtInterface_->reset();
+  optiPessiMpcResetRequested_ = true;
   optiPessiPlan_ = AcceptedPlan();
   RCLCPP_INFO(node->get_logger(), "[OptiPessi] standing up: CoM height %.3f -> %.3f in %.1f s, then %.1f s settling",
               optiPessiStandStartHeight_, optiPessiInterface_->modelParameters().comHeight, optiPessiStandUpDuration_,
@@ -383,7 +388,7 @@ controller_interface::return_type OptiPessiController::update(const rclcpp::Time
     const opti_pessi::OptiPessiMpc::Plan plan = optiPessiMpc.getLatestPlan();
     optiPessiPlanSequence_ = plan.sequence;
     ++optiPessiPhaseDiagnostics_.policyUpdates;
-    storeAcceptedPlan(plan);
+    handleMpcPlan(plan);
   }
   if (optiPessiMrtInterface_->updatePolicy()) {
     publishOptiPessiPlan();
@@ -422,16 +427,29 @@ void OptiPessiController::advanceOptiPessiPhase(const rclcpp::Time& time, const 
     return;
   }
 
-  // No plan yet (the MPC starts when standUp() ends, and restartFromStance() clears the plan): keep standing.
+  // No plan yet (the MPC starts when standUp() ends, and restartFromStance() clears the plan): keep standing. A failed
+  // solve has no step to wait for: the recovery starts from the robot standing here.
   if (!optiPessiPlan_.valid || optiPessiPlan_.phase > optiPessiPhase_) {
+    if (optiPessiStopping_) {
+      const vector_t robotState = measureLipState(optiPessiPhase_, optiPessiLiftoffPositions_);
+      {
+        std::lock_guard<std::mutex> lock(optiPessiPhaseMutex_);
+        optiPessiRobotState_ = robotState;
+      }
+      optiPessiPhaseElapsed_ = 0.0;
+      optiPessiPhaseDuration_ = 0.0;
+      continueRecovery(robotState);
+      return;
+    }
     optiPessiWaitTime_ += period.seconds();
     return;
   }
 
   // Every solve starts at knot 0 (see opti_pessi_interface/definitions.h). Until the MPC thread delivers this phase's
   // own plan, the latest plan runs shifted by the phases completed since it was solved (its last knot past the
-  // horizon), from the state measured at the start of this phase. The plan is applied as it comes, with no checks
-  // except on its duration (below). The LIP clock never waits for a solve. The input lasts u(DT) seconds.
+  // horizon), from the state measured at the start of this phase. Only accepted solves are stored (handleMpcPlan()), and
+  // the plan is applied as it comes, with no checks except on its duration (below). The LIP clock never waits for a
+  // solve. The input lasts u(DT) seconds.
   const auto& params = optiPessiInterface_->modelParameters();
   const size_t offset = optiPessiPhase_ - optiPessiPlan_.phase;
   const size_t lastKnot = optiPessiPlan_.inputs.size() - 1;
@@ -473,6 +491,12 @@ void OptiPessiController::advanceOptiPessiPhase(const rclcpp::Time& time, const 
   optiPessiPhaseElapsed_ += period.seconds();
   updateFootReferences(robotState, appliedInput, nextState, nextInput, optiPessiPhaseElapsed_);
   updateComReference(robotState, appliedInput, optiPessiPhaseElapsed_);
+  if (optiPessiRecoveryStep_ > 0) {
+    // Recovery steps hold the heading instead of following the yaw torque of their hand-set force split.
+    optiPessiComReference_.yaw = optiPessiRecoveryYaw_;
+    optiPessiComReference_.yawRate = 0.0;
+    optiPessiComReference_.yawAcceleration = 0.0;
+  }
   if (optiPessiPhaseElapsed_ < phaseDuration) {
     return;
   }
@@ -606,6 +630,13 @@ void OptiPessiController::advanceOptiPessiPhase(const rclcpp::Time& time, const 
   lipObservation.input = appliedInput;
   lipObservation.mode = optiPessiPhase_;
   optiPessiObservationPublisher_->publish(ros_msg_conversions::createObservationMsg(lipObservation));
+
+  // A solve failed: the step just ended has landed, so all four feet are down. The recovery runs to its end wherever the
+  // goal is.
+  if (optiPessiStopping_) {
+    continueRecovery(successorState);
+    return;
+  }
 
   vector_t goal;
   size_t goalSequence = 0;
@@ -856,6 +887,16 @@ void OptiPessiController::standUp(const rclcpp::Duration& period) {
     optiPessiFootReferences_[i].position = optiPessiLiftoffPositions_[i];
   }
   holdStance(vector3_t(robotState(RobotX::CX), robotState(RobotX::CY), params.comHeight), robotState(RobotX::TH));
+
+  // The stance a failed solve recovers to (continueRecovery()). Only the first stand-up of an activation records it: a
+  // later one starts from wherever the walk before it stopped.
+  if (!optiPessiStandFootprintValid_) {
+    for (size_t i = 0; i < optiPessiStandFootprint_.size(); ++i) {
+      optiPessiStandFootprint_[i] =
+          opti_pessi::applyR01(robotState(RobotX::TH), optiPessiLiftoffPositions_[i].head<2>() - robotState.segment<2>(RobotX::CX));
+    }
+    optiPessiStandFootprintValid_ = true;
+  }
   {
     std::lock_guard<std::mutex> lock(optiPessiPhaseMutex_);
     optiPessiRobotState_ = robotState;
@@ -881,9 +922,10 @@ void OptiPessiController::standUp(const rclcpp::Duration& period) {
   mpcRunning_ = true;
 }
 
-void OptiPessiController::storeAcceptedPlan(const opti_pessi::OptiPessiMpc::Plan& plan) {
-  // During the stand-up or a restart the phase is about to be reset: nothing solved now belongs to it.
-  if (optiPessiStandingUp_ || plan.inputs.empty()) {
+void OptiPessiController::handleMpcPlan(const opti_pessi::OptiPessiMpc::Plan& plan) {
+  // During the stand-up or a restart the phase is about to be reset: nothing solved now belongs to it. While stopping,
+  // the step in progress lands on the plan it started with.
+  if (optiPessiStandingUp_ || optiPessiStopping_) {
     return;
   }
 
@@ -893,6 +935,25 @@ void OptiPessiController::storeAcceptedPlan(const opti_pessi::OptiPessiMpc::Plan
                             (plan.startState - optiPessiRobotState_).cwiseAbs().maxCoeff() < 1e-9;
   const bool newerEarlierPhase = plan.phase < optiPessiPhase_ && (!optiPessiPlan_.valid || plan.phase > optiPessiPlan_.phase);
   if (!forThisPhase && !newerEarlierPhase) {
+    return;
+  }
+
+  // A failed solve is never executed, and the solver is not left to warm-start from it: the robot returns to its stand-up
+  // stance (continueRecovery()) and the MPC restarts cold. Standing at the goal nothing is executed, so it changes nothing
+  // there.
+  if (plan.failed) {
+    if (optiPessiGoalReached_) {
+      return;
+    }
+    mpcRunning_ = false;
+    optiPessiStopping_ = true;
+    ++optiPessiFailedSolveStops_;
+    const auto solve = std::static_pointer_cast<opti_pessi::OptiPessiMpc>(optiPessiMpc_)->getLastSolveStatistics();
+    RCLCPP_WARN(this->get_node()->get_logger(),
+                "[OptiPessi] solve of phase %zu failed (gaitOffset=%d warmStart=%s iterations=%zu dynRes=%.3e appliedViol=%.3e "
+                "horizonViol=%.3e): back to the stand-up stance %s (stop %zu)",
+                plan.phase, solve.gaitOffset, solve.warmStart, solve.numIterations, solve.dynamicsResidual, solve.appliedViolation,
+                solve.horizonViolation, optiPessiPlan_.valid ? "once the current step lands" : "now", optiPessiFailedSolveStops_);
     return;
   }
 
@@ -908,8 +969,12 @@ void OptiPessiController::restartFromStance() {
   using opti_pessi::RobotX;
   const auto& params = optiPessiInterface_->modelParameters();
   mpcRunning_ = false;
+  optiPessiStopping_ = false;
+  optiPessiRecoveryStep_ = 0;
   optiPessiPlan_ = AcceptedPlan();
   optiPessiMrtInterface_->reset();
+  // The MPC thread resets the solver before its next solve: phase 0 of the new walk starts cold.
+  optiPessiMpcResetRequested_ = true;
 
   // Swinging feet go straight down where they are and the stance pair carries the weight until standUp() puts every
   // foot in contact.
@@ -938,6 +1003,90 @@ void OptiPessiController::restartFromStance() {
   optiPessiStandStartHeight_ = params.comHeight;
   optiPessiStandElapsed_ = optiPessiStandUpDuration_;
   optiPessiStandingUp_ = true;
+}
+
+void OptiPessiController::continueRecovery(const vector_t& robotState) {
+  using opti_pessi::RobotU;
+  using opti_pessi::RobotX;
+  using vector2_t = Eigen::Matrix<scalar_t, 2, 1>;
+  const auto& params = optiPessiInterface_->modelParameters();
+  const auto logger = this->get_node()->get_logger();
+  constexpr scalar_t kFootprintTolerance = 0.03;  // [m] largest foot error that counts as standing on the footprint
+
+  if (optiPessiRecoveryStep_ == 0) {
+    optiPessiRecoveryYaw_ = robotState(RobotX::TH);
+    // Already on the footprint (a failure right after standing up): nothing to step. It is fitted to the feet by its
+    // centre, at the current heading.
+    vector2_t centre = vector2_t::Zero();
+    for (size_t i = 0; i < optiPessiStandFootprint_.size(); ++i) {
+      centre += optiPessiLiftoffPositions_[i].head<2>() - opti_pessi::applyR(optiPessiRecoveryYaw_, optiPessiStandFootprint_[i]);
+    }
+    centre /= static_cast<scalar_t>(optiPessiStandFootprint_.size());
+    scalar_t footprintError = 0.0;
+    for (size_t i = 0; i < optiPessiStandFootprint_.size(); ++i) {
+      const vector2_t foot = centre + opti_pessi::applyR(optiPessiRecoveryYaw_, optiPessiStandFootprint_[i]);
+      footprintError = std::max(footprintError, (optiPessiLiftoffPositions_[i].head<2>() - foot).norm());
+    }
+    if (!optiPessiStandFootprintValid_ || footprintError < kFootprintTolerance) {
+      optiPessiRecoveryCom_ = optiPessiStandFootprintValid_ ? centre : vector2_t(robotState.segment<2>(RobotX::CX));
+      optiPessiRecoveryStep_ = 2;
+    }
+  }
+
+  // Both steps have landed: stand over the footprint and restart the MPC cold.
+  if (optiPessiRecoveryStep_ == 2) {
+    restartFromStance();
+    optiPessiComReference_.position.head<2>() = optiPessiRecoveryCom_;
+    optiPessiComReference_.yaw = optiPessiRecoveryYaw_;
+    RCLCPP_WARN(logger, "[OptiPessi] recovered: standing at (%.3f, %.3f) yaw %.3f in the stand-up stance, restarting the MPC cold",
+                optiPessiRecoveryCom_.x(), optiPessiRecoveryCom_.y(), optiPessiRecoveryYaw_);
+    return;
+  }
+
+  // One diagonal step. On the stance segment the CoP only moves the capture point xi = c + dc / omega along the segment,
+  // xi(t) - z = e^(omega t) (xi(0) - z), so it sits where xi projects onto the segment and only the part of xi off the
+  // segment grows.
+  const scalar_t w = params.omega();
+  const scalar_t duration = std::min(std::max(params.dtCost0, params.dtMin), params.dtMax);
+  const vector2_t p0 = robotState.segment<2>(RobotX::P0X);
+  const vector2_t p1 = robotState.segment<2>(RobotX::P1X);
+  const vector2_t capturePoint = robotState.segment<2>(RobotX::CX) + robotState.segment<2>(RobotX::DCX) / w;
+  const vector2_t segment = p1 - p0;
+  scalar_t alpha = 0.5;
+  if (segment.squaredNorm() > 1e-6) {
+    alpha = (capturePoint - p0).dot(segment) / segment.squaredNorm();
+  }
+  alpha = std::min(std::max(alpha, params.alphaReduction), 1.0 - params.alphaReduction);
+  const vector2_t cop = opti_pessi::computeCop(p0, p1, alpha);
+
+  // The first step centres the footprint on the capture point it ends with. The second step, standing on the footprint's
+  // diagonal through it, holds the capture point there and the CoM comes to rest on it.
+  if (optiPessiRecoveryStep_ == 0) {
+    optiPessiRecoveryCom_ = cop + std::exp(w * duration) * (capturePoint - cop);
+    RCLCPP_WARN(logger, "[OptiPessi] recovery: two steps of %.3f s back to the stand-up stance centred at (%.3f, %.3f) yaw %.3f, "
+                "%.3f m from the CoM", duration, optiPessiRecoveryCom_.x(), optiPessiRecoveryCom_.y(), optiPessiRecoveryYaw_,
+                (optiPessiRecoveryCom_ - robotState.segment<2>(RobotX::CX)).norm());
+  }
+
+  // The swing pair lands on its footprint spots, in the order updateFootReferences() reads them.
+  vector_t input = vector_t::Zero(RobotU::DIM);
+  const auto swing = opti_pessi::gaitPair(static_cast<int>(optiPessiPhase_) + 1);
+  for (size_t k = 0; k < 2; ++k) {
+    input.segment<2>(RobotU::P0X + 2 * static_cast<int>(k)) =
+        optiPessiRecoveryCom_ + opti_pessi::applyR(optiPessiRecoveryYaw_, optiPessiStandFootprint_[static_cast<size_t>(swing[k])]);
+  }
+  input(RobotU::ALPHA) = alpha;
+  input(RobotU::DT) = duration;
+  input(RobotU::BETA) = 0.5;
+  input(RobotU::GAMMA) = 0.5;
+
+  optiPessiPlan_ = AcceptedPlan();
+  optiPessiPlan_.valid = true;
+  optiPessiPlan_.phase = optiPessiPhase_;
+  optiPessiPlan_.startState = robotState;
+  optiPessiPlan_.inputs = {input};
+  optiPessiPlan_.source = "recovery";
+  ++optiPessiRecoveryStep_;
 }
 
 vector3_t OptiPessiController::measureCenterOfMass() const {
@@ -1514,6 +1663,10 @@ void OptiPessiController::setupOptiPessiMrt() {
         executeAndSleep(
             [&]() {
               if (mpcRunning_) {
+                // Here and not in restartFromStance(): on this thread no solve can be in progress.
+                if (optiPessiMpcResetRequested_.exchange(false)) {
+                  optiPessiMpc_->reset();
+                }
                 pushOptiPessiObservation();
                 optiPessiMpcTimer_.startTimer();
                 optiPessiMrtInterface_->advanceMpc();

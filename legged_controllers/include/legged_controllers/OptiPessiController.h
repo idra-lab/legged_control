@@ -6,7 +6,8 @@
 // CoM, yaw, foot and force references OptiPessiWbc tracks, on three threads:
 //
 //   control (update()) : state estimation, plan intake, LIP phase clock, references, WBC, command write-out
-//   MPC     (optiPessiMpcThread_) : pushOptiPessiObservation() then advanceMpc(), at mpcDesiredFrequency_
+//   MPC     (optiPessiMpcThread_) : reset() when restartFromStance() asked for it, pushOptiPessiObservation() then
+//                                   advanceMpc(), at mpcDesiredFrequency_
 //   spin    (spin_thread_) : goal / obstacle / contact callbacks
 //
 // The LIP loop closes ONCE PER PHASE: the 10-dof LIP state is measured at each phase boundary and handed
@@ -134,6 +135,7 @@ class OptiPessiController : public controller_interface::ControllerInterface {
    * at the end of a phase measures the robot for the next one. While the MPC has not solved the current
    * phase the references coast; once the goal is reached they stand. A plan that arrives mid-phase may
    * shorten the phase, but never below optiPessiMinLandingTime_ from now (see optiPessiPhaseDuration_).
+   * After a failed solve (optiPessiStopping_) the step in progress lands and continueRecovery() takes over.
    */
   void advanceOptiPessiPhase(const rclcpp::Time& time, const rclcpp::Duration& period);
 
@@ -151,15 +153,27 @@ class OptiPessiController : public controller_interface::ControllerInterface {
   void holdStance(const vector3_t& comPosition, scalar_t yaw);
 
   /**
-   * Copies a plan just published by OptiPessiMpc into optiPessiPlan_ if it belongs to this walk and is newer than the
-   * stored one: solved for the current phase from the state it started from, or for a later earlier phase than the
-   * stored one.
+   * Takes a plan just published by OptiPessiMpc if it belongs to this walk and is newer than the stored one: solved for
+   * the current phase from the state it started from, or for a later earlier phase than the stored one. A nominal plan
+   * is copied into optiPessiPlan_. A failed one stops the MPC and sets optiPessiStopping_: once the step in progress has
+   * landed (at once if no step is in progress) continueRecovery() walks the robot back to its stand-up stance.
    */
-  void storeAcceptedPlan(const opti_pessi::OptiPessiMpc::Plan& plan);
+  void handleMpcPlan(const opti_pessi::OptiPessiMpc::Plan& plan);
 
   /**
-   * A new goal after the goal was reached: stops the MPC, lowers the swinging feet where they are, holds the CoM
-   * at comHeight above the measured one and hands over to standUp()'s settling stage, which restarts from phase 0.
+   * Recovery after a failed solve, called at a phase start with all four feet down and `robotState` measured for the
+   * phase. Two diagonal steps, built here instead of by the MPC, put the feet back on the footprint recorded at stand-up
+   * (optiPessiStandFootprint_), then restartFromStance() holds the CoM over it and restarts the MPC cold. Each step keeps
+   * the CoP where the capture point projects onto the stance pair. The footprint is centred on the capture point
+   * predicted for the end of the first step, where the robot comes to rest. The heading is held at the one measured when
+   * the recovery started. Feet already on the footprint skip the steps.
+   */
+  void continueRecovery(const vector_t& robotState);
+
+  /**
+   * Stops the walk, after a new goal once the goal was reached or at the end of a recovery: stops the MPC, lowers the
+   * swinging feet where they are, holds the CoM at comHeight above the measured one and hands over to standUp()'s
+   * settling stage, which restarts from phase 0 with the MPC reset (cold start).
    */
   void restartFromStance();
 
@@ -244,6 +258,16 @@ class OptiPessiController : public controller_interface::ControllerInterface {
   scalar_t optiPessiPhaseDuration_ = 0.0;  // duration applied on the last tick: u(DT), stretched if needed so the swing feet can land; 0 at phase start
   bool optiPessiGoalReached_ = false;
   size_t optiPessiReachedGoalSequence_ = 0;  // goal sequence optiPessiGoalReached_ refers to. Control thread only.
+  bool optiPessiStopping_ = false;           // a solve failed: recover to the stand-up stance. Control thread only.
+  size_t optiPessiFailedSolveStops_ = 0;     // stops caused by failed solves since activation, for the logs
+  std::atomic_bool optiPessiMpcResetRequested_{false};  // set by restartFromStance(), cleared by the MPC thread's reset()
+
+  // Stand-up stance and the recovery back to it (see continueRecovery()). Control thread only.
+  std::array<Eigen::Matrix<scalar_t, 2, 1>, 4> optiPessiStandFootprint_{};  // feet about the CoM, yaw frame, by opti_pessi::Foot
+  bool optiPessiStandFootprintValid_ = false;  // recorded when the first stand-up of an activation ends
+  size_t optiPessiRecoveryStep_ = 0;           // recovery steps started: 0 (none yet), 1, 2
+  Eigen::Matrix<scalar_t, 2, 1> optiPessiRecoveryCom_ = Eigen::Matrix<scalar_t, 2, 1>::Zero();  // CoM the footprint is centred on
+  scalar_t optiPessiRecoveryYaw_ = 0.0;        // heading held during the recovery
 
   // Goal and obstacles as last received on their topics, in odom. Written by the spin thread, read by the control and
   // MPC threads, under the mutex.
