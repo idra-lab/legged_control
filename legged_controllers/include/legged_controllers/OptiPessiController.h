@@ -47,6 +47,7 @@
 #include <opti_pessi_interface/OptiPessiMpc.h>
 #include <opti_pessi_interface/SolverBackend.h>
 
+#include "legged_controllers/FallRecovery.h"
 // HybridJointHandle, ImuSensorHandle and ContactSensorHandle are reused from here: redefining them
 // in namespace legged would clash with LeggedController.h in every translation unit that sees both.
 #include "legged_controllers/LeggedController.h"
@@ -205,6 +206,33 @@ class OptiPessiController : public controller_interface::ControllerInterface {
    */
   void standUp(const rclcpp::Duration& period);
 
+  /**
+   * Starts standUp() from the robot as it lies now: measures it, holds its feet where they are and resets the walk, the
+   * recovery after failed solves and the MPC. Run by on_activate() and at the end of a fall recovery.
+   */
+  void beginStandUp();
+
+  /**
+   * A fall (`reason` for the log): stops the MPC and the walk and starts fallRecovery_, which puts the joints in damping
+   * mode at once. update() then runs the fall recovery instead of the WBC until it hands back to beginStandUp().
+   */
+  void enterFallRecovery(const char* reason);
+
+  /** Settings from fallRecoveryFile_, or the built-in ones (with a warning) when it is not set or cannot be read. */
+  FallRecoverySettings readFallRecoverySettings() const;
+
+  /** One tick of fallRecovery_: writes its joint commands, and stands the robot up once it lies folded on its belly. */
+  void updateFallRecovery(const rclcpp::Duration& period);
+
+  /** Roll, pitch, base angular velocity and joints of the measured robot, in joint handle order. */
+  FallRecovery::Measurement measureFallRecovery() const;
+
+  /** Height of the base above the lowest foot of the measured robot [m]. */
+  scalar_t measureBaseAboveFeet();
+
+  /** Writes per-joint commands straight to the joint handles (no WBC, no safety check). */
+  void writeJointCommands(const FallRecovery::JointCommands& commands);
+
   /** Whole-body CoM of the measured robot, in odom. */
   vector3_t measureCenterOfMass() const;
 
@@ -343,6 +371,12 @@ class OptiPessiController : public controller_interface::ControllerInterface {
   scalar_t optiPessiStandStartHeight_ = 0.0;     // CoM height measured at activation [m]
   scalar_t optiPessiStandUpDuration_ = 1.5;      // CoM height ramp [s]
   scalar_t optiPessiStandSettleDuration_ = 0.5;  // hold at comHeight before phase 0 is measured [s]
+
+  // Fall recovery (see FallRecovery.h). Control thread only.
+  std::unique_ptr<FallRecovery> fallRecovery_;
+  std::string fallRecoveryFile_;  // "fallRecoveryFile" parameter, read again at every fall
+  bool fallHeightArmed_ = false;  // the base-height fall test runs once standUp() has settled the robot
+  std::unique_ptr<PinocchioInterface> fallKinematics_;  // copy of the model for measureBaseAboveFeet()
 
   // Per-phase diagnostics, logged at the end of each phase. Control thread only.
   scalar_t optiPessiWaitTime_ = 0.0;         // sim seconds of the phase run without its own policy (shifted plan, or none yet)

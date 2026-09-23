@@ -1,0 +1,57 @@
+; Fall recovery of OptiPessiController (legged_controllers/FallRecovery.h). Read at controller init and again at every
+; fall, so it can be tuned on a running robot. Joint keyframes are (HAA, HFE, KFE) of one leg; a positive HAA moves the
+; foot toward body +y on every leg.
+
+fall_recovery
+{
+  ; Fall test
+  tiltFallenDegrees       60.0    ; body z axis this far from the vertical
+  tiltUprightDegrees      30.0    ; below it the robot lies on its belly: fold and stand, no roll-over
+  minBaseHeight           0.20    ; [m] base above the lowest foot, tested once the robot has stood up
+
+  ; Damping mode: kp = 0, feedforward = 0, velocity target = 0
+  dampingKd               2.0
+
+  ; At rest before each decision
+  restAngularVelocity     0.5     ; [rad/s]
+  restJointVelocity       1.0     ; [rad/s] fastest joint
+  restDuration            0.5     ; [s]
+  restTimeout             3.0     ; [s] of damping, then decide anyway
+
+  ; Joint PD while rolling and folding
+  kp                      80.0
+  kd                      2.0
+
+  tuck                            ; belly-down lying pose standUp() starts from
+  {
+    HAA                   0.0
+    HFE                   1.2
+    KFE                  -2.7
+  }
+  ; Roll-over pose for roll direction +1, left legs (LF, LH) and right legs (RF, RH). Direction -1 is the mirror image.
+  ; The left legs swing over the back and paddle inward under the body, the right legs fold along the body: on its back
+  ; the robot rolls onto its belly, on a side (against gravity) onto its back first.
+  rollLeft
+  {
+    HAA                   1.2     ; hip limit +-1.22
+    HFE                   3.89
+    KFE                  -1.5
+  }
+  rollRight
+  {
+    HAA                   0.0
+    HFE                   1.6
+    KFE                  -2.7
+  }
+  sideRollAlongGravity    false   ; on a side: roll direction = sign of gravity along body y (true) or its opposite (false)
+  rollDirectionDeadband   0.5     ; |gravity along body y| below it: on the back, the direction alternates from +1
+
+  ; Segment durations [s]: a roll-over is tuck, sweep, hold, tuck
+  tuckDuration            0.6
+  sweepDuration           0.25    ; fast enough to carry the robot past its tipping point
+  holdDuration            0.3
+  foldDuration            1.0
+
+  maxRollAttempts         4       ; per recovery, then give up
+  maxConsecutiveFalls     3       ; recoveries without standing up in between, then give up
+}

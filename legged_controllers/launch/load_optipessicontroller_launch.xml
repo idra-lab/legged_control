@@ -20,6 +20,7 @@
   <let name="optipessiFile" value="$(find-pkg-share opti_pessi_interface)/config/task.info"/>
   <let name="scenarioFile" value="$(find-pkg-share opti_pessi_interface)/config/scenario_S1.info"/>
   <let name="libraryFolder" value="$(find-pkg-share opti_pessi_interface)/lib"/>
+  <let name="fallRecoveryFile" value="$(find-pkg-share legged_controllers)/config/$(var robot_type)/fall_recovery.info"/>
 
   <!-- Controller spawners (one per controller, as in load_controller.launch.py) -->
   <node pkg="controller_manager" exec="spawner" name="joint_state_broadcaster_spawner" output="screen"
@@ -39,6 +40,7 @@
     <param name="libraryFolder" value="$(var libraryFolder)"/>
     <param name="recompile" value="$(var recompile)"/>
     <param name="obstacleDetour" value="$(var obstacleDetour)"/>
+    <param name="fallRecoveryFile" value="$(var fallRecoveryFile)"/>
   </node>
 
   <!-- If not using the joypad, keep using the old keyboard based program to select the gaits -->

@@ -57,6 +57,51 @@ static_assert(::legged_controllers::msg::Obstacle::HUMAN == static_cast<uint8_t>
 static_assert(::legged_controllers::msg::Obstacle::CAR == static_cast<uint8_t>(opti_pessi::ObstacleType::Car));
 static_assert(opti_pessi::kNumObstacleTypes == 2);
 
+namespace {
+
+/** FallRecoverySettings from the fall_recovery block of an INFO file. Entries it does not set keep their defaults. */
+FallRecoverySettings loadFallRecoverySettings(const std::string& file) {
+  boost::property_tree::ptree pt;
+  boost::property_tree::read_info(file, pt);
+  FallRecoverySettings settings;
+  const auto load = [&pt](const std::string& name, auto& value) {
+    value = pt.get("fall_recovery." + name, value);
+  };
+  const auto loadDegrees = [&pt](const std::string& name, double& radians) {
+    radians = pt.get("fall_recovery." + name, radians * 180.0 / M_PI) * M_PI / 180.0;
+  };
+  const auto loadLeg = [&pt](const std::string& name, Eigen::Vector3d& leg) {
+    const std::array<std::string, 3> joints{"HAA", "HFE", "KFE"};
+    for (size_t j = 0; j < joints.size(); ++j) {
+      leg(j) = pt.get("fall_recovery." + name + "." + joints[j], leg(j));
+    }
+  };
+  loadDegrees("tiltFallenDegrees", settings.tiltFallen);
+  loadDegrees("tiltUprightDegrees", settings.tiltUpright);
+  load("minBaseHeight", settings.minBaseHeight);
+  load("dampingKd", settings.dampingKd);
+  load("restAngularVelocity", settings.restAngularVelocity);
+  load("restJointVelocity", settings.restJointVelocity);
+  load("restDuration", settings.restDuration);
+  load("restTimeout", settings.restTimeout);
+  load("kp", settings.kp);
+  load("kd", settings.kd);
+  loadLeg("tuck", settings.tuck);
+  loadLeg("rollLeft", settings.rollLeft);
+  loadLeg("rollRight", settings.rollRight);
+  load("sideRollAlongGravity", settings.sideRollAlongGravity);
+  load("rollDirectionDeadband", settings.rollDirectionDeadband);
+  load("tuckDuration", settings.tuckDuration);
+  load("sweepDuration", settings.sweepDuration);
+  load("holdDuration", settings.holdDuration);
+  load("foldDuration", settings.foldDuration);
+  load("maxRollAttempts", settings.maxRollAttempts);
+  load("maxConsecutiveFalls", settings.maxConsecutiveFalls);
+  return settings;
+}
+
+}  // namespace
+
 controller_interface::CallbackReturn OptiPessiController::on_init() {
   auto node = this->get_node();
 
@@ -88,6 +133,9 @@ controller_interface::CallbackReturn OptiPessiController::on_init() {
   if (!node->has_parameter("obstacleDetour")) {
     node->declare_parameter<bool>("obstacleDetour", true);
   }
+  if (!node->has_parameter("fallRecoveryFile")) {
+    node->declare_parameter<std::string>("fallRecoveryFile", "");
+  }
 
   std::string urdfFile = node->get_parameter("urdfFile").as_string();
   std::string taskFile = node->get_parameter("taskFile").as_string();
@@ -98,6 +146,7 @@ controller_interface::CallbackReturn OptiPessiController::on_init() {
   bool recompile = node->get_parameter("recompile").as_bool();
   std::string backendStr = node->get_parameter("backend").as_string();
   optiPessiDetourEnabled_ = node->get_parameter("obstacleDetour").as_bool();
+  fallRecoveryFile_ = node->get_parameter("fallRecoveryFile").as_string();
   opti_pessi::SolverBackend backend = opti_pessi::SolverBackend::Ipm;
   if (backendStr == "Ipm") {
     backend = opti_pessi::SolverBackend::Ipm;
@@ -144,6 +193,21 @@ controller_interface::CallbackReturn OptiPessiController::on_init() {
 
   // Safety Checker
   safetyChecker_ = std::make_shared<SafetyChecker>(leggedInterface_->getCentroidalModelInfo());
+
+  // Fall recovery
+  const FallRecoverySettings fallRecoverySettings = readFallRecoverySettings();
+  RCLCPP_INFO(node->get_logger(),
+              "[OptiPessi] fall recovery: fallen past %.0f deg tilt or %.2f m base height, upright below %.0f deg, damping kd=%.1f, "
+              "joint PD kp=%.1f kd=%.1f, tuck=(%.2f, %.2f, %.2f) rollLeft=(%.2f, %.2f, %.2f) rollRight=(%.2f, %.2f, %.2f), on a side "
+              "roll %s gravity",
+              fallRecoverySettings.tiltFallen * 180.0 / M_PI, fallRecoverySettings.minBaseHeight,
+              fallRecoverySettings.tiltUpright * 180.0 / M_PI, fallRecoverySettings.dampingKd, fallRecoverySettings.kp,
+              fallRecoverySettings.kd, fallRecoverySettings.tuck(0), fallRecoverySettings.tuck(1), fallRecoverySettings.tuck(2),
+              fallRecoverySettings.rollLeft(0), fallRecoverySettings.rollLeft(1), fallRecoverySettings.rollLeft(2),
+              fallRecoverySettings.rollRight(0), fallRecoverySettings.rollRight(1), fallRecoverySettings.rollRight(2),
+              fallRecoverySettings.sideRollAlongGravity ? "along" : "against");
+  fallRecovery_ = std::make_unique<FallRecovery>(fallRecoverySettings);
+  fallKinematics_ = std::make_unique<PinocchioInterface>(leggedInterface_->getPinocchioInterface());
 
   return controller_interface::CallbackReturn::SUCCESS;
 }
@@ -316,9 +380,19 @@ controller_interface::CallbackReturn OptiPessiController::on_activate(const rclc
   currentObservation_.input.setZero(leggedInterface_->getCentroidalModelInfo().inputDim);
   currentObservation_.mode = ModeNumber::STANCE;
 
-  // Stand up before walking: the robot usually lies where Gazebo dropped it, with no controller holding it.
-  // The WBC holds all four feet and ramps the CoM height up to comHeight (see standUp()); the MPC starts once
-  // the robot stands, from the LIP state measured then.
+  optiPessiFailedSolveStops_ = 0;
+  fallRecovery_->reset();
+  beginStandUp();
+
+  return controller_interface::CallbackReturn::SUCCESS;
+}
+
+void OptiPessiController::beginStandUp() {
+  auto node = this->get_node();
+
+  // Stand up before walking: the robot lies where Gazebo dropped it, with no controller holding it, or where a fall
+  // recovery folded it. The WBC holds all four feet and ramps the CoM height up to comHeight (see standUp()); the MPC
+  // starts once the robot stands, from the LIP state measured then.
   const vector_t robotState = measureLipState(0, optiPessiLiftoffPositions_);
   const vector3_t com = measureCenterOfMass();
   RCLCPP_INFO(node->get_logger(), "[OptiPessi] measured initial state: c=(%.3f, %.3f) theta=%.3f v=(%.3f, %.3f) dtheta=%.3f "
@@ -341,7 +415,6 @@ controller_interface::CallbackReturn OptiPessiController::on_activate(const rclc
   optiPessiStandingUp_ = true;
   optiPessiGoalReached_ = false;
   optiPessiStopping_ = false;
-  optiPessiFailedSolveStops_ = 0;
   optiPessiStandFootprintValid_ = false;
   optiPessiRecoveryStep_ = 0;
   optiPessiRecoveryHolding_ = false;
@@ -349,20 +422,29 @@ controller_interface::CallbackReturn OptiPessiController::on_activate(const rclc
   optiPessiRecoveryReplacing_ = false;
   optiPessiPhaseDiagnostics_ = PhaseDiagnostics();
   optiPessiQpFailuresAtPhaseStart_ = wbc_->getNumQpFailures();
+  fallHeightArmed_ = false;  // the base starts low: standUp() arms the height test once the robot stands
   mpcRunning_ = false;
-  // A policy left from an earlier activation must not count as the first policy of this one, nor warm-start its solves.
+  // A policy left from an earlier activation or walk must not count as the first policy of this one, nor warm-start its
+  // solves.
   optiPessiMrtInterface_->reset();
   optiPessiMpcResetRequested_ = true;
   optiPessiPlan_ = AcceptedPlan();
   RCLCPP_INFO(node->get_logger(), "[OptiPessi] standing up: CoM height %.3f -> %.3f in %.1f s, then %.1f s settling",
               optiPessiStandStartHeight_, optiPessiInterface_->modelParameters().comHeight, optiPessiStandUpDuration_,
               optiPessiStandSettleDuration_);
-
-  return controller_interface::CallbackReturn::SUCCESS;
 }
 
 controller_interface::CallbackReturn OptiPessiController::on_deactivate(const rclcpp_lifecycle::State& /*previous_state*/) {
   mpcRunning_ = false;
+  // The hardware keeps applying the last command once the controller lets go of the joints (LeggedHWSim::write() holds
+  // the last feedforward torque): leave them in damping mode instead. The interfaces are released after on_deactivate().
+  if (fallRecovery_ && hybridJointHandles_.size() == static_cast<size_t>(FallRecovery::Vector12::RowsAtCompileTime)) {
+    FallRecovery::Vector12 jointPositions;
+    for (size_t j = 0; j < hybridJointHandles_.size(); ++j) {
+      jointPositions(j) = hybridJointHandles_[j].getPosition();
+    }
+    writeJointCommands(FallRecovery::damping(jointPositions, fallRecovery_->settings()));
+  }
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
@@ -384,6 +466,24 @@ controller_interface::return_type OptiPessiController::update(const rclcpp::Time
   robotVisualizer_->update(visualizedObservation, PrimalSolution(), CommandData());
   selfCollisionVisualization_->update(currentObservation_);
 
+  // A fall recovery drives the joints itself, without MPC or WBC, until it hands back to the stand-up. A fall never
+  // makes update() return ERROR: controller_manager would deactivate the controller and leave the joints on their last
+  // command.
+  if (fallRecovery_->active()) {
+    updateFallRecovery(period);
+    return controller_interface::return_type::OK;
+  }
+  {
+    // measuredRbdState_ = [yaw, pitch, roll, ...]
+    const scalar_t pitch = measuredRbdState_(1);
+    const scalar_t roll = measuredRbdState_(2);
+    const scalar_t baseAboveFeet = fallHeightArmed_ ? measureBaseAboveFeet() : std::numeric_limits<scalar_t>::max();
+    if (FallRecovery::fallen(roll, pitch, baseAboveFeet, fallHeightArmed_, fallRecovery_->settings())) {
+      enterFallRecovery(FallRecovery::tilt(roll, pitch) > fallRecovery_->settings().tiltFallen ? "tilt" : "base height");
+      return controller_interface::return_type::OK;
+    }
+  }
+
   // Load the latest MPC policy
   // Plans come from the MPC itself (see OptiPessiMpc): the MRT policy is the solver's last iterate, for drawing only.
   const auto& optiPessiMpc = static_cast<const opti_pessi::OptiPessiMpc&>(*optiPessiMpc_);
@@ -404,11 +504,125 @@ controller_interface::return_type OptiPessiController::update(const rclcpp::Time
     advanceOptiPessiPhase(time, period);
   }
 
-  // Whole body control every tick, also while standing up or while the LIP clock is held.
+  // Whole body control every tick, also while standing up or while the LIP clock is held. The safety check stays the
+  // last line behind the fall test above.
   if (!updateWholeBodyControl(period)) {
-    return controller_interface::return_type::ERROR;
+    enterFallRecovery("safety check");
   }
   return controller_interface::return_type::OK;
+}
+
+FallRecoverySettings OptiPessiController::readFallRecoverySettings() const {
+  auto logger = this->get_node()->get_logger();
+  if (fallRecoveryFile_.empty()) {
+    RCLCPP_WARN(logger, "[OptiPessi] no fallRecoveryFile parameter: fall recovery runs on its built-in settings");
+    return FallRecoverySettings();
+  }
+  try {
+    return loadFallRecoverySettings(fallRecoveryFile_);
+  } catch (const std::exception& e) {
+    RCLCPP_WARN(logger, "[OptiPessi] cannot read fallRecoveryFile %s (%s): fall recovery runs on its built-in settings",
+                fallRecoveryFile_.c_str(), e.what());
+    return FallRecoverySettings();
+  }
+}
+
+void OptiPessiController::enterFallRecovery(const char* reason) {
+  const scalar_t pitch = measuredRbdState_(1);
+  const scalar_t roll = measuredRbdState_(2);
+  mpcRunning_ = false;
+  fallHeightArmed_ = false;
+  // Read again at every fall, so the recovery can be tuned on a running robot.
+  fallRecovery_->setSettings(readFallRecoverySettings());
+  fallRecovery_->start();
+  RCLCPP_WARN(this->get_node()->get_logger(),
+              "[OptiPessi] fall detected (%s): roll=%.3f pitch=%.3f tilt=%.3f baseZ=%.3f; MPC stopped, joints in damping mode", reason,
+              roll, pitch, FallRecovery::tilt(roll, pitch), measuredRbdState_(5));
+  if (fallRecovery_->stage() == FallRecovery::Stage::GaveUp) {
+    RCLCPP_ERROR(this->get_node()->get_logger(),
+                 "[OptiPessi] fall recovery: more than %zu falls without standing up in between, giving up: joints stay in damping "
+                 "mode until legged_controller is activated again",
+                 fallRecovery_->settings().maxConsecutiveFalls);
+  }
+  writeJointCommands(FallRecovery::damping(measureFallRecovery().jointPositions, fallRecovery_->settings()));
+}
+
+void OptiPessiController::updateFallRecovery(const rclcpp::Duration& period) {
+  auto logger = this->get_node()->get_logger();
+  const FallRecovery::Stage previous = fallRecovery_->stage();
+  const FallRecovery::Measurement measurement = measureFallRecovery();
+  FallRecovery::JointCommands commands;
+  const FallRecovery::Stage stage = fallRecovery_->update(period.seconds(), measurement, commands);
+  writeJointCommands(commands);
+
+  const scalar_t tilt = FallRecovery::tilt(measurement.roll, measurement.pitch);
+  if (stage != previous) {
+    switch (stage) {
+      case FallRecovery::Stage::Rolling:
+        RCLCPP_WARN(logger, "[OptiPessi] fall recovery: rolling over (attempt %zu, direction %+.0f) from roll=%.3f pitch=%.3f tilt=%.3f",
+                    fallRecovery_->rollAttempts(), fallRecovery_->rollDirection(), measurement.roll, measurement.pitch, tilt);
+        break;
+      case FallRecovery::Stage::Damping:
+        RCLCPP_WARN(logger, "[OptiPessi] fall recovery: %s, now roll=%.3f pitch=%.3f tilt=%.3f; damping until at rest",
+                    previous == FallRecovery::Stage::Folding ? "tipped over while folding" : "roll-over done", measurement.roll,
+                    measurement.pitch, tilt);
+        break;
+      case FallRecovery::Stage::Folding:
+        RCLCPP_WARN(logger, "[OptiPessi] fall recovery: on the belly (tilt=%.3f), folding the legs", tilt);
+        break;
+      case FallRecovery::Stage::Done:
+        RCLCPP_WARN(logger, "[OptiPessi] fall recovery: legs folded, standing up");
+        break;
+      case FallRecovery::Stage::GaveUp:
+        RCLCPP_ERROR(logger,
+                     "[OptiPessi] fall recovery: still not on the belly after %zu roll-overs (tilt=%.3f), giving up: joints stay in "
+                     "damping mode until legged_controller is activated again",
+                     fallRecovery_->rollAttempts(), tilt);
+        break;
+    }
+  }
+
+  if (stage == FallRecovery::Stage::Done) {
+    beginStandUp();
+  }
+}
+
+FallRecovery::Measurement OptiPessiController::measureFallRecovery() const {
+  // measuredRbdState_ = [zyx, basePos, q, angularVelWorld, baseLinearVelWorld, dq]
+  const size_t nq = leggedInterface_->getCentroidalModelInfo().generalizedCoordinatesNum;
+  FallRecovery::Measurement measurement;
+  measurement.pitch = measuredRbdState_(1);
+  measurement.roll = measuredRbdState_(2);
+  measurement.angularVelocity = measuredRbdState_.segment<3>(nq);
+  for (size_t j = 0; j < hybridJointHandles_.size(); ++j) {
+    measurement.jointPositions(j) = hybridJointHandles_[j].getPosition();
+    measurement.jointVelocities(j) = hybridJointHandles_[j].getVelocity();
+  }
+  return measurement;
+}
+
+scalar_t OptiPessiController::measureBaseAboveFeet() {
+  const auto& info = leggedInterface_->getCentroidalModelInfo();
+  const vector_t& rbd = measuredRbdState_;  // [zyx, basePos, q, ...]
+  vector_t qPino = vector_t::Zero(info.generalizedCoordinatesNum);
+  qPino.head<3>() = rbd.segment<3>(3);
+  qPino.segment<3>(3) = rbd.head<3>();
+  qPino.tail(info.actuatedDofNum) = rbd.segment(6, info.actuatedDofNum);
+  const auto& model = fallKinematics_->getModel();
+  auto& data = fallKinematics_->getData();
+  pinocchio::framesForwardKinematics(model, data, qPino);
+  scalar_t lowestFoot = std::numeric_limits<scalar_t>::max();
+  for (const std::string& foot : leggedInterface_->modelSettings().contactNames3DoF) {
+    lowestFoot = std::min(lowestFoot, data.oMf[model.getFrameId(foot)].translation().z());
+  }
+  return rbd(5) - lowestFoot;
+}
+
+void OptiPessiController::writeJointCommands(const FallRecovery::JointCommands& commands) {
+  for (size_t j = 0; j < hybridJointHandles_.size(); ++j) {
+    hybridJointHandles_[j].setCommand(commands.position(j), commands.velocity(j), commands.kp(j), commands.kd(j),
+                                      commands.feedforward(j));
+  }
 }
 
 void OptiPessiController::advanceOptiPessiPhase(const rclcpp::Time& time, const rclcpp::Duration& period) {
@@ -911,6 +1125,11 @@ void OptiPessiController::standUp(const rclcpp::Duration& period) {
                            "[OptiPessi] not settled after %.1f s (CoM %.3f m from its reference at %.3f m/s), starting anyway", waited,
                            offset, speed);
     }
+  }
+  // Standing: from now on a low base is a fall too, and any fall before has been recovered from.
+  if (!fallHeightArmed_) {
+    fallHeightArmed_ = true;
+    fallRecovery_->standUpCompleted();
   }
   // Walking starts once there is a goal to walk to.
   {

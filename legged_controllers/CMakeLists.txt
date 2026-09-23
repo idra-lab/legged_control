@@ -45,6 +45,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
 
 # Declare a shared controller plugin library target
 add_library(${PROJECT_NAME}_lib SHARED
+        src/FallRecovery.cpp
         src/LeggedController.cpp
         src/OptiPessiController.cpp
         )
@@ -155,6 +156,22 @@ install(PROGRAMS scripts/kill_node_sigint_service.py
 install(DIRECTORY config launch
         DESTINATION share/${PROJECT_NAME}
         )
+
+#############
+## Testing ##
+#############
+
+if (BUILD_TESTING)
+    find_package(ament_cmake_gtest REQUIRED)
+    find_package(Eigen3 REQUIRED)
+    # FallRecovery is plain Eigen: the test builds it on its own, without the controller library.
+    ament_add_gtest(${PROJECT_NAME}_fall_recovery_test
+            test/testFallRecovery.cpp
+            src/FallRecovery.cpp
+            )
+    target_include_directories(${PROJECT_NAME}_fall_recovery_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    target_link_libraries(${PROJECT_NAME}_fall_recovery_test Eigen3::Eigen)
+endif ()
 
 #####################
 ## Ament Exporting ##
