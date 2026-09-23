@@ -439,7 +439,7 @@
         <loop>true</loop>
         <delay_start>0</delay_start>
         <auto_start>true</auto_start>
-        <!-- Crosses in front of the robot, 3.5 m ahead, left to right and back -->
+
         <trajectory id="0" type="walking">
           <waypoint>
             <time>0</time>
@@ -479,7 +479,7 @@
         <loop>true</loop>
         <delay_start>3</delay_start>
         <auto_start>true</auto_start>
-        <!-- Walks toward the robot along y=2 (passes on its left), then back -->
+        
         <trajectory id="0" type="walking">
           <waypoint>
             <time>0</time>

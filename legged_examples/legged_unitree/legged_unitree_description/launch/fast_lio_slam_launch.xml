@@ -28,12 +28,13 @@
     <param name="sc_dist_thres" value="0.3"/>
     <param name="sc_max_radius" value="20.0"/>   <!-- indoor; L2 range is 30 m -->
     <param name="mapviz_filter_size" value="0.1"/>
+    <param name="save_directory" value="./src/FAST_LIO_SLAM_ROS2/save_data/"/>
     <remap from="/aft_mapped_to_init" to="/Odometry"/>
     <remap from="/velodyne_cloud_registered_local" to="/cloud_registered_body"/>
   </node>
 
-  <node if="$(var rviz)" pkg="rviz2" exec="rviz2" name="fast_lio_rviz"
+  <!-- <node if="$(var rviz)" pkg="rviz2" exec="rviz2" name="fast_lio_rviz"
     args="-d $(find-pkg-share fast_lio)/rviz/fastlio.rviz">
     <param name="use_sim_time" value="$(var use_sim_time)"/>
-  </node>
+  </node> -->
 </launch>

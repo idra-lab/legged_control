@@ -3,8 +3,11 @@
        showing robot, LIO, terrain, exploration and OptiPessi plans. Start it after fast_lio_slam_launch.xml, once the
        robot stands (OptiPessi stands until the first goal).
        Topics: TARE reads /Odometry, /cloud_registered (FAST-LIO), /terrain_map, /terrain_map_ext (tare_planner/config/aliengo.yaml)
-               and publishes /way_point (frame map); way_point_to_opti_pessi_goal.py relays it to /opti_pessi/goal in odom.
-       TF:  odom -> lio_map -> camera_init -> map, as in far_planner_nav_launch.xml.
+               and publishes /way_point, /exploration_path, /global_path_full (frame map). tare_path_to_opti_pessi_goal.py
+               does not relay /way_point: it sends /opti_pessi/goal (odom) lookahead_distance ahead of the robot along
+               the path /way_point lies on (pure pursuit), so that OptiPessi, which walks straight to its goal, keeps to
+               the path round corners and through doors.
+       TF:  odom -> lio_map -> camera_init -> map, as in far_planner_nav_launch.xml (odom -> lio_map from lio_odom_alignment.py).
        auto_start:=false waits for  ros2 topic pub -1 /start_exploration std_msgs/msg/Bool "{data: true}".
        ros2 topic pub -1 /reset_waypoint std_msgs/msg/Empty "{}" stops the robot where it is (TARE waypoint = robot position). -->
   <arg name="use_sim_time" default="true"/>
@@ -12,16 +15,21 @@
   <arg name="rviz" default="true"/>
   <arg name="tare_config" default="aliengo" description="Config file stem in tare_planner/config"/>
   <arg name="auto_start" default="true" description="Explore at once; false waits for /start_exploration"/>
-  <arg name="relay" default="true" description="Relay /way_point to /opti_pessi/goal (false: TARE plans, the robot stays)"/>
-  <arg name="lio_map_z" default="0.4" description="Base height above odom when FAST-LIO started (aliengo comHeight)"/>
+  <arg name="relay" default="true" description="Drive OptiPessi along the TARE path (false: TARE plans, the robot stays)"/>
+  <arg name="lookahead_distance" default="3.0" description="OptiPessi goal distance ahead of the robot along the TARE path [m]"/>
 
-  <node pkg="tf2_ros" exec="static_transform_publisher" name="odom_to_lio_map"
-    args="--z $(var lio_map_z) --frame-id odom --child-frame-id lio_map"/>
+  <node pkg="legged_controllers" exec="lio_odom_alignment.py" name="lio_odom_alignment" output="screen">
+    <param name="use_sim_time" value="$(var use_sim_time)"/>
+  </node>
   <node pkg="tf2_ros" exec="static_transform_publisher" name="camera_init_to_map"
     args="--frame-id camera_init --child-frame-id map"/>
 
+  <!-- carveDyObs (local patch): stored obstacle points that rays of the current scan now pass through are deleted, so
+       people and other things that moved away leave no ghosts in /terrain_map (and in /terrain_map_ext, which takes
+       /terrain_map within 4 m). clearDyObs stays off: its fixed vertical FOV does not fit the upside-down L2. -->
   <node if="$(var terrain)" pkg="terrain_analysis" exec="terrainAnalysis" name="terrainAnalysis" output="screen">
     <param name="use_sim_time" value="$(var use_sim_time)"/>
+    <param name="carveDyObs" value="true"/>
     <remap from="/state_estimation" to="/Odometry"/>
     <remap from="/registered_scan" to="/cloud_registered"/>
   </node>
@@ -38,8 +46,9 @@
     <param name="kAutoStart" value="$(var auto_start)"/>
   </node>
 
-  <node if="$(var relay)" pkg="legged_controllers" exec="way_point_to_opti_pessi_goal.py" name="way_point_to_opti_pessi_goal" output="screen">
+  <node if="$(var relay)" pkg="legged_controllers" exec="tare_path_to_opti_pessi_goal.py" name="tare_path_to_opti_pessi_goal" output="screen">
     <param name="use_sim_time" value="$(var use_sim_time)"/>
+    <param name="lookahead_distance" value="$(var lookahead_distance)"/>
   </node>
 
   <node if="$(var rviz)" pkg="rviz2" exec="rviz2" name="tare_nav_rviz"
