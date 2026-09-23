@@ -21,7 +21,7 @@ from controller_manager import controller_manager_interface
 
 
 class DatasetManager():
-    def __init__(self, use_nn=False, backup_trot=True, only_mpc = False, only_rl = True, sensor=False):
+    def __init__(self, use_nn=False, backup_trot=True, only_mpc = False, only_rl = True, sensor_rl=False):
         # -------------------------------
         # Simulation Thresholds and Constants
         # -------------------------------
@@ -50,7 +50,7 @@ class DatasetManager():
         self.backup_trot = backup_trot
         self.only_mpc = only_mpc
         self.only_rl = only_rl
-        self.sensor = sensor
+        self.sensor_rl = sensor_rl
         self.init_ros()
         '''rospy.init_node('communicate_aliengo')
         
@@ -62,7 +62,7 @@ class DatasetManager():
         full_path = os.path.realpath(__file__)
         config_path = os.path.dirname(full_path) + '/config.yaml'
         self.config = load_config(config_path)
-        if self.sensor:
+        if self.sensor_rl:
             self.nominal_policy = RlVelocityController('aliengo', self.dt, use_nn_se=True, debug=False, policy="velocity")
             self.nominal_policy.velocity_cmd = np.array([0, 0, 0])
             self.ffw_torques = np.zeros(12)
@@ -112,7 +112,11 @@ class DatasetManager():
             only_rl_arg = 'only_rl:=true' 
         else:
             only_rl_arg = 'only_rl:=false' 
-        self.launch_controller = launchFileNode('legged_controllers', 'load_controller.launch', additional_args=['joy:=true', nn_arg, 'mps:=true', 'joy_msg:=false', only_rl_arg, only_mpc_arg, 'rviz:=false'])
+        if self.sensor_rl:
+            sensor_rl_arg = 'sensor_rl:=true' 
+        else:
+            sensor_rl_arg = 'sensor_rl:=false'
+        self.launch_controller = launchFileNode('legged_controllers', 'load_controller.launch', additional_args=['joy:=true', nn_arg, 'mps:=true', 'joy_msg:=false', only_rl_arg, only_mpc_arg, 'rviz:=false', sensor_rl_arg])
         self.launch_controller.start()
 
         # Subscribe to messages
@@ -145,9 +149,10 @@ class DatasetManager():
         response = service(**kwargs)
 
     def reset(self):
-        if self.sensor:
-            self.pubSub.publish_is_reset(True)
+        if self.sensor_rl:
             self.nominal_policy._velocity_started = False
+
+        self.pubSub.publish_is_reset(True)
         reset_iter = 1
         #time.sleep(2)
         reset_max = 2
@@ -367,7 +372,7 @@ class DatasetManager():
         print('self.pubSub.joint_pos',data_new[2])
         print('self.pubSub.joint_vel',data_new[3])
 
-        if not self.sensor:
+        if not self.sensor_rl:
             self.pubSub.publish_button([3]) # Trot
         time.sleep(1)
         for self.step in range(max_steps):
@@ -415,7 +420,7 @@ class DatasetManager():
                     #print(data_new[0], push_vel)
                     self.pubSub.publish_state(data_new[0], push_vel)
 
-                if self.sensor:
+                if self.sensor_rl:
                     body_ang_vel = copy.copy(data_new[5])
                     proj_gravity = quat_rotate_inverse(
                         torch.tensor(data_new[4], device='cuda:0', dtype=torch.double).unsqueeze(0),
@@ -434,7 +439,7 @@ class DatasetManager():
                     self.pubSub.publish_vel(cmd_vel)
                     self.pubSub.publish_rl(np.zeros(12),np.zeros(12),torque_noise)
 
-                if not self.backup_trot and self.use_nn and not self.sensor:
+                if not self.backup_trot and self.use_nn and not self.sensor_rl:
                     body_ang_vel = copy.copy(data_new[5])
                     proj_gravity = quat_rotate_inverse(
                         torch.tensor(data_new[4], device='cuda:0', dtype=torch.double).unsqueeze(0),
@@ -446,7 +451,7 @@ class DatasetManager():
             else:#switch to backup policy
                 if np.mod(self.sim_time, 0.5) == 0:
                     print(colored(f"TIME: {self.sim_time}", "red"))
-                if self.sensor:
+                if self.sensor_rl:
                     body_ang_vel = copy.copy(data_new[5])
                     proj_gravity = quat_rotate_inverse(
                         torch.tensor(data_new[4], device='cuda:0', dtype=torch.double).unsqueeze(0),
@@ -553,7 +558,7 @@ class DatasetManager():
                 print(f"Shape of observations: {padded_obs.shape}")
                 exit()
 
-            if self.use_nn and not self.sensor:
+            if self.use_nn and not self.sensor_rl:
                 if self.backup_trot:
                     self.backup_policy.actor_network.running_mean_std.running_mean = self.running_mean_backup
                     self.backup_policy.actor_network.running_mean_std.running_var = self.running_var_backup
@@ -578,7 +583,7 @@ class DatasetManager():
 
         stats = np.array(stats, dtype=int)
 
-        np.save(os.path.join(save_path, "observations_mpc_controller_100 1_5_original_radius.npy"), padded_obs)
+        np.save(os.path.join(save_path, "observations_rl_sensor_new_0_5_original_radius.npy"), padded_obs)
 
         print(f"Episodi completati: {n_episodes}")
         print(f"Caduti: {np.sum(stats[:, 0])}, CP raggiunto: {np.sum(stats[:, 1])}")

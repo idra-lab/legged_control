@@ -47,6 +47,7 @@ bool MPSController::init(hardware_interface::RobotHW* robot_hw, ros::NodeHandle&
   controller_nh.getParam("/onlyRL", onlyRL_);
   controller_nh.getParam("/onlyMPC", onlyMPC_);
   controller_nh.getParam("/nomRL", nomRL_);
+  controller_nh.getParam("/sensorRL", sensorRL_);
   
   
   bool verbose = false;
@@ -158,6 +159,17 @@ void MPSController::update(const ros::Time& time, const ros::Duration& period) {
       hybridJointHandles_[j].setCommand(posDes(j), velDes(j), 0, 3, torque(j) );//+ eff_noise[j]);
     }
   }
+  else if (sensorRL_){
+    // Sensor-based RL policies
+    std::cout << " SENSOR POL"  << std::endl;
+    auto pos_rl = jointReceiverPtr->getJointPositions();
+    auto vel_rl = jointReceiverPtr->getJointVelocities();
+    auto eff_rl = jointReceiverPtr->getJointEfforts();
+    // Not recoverable
+    for (size_t j = 0; j < leggedInterface_->getCentroidalModelInfo().actuatedDofNum; ++j) {
+      hybridJointHandles_[j].setCommand(pos_rl[j], 0, 25, 0.5, 0+ eff_rl[j]);
+    }
+  }
   else if ((onlyRL_ || nomRL_) && isRecReceiverPtr->getIsRec()){
     // Nominal RL policy
     //std::cout << " RL POL"  << std::endl;
@@ -167,9 +179,7 @@ void MPSController::update(const ros::Time& time, const ros::Duration& period) {
     // Not recoverable
     for (size_t j = 0; j < leggedInterface_->getCentroidalModelInfo().actuatedDofNum; ++j) {
       
-      //hybridJointHandles_[j].setCommand(pos_rl[j], 0, 35, 1.5, 0);//+ eff_rl[j]);
-
-      hybridJointHandles_[j].setCommand(pos_rl[j], 0, 35, 0.5, 0+ eff_rl[j]);
+      hybridJointHandles_[j].setCommand(pos_rl[j], 0, 35, 1.5, 0);//+ eff_rl[j]);
     }
   }
   else{
@@ -181,8 +191,7 @@ void MPSController::update(const ros::Time& time, const ros::Duration& period) {
     // Not recoverable
     for (size_t j = 0; j < leggedInterface_->getCentroidalModelInfo().actuatedDofNum; ++j) {
       
-      //hybridJointHandles_[j].setCommand(pos_rl[j], 0, 30, 0.5, 0);//+ eff_rl[j]);
-      hybridJointHandles_[j].setCommand(pos_rl[j], 0, 35, 0.5, 0+ eff_rl[j]);
+      hybridJointHandles_[j].setCommand(pos_rl[j], 0, 30, 0.5, 0);//+ eff_rl[j]);
     }
   }
 

@@ -87,6 +87,7 @@ class MPSController : public controller_interface::MultiInterfaceController<Hybr
   bool onlyRL_;
   bool onlyMPC_;
   bool nomRL_;
+  bool sensorRL_;
 };
 
 

@@ -16,6 +16,7 @@
     <arg name="only_rl" default="false"/>
     <arg name="only_mpc" default="false"/>
     <arg name="nom_rl" default="false"/>
+    <arg name="sensor_rl" default="false"/>
     
 
 
@@ -28,6 +29,7 @@
     <param name="onlyRL" value="$(arg only_rl)"/>
     <param name="onlyMPC" value="$(arg only_mpc)"/>
     <param name="nomRL" value="$(arg nom_rl)"/>
+    <param name="sensorRL" value="$(arg sensor_rl)"/>
 
     <rosparam file="$(find legged_controllers)/config/controllers.yaml" command="load"/>
 

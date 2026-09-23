@@ -28,7 +28,7 @@ from value_function_manager import ValueFunctionManager
 
 
 class TestManager():
-    def __init__(self, use_nn=False, only_mpc = False, only_rl = True, nom_rl = False, only_nom = False, abs = False):
+    def __init__(self, use_nn=False, only_mpc = False, only_rl = True, nom_rl = False, only_nom = False, abs = False, sensor_rl=True):
         # -------------------------------
         # Simulation Thresholds and Constants
         # -------------------------------
@@ -76,7 +76,7 @@ class TestManager():
         self.only_rl = only_rl
         self.nom_rl = nom_rl
         self.only_nom = only_nom
-        
+        self.sensor_rl = sensor_rl
         self.init_ros()
 
         full_path = os.path.realpath(__file__)
@@ -105,7 +105,12 @@ class TestManager():
         self.backup_policy.velocity_cmd = np.zeros(3)
         self.ffw_torques = np.zeros(12)
 
-        if only_rl or nom_rl:
+        if sensor_rl:
+            self.nominal_policy = RlVelocityController('aliengo', self.dt, use_nn_se=True, debug=False, policy="velocity")
+            self.nominal_policy.velocity_cmd = self.velocity_cmd
+            self.ffw_torques = np.zeros(12)
+
+        if (only_rl or nom_rl) and not sensor_rl:
             self.nominal_policy = RlVelocityControllerNoSE('aliengo', self.dt)
             self.nominal_policy.velocity_cmd = self.velocity_cmd
 
@@ -149,8 +154,12 @@ class TestManager():
         if self.nom_rl:
             nom_rl_arg = 'nom_rl:=true' 
         else:
-            nom_rl_arg = 'nom_rl:=false' 
-        self.launch_controller = launchFileNode('legged_controllers', 'load_controller.launch', additional_args=['joy:=true', nn_arg, 'mps:=true', 'joy_msg:=true', only_rl_arg, only_mpc_arg, nom_rl_arg, 'rviz:=true'])
+            nom_rl_arg = 'nom_rl:=false'
+        if self.sensor_rl:
+            sensor_rl_arg = 'sensor_rl:=true' 
+        else:
+            sensor_rl_arg = 'sensor_rl:=false' 
+        self.launch_controller = launchFileNode('legged_controllers', 'load_controller.launch', additional_args=['joy:=true', nn_arg, 'mps:=true', 'joy_msg:=true', only_rl_arg, only_mpc_arg, nom_rl_arg, 'rviz:=true', sensor_rl_arg])
         self.launch_controller.start()
 
         # Subscribe to messages
@@ -172,6 +181,8 @@ class TestManager():
         response = service(**kwargs)
 
     def reset(self):
+        if self.sensor_rl:
+            self.nominal_policy._velocity_started = False
         self.pubSub.publish_is_reset(True)
         reset_iter = 1
         
@@ -376,9 +387,10 @@ class TestManager():
         self.warmup_steps = int(warmup_time / self.dt)
         push_instant = self.warmup_steps + (self.iter_push*5)
 
-        if not self.only_rl and not self.nom_rl:
+        if not self.only_rl and not self.nom_rl and not self.sensor_rl:
             self.pubSub.publish_button([3]) # Trot
             time.sleep(1)
+
         for self.step in range(max_steps):
             #init_time = time.time()
             # Update messages
@@ -413,7 +425,7 @@ class TestManager():
                 applyForce(self.Fx, self.Fy, self.Fz, 0, 0, 0, self.force_time)
 
             if self.isrec:
-                if self.use_nn or self.only_rl or self.nom_rl:
+                if self.use_nn or self.only_rl or self.nom_rl or self.sensor_rl:
                     body_ang_vel = copy.copy(data_new[5])
                     proj_gravity = quat_rotate_inverse(
                         torch.tensor(data_new[4], device='cuda:0', dtype=torch.double).unsqueeze(0),
@@ -425,7 +437,20 @@ class TestManager():
 
                     qDes_no = self.backup_policy.action(data_new[6], None, body_ang_vel, proj_gravity, data_new[2], data_new[3], policy_type="safe")
     
-                if not self.only_rl and not self.nom_rl:
+                if self.sensor_rl:
+                    body_ang_vel = copy.copy(data_new[5])
+                    proj_gravity = quat_rotate_inverse(
+                        torch.tensor(data_new[4], device='cuda:0', dtype=torch.double).unsqueeze(0),
+                        #torch.tensor(data_new[0][3:], device='cuda:0', dtype=torch.double).unsqueeze(0),
+                        self.grav_tens
+                    )[0].cpu().numpy()
+
+                    qDes = self.nominal_policy.action(data_new[6], None, body_ang_vel, proj_gravity, data_new[2], data_new[3], policy_type="default")
+                    self.pubSub.publish_is_reset(False)
+                    self.pubSub.publish_rl(qDes,np.zeros(12),self.ffw_torques)
+                    self.pubSub.publish_button([3])
+
+                elif not self.only_rl and not self.nom_rl:
                     cmd_vel = np.array([self.velocity_cmd[0], self.velocity_cmd[1], 0, 0, 0, 0, self.velocity_cmd[2]])
                     self.pubSub.publish_vel(cmd_vel)
                     self.pubSub.publish_rl(np.zeros(12),np.zeros(12),np.zeros(12))
@@ -434,7 +459,6 @@ class TestManager():
                     self.pubSub.publish_is_reset(False)
                     self.pubSub.publish_rl(qDes, np.zeros(12), self.ffw_torques)
                     self.pubSub.publish_button([3])
-
             elif not self.isrec and (self.only_mpc or self.nom_rl):
                 self.backup_used = True
                 cmd_vel = np.array([0, 0, 0, 0, 0, 0, 0.])
@@ -450,7 +474,10 @@ class TestManager():
                     #torch.tensor(data_new[0][3:], device='cuda:0', dtype=torch.double).unsqueeze(0),
                     self.grav_tens
                 )[0].cpu().numpy()
-                qDes = self.backup_policy.action(data_new[6], None, body_ang_vel, proj_gravity, data_new[2], data_new[3], policy_type="safe")
+                if self.sensor_rl:
+                    qDes = self.nominal_policy.action(data_new[6], None, body_ang_vel, proj_gravity, data_new[2], data_new[3], policy_type="safe")
+                else:
+                    qDes = self.backup_policy.action(data_new[6], None, body_ang_vel, proj_gravity, data_new[2], data_new[3], policy_type="safe")
                 self.pubSub.publish_is_rec(False)
                 
                 self.pubSub.publish_rl(qDes,np.zeros(12),self.ffw_torques)
@@ -562,14 +589,14 @@ class TestManager():
                         if len(self.data_torque) > 0:
                             data_save['save_torque'].append([self.data_torque[0][0], self.data_torque[0][1], self.data_torque[0][2]])
                         
-                        if self.use_nn:
+                        if self.use_nn and not self.sensor_rl:
                             self.backup_policy.prev_action = np.zeros(12)
                             self.backup_policy.decimation_counter = 0
                             self.backup_policy.history_buffer = np.zeros((1, 3, 48))
                             self.pubSub.publish_is_rec(True)
                             self.pubSub.publish_rl(np.zeros(12),np.zeros(12),np.zeros(12))
 
-                        if self.only_rl or self.nom_rl:
+                        if (self.only_rl or self.nom_rl) and not self.sensor_rl:
                             self.nominal_policy.prev_action = np.zeros(12)
                             self.nominal_policy.decimation_counter = 0
                         time.sleep(2)
