@@ -161,7 +161,7 @@ void MPSController::update(const ros::Time& time, const ros::Duration& period) {
   }
   else if (sensorRL_){
     // Sensor-based RL policies
-    std::cout << " SENSOR POL"  << std::endl;
+    //std::cout << " SENSOR POL"  << std::endl;
     auto pos_rl = jointReceiverPtr->getJointPositions();
     auto vel_rl = jointReceiverPtr->getJointVelocities();
     auto eff_rl = jointReceiverPtr->getJointEfforts();
