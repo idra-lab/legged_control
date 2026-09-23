@@ -1,0 +1,3 @@
+[submodule "opti_pessi_interface"]
+    path = src/legged_control/opti_pessi_perception
+    url = git@github.com:AlexBarbi/opti_pessi_interface.git
