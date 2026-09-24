@@ -2,42 +2,48 @@
 """
 tare_path_to_opti_pessi_goal.py (ROS 2 Python)
 
-Pure-pursuit bridge from TARE to OptiPessiController. OptiPessi walks straight to /opti_pessi/goal, with no local
-planner in between, so relaying TARE's /way_point (its lookahead point, up to kLookAheadDistance along the path, round
-corners and through doors) sends the robot across walls. Here the goal is a point lookahead_distance ahead of the robot
-along the TARE path that leads to /way_point:
+Bridge from TARE to OptiPessiController. OptiPessi walks straight to /opti_pessi/goal, with no local planner in between,
+so the goal is chosen here and checked against the obstacles of /terrain_map (points more than obstacle_height above
+the ground, farther than self_radius from the robot):
 
-  1. the paths in path_topics (/exploration_path: local path, /global_path_full: global TSP loop), /way_point (all in
-     frame map) and the robot (/odom, base) are brought to goal_frame (odom, the only frame the controller takes) with
-     the latest TF (odom -> lio_map -> camera_init -> map, see tare_explore_nav_launch.xml);
-  2. the first path /way_point lies on (within waypoint_tolerance) is followed, from the robot's projection on it
-     towards the waypoint's. TARE keeps choosing where to go (viewpoint, forward or backward, local or global path):
-     the goal never passes the waypoint. A TARE path can loop back past the robot, so the robot's projection is the
-     nearest one within max_waypoint_path_distance of the waypoint along the path (TARE's lookahead is never farther);
-  3. the goal is lookahead_distance further along the path, pulled back to the path vertex it would cut past when a
-     vertex in between lies more than max_chord_deviation off the straight line robot -> goal (OptiPessi walks that
-     line: this keeps it off wall corners and door frames);
-  4. it is published (one ADD marker in goal_frame) when it has moved more than republish_distance.
+  1. /way_point, the paths in path_topics (/exploration_path: local path, /global_path_full: global TSP loop),
+     /terrain_map (all in frame map) and the robot (/odom, base) are brought to goal_frame (odom, the only frame the
+     controller takes) with the latest TF (odom -> lio_map -> camera_init -> map, see tare_explore_nav_launch.xml);
+  2. the candidate goal is the first of
+     - midpoint: the middle point between the robot and /way_point, if the straight line robot -> /way_point keeps
+       clearance from every obstacle (walking to the midpoint again and again walks that whole line);
+     - path: lookahead_distance ahead of the robot along the TARE path /way_point lies on (pure pursuit, see follow()),
+       if the line robot -> it keeps clearance: the path goes round walls and through doors, but flickers when TARE
+       replans, so it is only taken when the straight way is blocked;
+     - detour: a point up to detour_distance away, in the direction of the path goal (or else of the midpoint) turned
+       by the smallest multiple of detour_step (up to max_detour_angle each side) that keeps clearance;
+     - stop: the robot itself (OptiPessi stands at a reached goal);
+  3. the goal follows the candidate, but a candidate that jumps (more than jump_distance in one tick: TARE replanned,
+     the path flickered, the choice above changed) is only taken once it has stayed put for switch_time, as long as
+     the current goal is still clear and more than reach_distance away;
+  4. it is published (one ADD marker in goal_frame, colored by where it comes from) when it has moved more than
+     republish_distance.
 
-Until /way_point lies on a fresh path (no plan yet, or TARE's next waypoint came before its path) the last goal is
-kept: /way_point itself is never relayed, so kExtendWayPoint must stay false in the TARE config. lookahead_distance and
-the other distances can be changed at run time (ros2 param set).
+Without a fresh /terrain_map nothing is checked: the path goal is taken, or else the midpoint. Until /way_point and
+/odom are fresh the last goal is kept. kExtendWayPoint must stay false in the TARE config (the path goal needs
+/way_point on the path). All distances can be changed at run time (ros2 param set).
 
-Publishes ~/followed_path (nav_msgs/Path, goal_frame): the stretch robot -> /way_point being followed.
 The robot comes from /odom by message, not from the odom -> base TF, which OptiPessi's visualizer stamps with wall time.
 
-Usage: ros2 run legged_controllers tare_path_to_opti_pessi_goal.py --ros-args -p lookahead_distance:=1.0
+Usage: ros2 run legged_controllers tare_path_to_opti_pessi_goal.py --ros-args -p clearance:=0.3
 """
 
 import numpy as np
 import rclpy
-from geometry_msgs.msg import PointStamped, PoseStamped
+from geometry_msgs.msg import PointStamped
 from nav_msgs.msg import Odometry, Path
 from rcl_interfaces.msg import FloatingPointRange, ParameterDescriptor
 from rclpy.duration import Duration
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.time import Time
+from sensor_msgs.msg import PointCloud2
+from sensor_msgs_py import point_cloud2
 from tf2_ros import Buffer, TransformException, TransformListener
 from visualization_msgs.msg import Marker, MarkerArray
 
@@ -46,8 +52,8 @@ from visualization_msgs.msg import Marker, MarkerArray
 MATCH_SLACK = 0.15
 # Where the robot may be on the path: TARE's path starts at the viewpoint nearest the lidar, up to ~0.6 m from base.
 ROBOT_MATCH_RADIUS = 1.0
-# A path that has not matched /way_point for this long is reported (one TARE cycle of mismatch is normal).
-HOLD_WARN_TIME = 2.0
+# Goal marker color (r, g, b) by where the goal comes from
+COLORS = {"midpoint": (0.0, 1.0, 0.0), "path": (0.0, 0.5, 1.0), "detour": (1.0, 0.8, 0.0), "stop": (1.0, 0.0, 0.0)}
 
 
 def quat_to_matrix(q):
@@ -87,7 +93,12 @@ def distance_to_segment(points, a, b):
 def follow(path, robot, waypoint, lookahead, waypoint_tolerance, max_waypoint_path_distance, max_chord_deviation):
     """Pure pursuit along path (n, 3) from robot (2,) towards waypoint (2,).
 
-    Returns (goal (3,), followed stretch robot -> waypoint (m, 3), its length), or None if the waypoint is not on path.
+    The robot's projection on the path is the nearest one within max_waypoint_path_distance of the waypoint's along the
+    path (a TARE path can loop back past the robot). The goal is lookahead further along the path, never past the
+    waypoint, pulled back to the path vertex it would cut past when a vertex in between lies more than
+    max_chord_deviation off the straight line robot -> goal.
+
+    Returns the goal (3,), or None if the waypoint is not on path.
     """
     xy = path[:, :2]
     waypoint_distance, waypoint_s, vertex_s = project(waypoint, xy)
@@ -106,40 +117,74 @@ def follow(path, robot, waypoint, lookahead, waypoint_tolerance, max_waypoint_pa
     direction = 1.0 if end >= start else -1.0
     ahead = (vertex_s - start) * direction  # arc length of each vertex ahead of the robot's projection
 
-    def stretch(length):
-        """Vertices passed walking length from the robot's projection, in walking order, and the point reached."""
-        passed = np.flatnonzero((ahead > 0.0) & (ahead < length))
-        passed = passed if direction > 0 else passed[::-1]
-        return np.vstack([path[passed], point_at(path, vertex_s, start + direction * length)])
-
-    remaining = abs(end - start)
-    candidates = stretch(min(lookahead, remaining))
+    # Vertices passed walking min(lookahead, remaining) from the robot's projection, in walking order, and the point
+    # reached
+    length = min(lookahead, abs(end - start))
+    passed = np.flatnonzero((ahead > 0.0) & (ahead < length))
+    passed = passed if direction > 0 else passed[::-1]
+    candidates = np.vstack([path[passed], point_at(path, vertex_s, start + direction * length)])
     # Farthest candidate whose straight line from the robot stays within max_chord_deviation of the vertices before it
-    goal = candidates[0]
     for k in range(len(candidates) - 1, 0, -1):
         if distance_to_segment(candidates[:k, :2], robot, candidates[k, :2]).max() <= max_chord_deviation:
-            goal = candidates[k]
-            break
-    followed = np.vstack([point_at(path, vertex_s, start), stretch(remaining)])
-    return goal, followed, remaining
+            return candidates[k]
+    return candidates[0]
 
 
-class TarePathFollower(Node):
+def clear(robot, goal, obstacles, clearance):
+    """Whether the segment robot -> goal (2,) keeps clearance from obstacles (m, 2). Obstacles behind the robot do not
+    count: walking away from the robot does not bring it closer to them."""
+    ab = goal - robot
+    if ab @ ab < 1e-12:
+        return True
+    ahead = obstacles[(obstacles - robot) @ ab > 0.0]
+    return len(ahead) == 0 or bool(distance_to_segment(ahead, robot, goal).min() >= clearance)
+
+
+def detour(robot, target, obstacles, clearance, distance, step, max_angle):
+    """Point at most distance (and at most as far as target (2,)) from robot, in the direction of target turned by the
+    smallest multiple of step [rad] up to max_angle each side, whose segment from robot keeps clearance; or None."""
+    offset = target - robot
+    length = min(np.linalg.norm(offset), distance)
+    if length < 1e-6:
+        return None
+    heading = np.arctan2(offset[1], offset[0])
+    for k in range(int(round(max_angle / step)) + 1):
+        for sign in (1.0, -1.0) if k else (1.0,):
+            angle = heading + sign * k * step
+            goal = robot + length * np.array([np.cos(angle), np.sin(angle)])
+            if clear(robot, goal, obstacles, clearance):
+                return goal
+    return None
+
+
+class TareGoalBridge(Node):
     def __init__(self):
         super().__init__("tare_path_to_opti_pessi_goal")
 
-        def distance(name, value, description, low, high):
+        def number(name, value, description, low, high):
             descriptor = ParameterDescriptor(description=description,
                                              floating_point_range=[FloatingPointRange(from_value=low, to_value=high)])
             self.declare_parameter(name, value, descriptor)
 
-        distance("lookahead_distance", 1.0, "goal distance ahead of the robot along the TARE path [m]", 0.2, 5.0)
-        distance("max_chord_deviation", 0.2, "how far path vertices may lie off the line robot -> goal [m]", 0.0, 2.0)
-        distance("waypoint_tolerance", 0.3, "how far /way_point may lie off a path it is taken from [m]", 0.0, 2.0)
-        distance("max_waypoint_path_distance", 8.0, "farthest /way_point along the path from the robot "
-                 "(TARE: kLookAheadDistance plus a path segment) [m]", 1.0, 100.0)
-        distance("republish_distance", 0.1, "goal change that is published [m]", 0.0, 1.0)
-        distance("input_timeout", 3.0, "age after which a path, /way_point or /odom is ignored [s]", 0.1, 60.0)
+        number("clearance", 0.3, "distance the line robot -> goal keeps from obstacles [m]", 0.0, 2.0)
+        number("obstacle_height", 0.2, "/terrain_map points higher above the ground are obstacles [m]", 0.0, 2.0)
+        number("self_radius", 0.3, "obstacles nearer the robot are ignored (the robot's own legs, a wall it "
+               "brushes) [m]", 0.0, 1.0)
+        number("lookahead_distance", 3.0, "path goal distance ahead of the robot along the TARE path [m]", 0.2, 5.0)
+        number("max_chord_deviation", 0.2, "how far path vertices may lie off the line robot -> path goal [m]", 0.0,
+               2.0)
+        number("waypoint_tolerance", 0.3, "how far /way_point may lie off a path it is taken from [m]", 0.0, 2.0)
+        number("max_waypoint_path_distance", 8.0, "farthest /way_point along the path from the robot "
+               "(TARE: kLookAheadDistance plus a path segment) [m]", 1.0, 100.0)
+        number("detour_distance", 1.0, "farthest detour goal from the robot [m]", 0.2, 5.0)
+        number("detour_step", 15.0, "angle between detour directions [deg]", 1.0, 90.0)
+        number("max_detour_angle", 90.0, "largest detour turn each side [deg]", 0.0, 180.0)
+        number("jump_distance", 0.5, "candidate move in one tick that is a jump [m]", 0.0, 10.0)
+        number("switch_time", 1.0, "how long a jumped candidate must stay put before it is taken [s]", 0.0, 10.0)
+        number("reach_distance", 0.3, "goal distance at which the next candidate is taken at once [m]", 0.0, 2.0)
+        number("republish_distance", 0.1, "goal change that is published [m]", 0.0, 1.0)
+        number("input_timeout", 3.0, "age after which a path, /way_point, /odom or /terrain_map is ignored [s]", 0.1,
+               60.0)
         self.goal_frame = self.declare_parameter("goal_frame", "odom").value
         self.path_topics = self.declare_parameter("path_topics", ["/exploration_path", "/global_path_full"]).value
         rate = self.declare_parameter("rate", 10.0).value
@@ -147,22 +192,31 @@ class TarePathFollower(Node):
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
         self.goal_pub = self.create_publisher(MarkerArray, "/opti_pessi/goal", 1)
-        self.followed_pub = self.create_publisher(Path, "~/followed_path", 1)
 
-        # Latest message and receive time per input
+        # Latest message (for /terrain_map: its frame and obstacle points (n, 3)) and receive time per input
         self.inputs = {}
 
         def keep(key):
             return lambda msg: self.inputs.__setitem__(key, (msg, self.get_clock().now()))
 
+        def keep_obstacles(msg):
+            # terrainAnalysis: intensity is the height above the ground
+            points = point_cloud2.read_points_numpy(msg, field_names=["x", "y", "z", "intensity"], skip_nans=True)
+            obstacles = points[points[:, 3] > self.param("obstacle_height"), :3].astype(float)
+            self.inputs["/terrain_map"] = ((msg.header.frame_id, obstacles), self.get_clock().now())
+
         for topic in self.path_topics:
             self.create_subscription(Path, topic, keep(topic), 1)
         self.create_subscription(PointStamped, "/way_point", keep("/way_point"), 5)
         self.create_subscription(Odometry, "/odom", keep("/odom"), 5)
+        self.create_subscription(PointCloud2, "/terrain_map", keep_obstacles, 1)
 
-        self.last_goal = None
-        self.last_source = None
-        self.hold_since = None
+        self.goal = None  # (2,) in goal_frame, and where it comes from
+        self.goal_source = None
+        self.published_goal = None
+        self.candidate = None  # last candidate, and since when it has not jumped
+        self.candidate_since = None
+        self.last_way_point = None
         self.create_timer(1.0 / rate, self.tick)
 
     def param(self, name):
@@ -183,87 +237,116 @@ class TarePathFollower(Node):
         t = tf.translation
         return points @ quat_to_matrix(tf.rotation).T + np.array([t.x, t.y, t.z])
 
+    def path_goal(self, paths, robot, waypoint):
+        """Pure-pursuit goal (2,) along the first path /way_point lies on, or None."""
+        for path in paths:
+            # Repeated nodes (TARE appends the robot or a loop's start again) make empty segments
+            path = path[np.concatenate(([True], np.linalg.norm(np.diff(path[:, :2], axis=0), axis=1) > 1e-6))]
+            if len(path) < 2:
+                continue
+            goal = follow(path, robot, waypoint, self.param("lookahead_distance"), self.param("waypoint_tolerance"),
+                          self.param("max_waypoint_path_distance"), self.param("max_chord_deviation"))
+            if goal is not None:
+                return goal[:2]
+        return None
+
+    def choose(self, robot, waypoint, path_goal, obstacles):
+        """Candidate goal (2,) and where it comes from (see the module docstring)."""
+        midpoint = 0.5 * (robot + waypoint)
+        if obstacles is None:
+            return (midpoint, "midpoint") if path_goal is None else (path_goal, "path")
+        clearance = self.param("clearance")
+        if clear(robot, waypoint, obstacles, clearance):
+            return midpoint, "midpoint"
+        if path_goal is not None and clear(robot, path_goal, obstacles, clearance):
+            return path_goal, "path"
+        for target in (path_goal, midpoint):
+            if target is not None:
+                goal = detour(robot, target, obstacles, clearance, self.param("detour_distance"),
+                              np.radians(self.param("detour_step")), np.radians(self.param("max_detour_angle")))
+                if goal is not None:
+                    return goal, "detour"
+        return robot, "stop"
+
     def tick(self):
         odom, way_point = self.fresh("/odom"), self.fresh("/way_point")
         if odom is None or way_point is None:
             self.get_logger().info("waiting for /odom and /way_point", throttle_duration_sec=10.0)
             return
+        terrain = self.fresh("/terrain_map")
         p, w = odom.pose.pose.position, way_point.point
-        paths = []  # (topic, path (n, 3) in goal_frame)
+        paths = []  # (n, 3) in goal_frame
+        obstacles = None
         try:
-            robot = self.to_goal_frame(odom.header.frame_id, np.array([[p.x, p.y, p.z]]))[0, :2]
+            robot = self.to_goal_frame(odom.header.frame_id, np.array([[p.x, p.y, p.z]]))[0]
             waypoint = self.to_goal_frame(way_point.header.frame_id, np.array([[w.x, w.y, w.z]]))[0, :2]
             for topic in self.path_topics:
                 path_msg = self.fresh(topic)
                 if path_msg is not None and len(path_msg.poses) >= 2:
                     path = np.array([[q.pose.position.x, q.pose.position.y, q.pose.position.z]
                                      for q in path_msg.poses])
-                    paths.append((topic, self.to_goal_frame(path_msg.header.frame_id, path)))
+                    paths.append(self.to_goal_frame(path_msg.header.frame_id, path))
+            if terrain is not None:
+                obstacles = self.to_goal_frame(*terrain)[:, :2]
         except TransformException as e:
             self.get_logger().warn(f"no TF to {self.goal_frame}, goal kept: {e}", throttle_duration_sec=5.0)
             return
+        robot_z, robot = robot[2], robot[:2]
 
-        result = None
-        for topic, path in paths:
-            # Repeated nodes (TARE appends the robot or a loop's start again) make empty segments
-            path = path[np.concatenate(([True], np.linalg.norm(np.diff(path[:, :2], axis=0), axis=1) > 1e-6))]
-            if len(path) >= 2:
-                result = follow(path, robot, waypoint, self.param("lookahead_distance"),
-                                self.param("waypoint_tolerance"), self.param("max_waypoint_path_distance"),
-                                self.param("max_chord_deviation"))
-            if result is not None:
-                break
-
-        now = self.get_clock().now()
-        if result is None:
-            if self.hold_since is None:
-                self.hold_since = now
-            if now - self.hold_since > Duration(seconds=HOLD_WARN_TIME):
-                self.get_logger().warn(f"/way_point ({waypoint[0]:.2f}, {waypoint[1]:.2f}) is on no path in "
-                                       f"{self.path_topics}, goal kept", throttle_duration_sec=5.0)
-            return
-        self.hold_since = None
-        goal, followed, remaining = result
+        path_goal = self.path_goal(paths, robot, waypoint)
+        if obstacles is None:
+            self.get_logger().warn("no /terrain_map, goal not checked for obstacles", throttle_duration_sec=5.0)
+        else:
+            # Only obstacles a goal (at most /way_point, lookahead_distance, detour_distance or the current goal away)
+            # can come near
+            reach = max(np.linalg.norm(waypoint - robot), self.param("lookahead_distance"),
+                        self.param("detour_distance"),
+                        0.0 if self.goal is None else np.linalg.norm(self.goal - robot)) + self.param("clearance")
+            distance = np.linalg.norm(obstacles - robot, axis=1)
+            obstacles = obstacles[(distance > self.param("self_radius")) & (distance < reach)]
+        candidate, source = self.choose(robot, waypoint, path_goal, obstacles)
 
         # A new TARE waypoint, in TARE's frame: in goal_frame it moves with every odom -> lio_map update
-        source = (topic, round(w.x, 1), round(w.y, 1))
-        if source != self.last_source:
-            self.last_source = source
-            self.get_logger().info(f"following {topic} to /way_point ({waypoint[0]:.2f}, {waypoint[1]:.2f}), "
-                                   f"{remaining:.2f} m along it")
+        if self.last_way_point != (round(w.x, 1), round(w.y, 1)):
+            self.last_way_point = (round(w.x, 1), round(w.y, 1))
+            self.get_logger().info(f"/way_point ({waypoint[0]:.2f}, {waypoint[1]:.2f}), "
+                                   f"{np.linalg.norm(waypoint - robot):.2f} m away")
 
-        stamp = now.to_msg()
-        followed_msg = Path()
-        followed_msg.header.frame_id = self.goal_frame
-        followed_msg.header.stamp = stamp
-        for x, y, z in followed:
-            pose = PoseStamped()
-            pose.header = followed_msg.header
-            pose.pose.position.x, pose.pose.position.y, pose.pose.position.z = float(x), float(y), float(z)
-            pose.pose.orientation.w = 1.0
-            followed_msg.poses.append(pose)
-        self.followed_pub.publish(followed_msg)
+        now = self.get_clock().now()
+        if self.candidate is None or np.linalg.norm(candidate - self.candidate) > self.param("jump_distance"):
+            self.candidate_since = now
+        self.candidate = candidate
+        keep_goal = (self.goal is not None
+                     and now - self.candidate_since < Duration(seconds=self.param("switch_time"))
+                     and np.linalg.norm(self.goal - robot) > self.param("reach_distance")
+                     and (obstacles is None or clear(robot, self.goal, obstacles, self.param("clearance"))))
+        if not keep_goal:
+            if source != self.goal_source:
+                self.get_logger().info(f"goal from {source}")
+            self.goal, self.goal_source = candidate, source
 
-        if self.last_goal is not None and np.linalg.norm(goal[:2] - self.last_goal[:2]) <= self.param(
+        if self.published_goal is not None and np.linalg.norm(self.goal - self.published_goal) <= self.param(
                 "republish_distance"):
             return
-        self.last_goal = goal
+        self.published_goal = self.goal
         marker = Marker()
         marker.header.frame_id = self.goal_frame
-        marker.header.stamp = stamp
+        marker.header.stamp = now.to_msg()
         marker.ns = "goal"
         marker.type = Marker.SPHERE
         marker.action = Marker.ADD
-        marker.pose.position.x, marker.pose.position.y, marker.pose.position.z = map(float, goal)
+        marker.pose.position.x, marker.pose.position.y = map(float, self.goal)
+        marker.pose.position.z = float(robot_z)
         marker.pose.orientation.w = 1.0
         marker.scale.x = marker.scale.y = marker.scale.z = 0.3
-        marker.color.g = marker.color.a = 1.0
+        marker.color.r, marker.color.g, marker.color.b = COLORS[self.goal_source]
+        marker.color.a = 1.0
         self.goal_pub.publish(MarkerArray(markers=[marker]))
 
 
 def main():
     rclpy.init()
-    node = TarePathFollower()
+    node = TareGoalBridge()
     try:
         rclpy.spin(node)
     except (KeyboardInterrupt, ExternalShutdownException):

@@ -74,10 +74,10 @@
   </node>
 
   <!-- rviz2 -->
-  <!-- <group if="$(var rviz)">
+  <group if="$(var rviz)">
     <arg name="rvizconfig" default="$(find-pkg-share legged_controllers)/config/config.rviz" />
     <node pkg="rviz2" exec="rviz2" name="rviz" args="-d $(var rvizconfig)" output="screen"/>
-  </group> -->
+  </group>
 
   <!-- multiplot -->
   <group if="$(var multiplot)">
