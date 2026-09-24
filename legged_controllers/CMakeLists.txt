@@ -149,6 +149,7 @@ install(PROGRAMS scripts/kill_node_sigint_service.py
                  scripts/opti_pessi_scenario.py
                  scripts/way_point_to_opti_pessi_goal.py
                  scripts/tare_path_to_opti_pessi_goal.py
+                 scripts/tare_finish_merge_map.py
                  scripts/lio_odom_alignment.py
         DESTINATION lib/${PROJECT_NAME}
         )
