@@ -11,8 +11,13 @@ true from "Exploration completed, returning home" on), it
   3. after flush_time, once SC-PGO (pgo_node) has rewritten its pose files (1 Hz) with the last keyframes, runs
      makeMergedMap.py <save_directory> --no-vis --output <map_name> with the python that has open3d, its output going
      to <map_name stem>.log next to the map;
-  4. exits when the merge ends (a merge already started when this node is stopped still finishes). FAST-LIO and SC-PGO
-     keep running.
+  4. at the same time, when graph_name is set, saves far_planner's visibility graph next to the map: publishes
+     <save_directory>/<graph_name> on /save_file_dir (graph_decoder writes the last /robot_vgraph there), waits for the
+     file, then sends SIGINT to graph_nodes (far_planner, graph_decoder; SIGTERM after flush_time). far_planner runs
+     during the exploration only to build that graph (its /way_point remapped away from the goal bridges);
+     far_load_graph.py loads it in the next missions;
+  5. exits when the merge and the graph save end (a merge already started when this node is stopped still finishes).
+     FAST-LIO and SC-PGO keep running.
 
 Empty save_directory, python and merge_script (the defaults) mean: SC-PGO's save_directory parameter (a relative one
 is relative to SC-PGO's working directory), <workspace>/.venv-yolo/bin/python and
@@ -35,7 +40,7 @@ from rcl_interfaces.msg import ParameterType
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.parameter_client import AsyncParameterClient
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, String
 from visualization_msgs.msg import Marker, MarkerArray
 
 
@@ -76,6 +81,9 @@ class TareFinishMergeMap(Node):
         self.python = self.declare_parameter("python", "").value
         self.merge_script = self.declare_parameter("merge_script", "").value
         self.flush_time = self.declare_parameter("flush_time", 5.0).value
+        self.graph_name = self.declare_parameter("graph_name", "warehouse.vgh").value
+        self.graph_nodes = self.declare_parameter("graph_nodes", ["far_planner", "graph_decoder"]).value
+        self.graph_timeout = self.declare_parameter("graph_timeout", 10.0).value
 
         root = workspace()
         if root is not None:
@@ -90,6 +98,7 @@ class TareFinishMergeMap(Node):
         self.create_subscription(Odometry, "/odom", lambda msg: setattr(self, "odom", msg), 5)
         self.create_subscription(Bool, "/exploration_finish", self.on_exploration_finish, 5)
         self.goal_pub = self.create_publisher(MarkerArray, "/opti_pessi/goal", 1)
+        self.save_graph_pub = self.create_publisher(String, "/save_file_dir", 5)
         self.pgo_params = AsyncParameterClient(self, self.pgo_node)
         self.save_directory_future = None
 
@@ -98,6 +107,11 @@ class TareFinishMergeMap(Node):
         self.stop_goal = None
         self.merge = None
         self.map_path = None
+        # graph save: idle -> saving -> stopping -> done (done at once without graph_name)
+        self.graph_state = "idle" if self.graph_name else "done"
+        self.graph_path = None
+        self.graph_since = None
+        self.graph_size = -1
         self.create_timer(0.5, self.tick)
         where = self.save_directory or f"{self.pgo_node}'s save_directory"
         self.get_logger().info(f"waiting for /exploration_finish, then merging {self.map_name} in {where}")
@@ -126,8 +140,11 @@ class TareFinishMergeMap(Node):
         if not self.save_directory:
             self.save_directory_future = self.pgo_params.get_parameters(["save_directory"])
 
-    def signal_nodes(self, sig):
-        for name in self.stop_nodes:
+    def finished(self):
+        return self.state == "done" and self.graph_state == "done"
+
+    def signal_nodes(self, sig, names=None):
+        for name in self.stop_nodes if names is None else names:
             for pid in node_pids(name):
                 try:
                     os.kill(pid, sig)
@@ -173,6 +190,7 @@ class TareFinishMergeMap(Node):
         return True
 
     def tick(self):
+        self.tick_graph()
         if self.state == "stopping":
             if self.stop_goal is not None:
                 self.goal_pub.publish(self.stop_goal)
@@ -180,6 +198,8 @@ class TareFinishMergeMap(Node):
                 return
             self.signal_nodes(signal.SIGTERM)  # only the ones SIGINT did not end are still found
             self.state = "merging" if self.start_merge() else "done"
+            if self.graph_state == "idle":
+                self.start_graph_save()
         elif self.state == "merging":
             code = self.merge.poll()
             if code is None:
@@ -192,12 +212,48 @@ class TareFinishMergeMap(Node):
                                         f"{os.path.splitext(self.map_path)[0]}.log")
             self.state = "done"
 
+    def start_graph_save(self):
+        directory = self.resolve_save_directory()
+        if directory is None:
+            self.graph_state = "done"
+            return
+        if self.save_graph_pub.get_subscription_count() == 0:
+            self.get_logger().error("nobody on /save_file_dir (graph_decoder not running?): the graph is not saved")
+            self.graph_state = "done"
+            return
+        self.graph_path = os.path.join(directory, self.graph_name)
+        if os.path.exists(self.graph_path):
+            os.remove(self.graph_path)  # so the file found below is the new one
+        self.get_logger().info(f"saving the FAR graph: {self.graph_path}")
+        self.save_graph_pub.publish(String(data=self.graph_path))
+        self.graph_state, self.graph_since = "saving", time.monotonic()
+
+    def tick_graph(self):
+        if self.graph_state == "saving":
+            # graph_decoder writes the whole file in its callback: a non-empty file whose size holds is complete
+            size = os.path.getsize(self.graph_path) if os.path.isfile(self.graph_path) else 0
+            if size > 0 and size == self.graph_size:
+                with open(self.graph_path) as f:
+                    nodes = sum(1 for _ in f)
+                self.get_logger().info(f"FAR graph saved: {self.graph_path} ({nodes} nodes)")
+            elif time.monotonic() - self.graph_since < self.graph_timeout:
+                self.graph_size = size
+                return
+            else:
+                self.get_logger().error(f"FAR graph not saved to {self.graph_path} within {self.graph_timeout:.0f} s "
+                                        "(far_planner graph empty?)")
+            self.signal_nodes(signal.SIGINT, self.graph_nodes)
+            self.graph_state, self.graph_since = "stopping", time.monotonic()
+        elif self.graph_state == "stopping" and time.monotonic() - self.graph_since >= self.flush_time:
+            self.signal_nodes(signal.SIGTERM, self.graph_nodes)
+            self.graph_state = "done"
+
 
 def main():
     rclpy.init()
     node = TareFinishMergeMap()
     try:
-        while rclpy.ok() and node.state != "done":
+        while rclpy.ok() and not node.finished():
             rclpy.spin_once(node, timeout_sec=0.5)
     except (KeyboardInterrupt, ExternalShutdownException):
         pass

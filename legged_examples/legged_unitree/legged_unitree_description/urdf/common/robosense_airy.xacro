@@ -1,0 +1,108 @@
+<?xml version="1.0"?>
+
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="robosense_airy">
+    <!-- RoboSense Airy 96-beam hemispherical LiDAR (simulated in Gazebo Harmonic).
+         Datasheet (Airy User Guide, mass-production values): 96 channels, 360 deg x 0-90 deg dome above the base
+         plane, 0.4 deg horizontal / 0.947 deg vertical resolution, 0.1 m blind zone, 60 m range (30 m @10% NIST),
+         1.5 cm (1 sigma) accuracy, 0.5 cm distance step, 10 Hz, built-in 6-axis IMU (25-1000 Hz),
+         diameter 60 mm x height 63 mm, 230 g.
+         Frames:
+           ${name}          Airy coordinate origin: center of the base, +z through the dome. /rslidar_points and
+                            /rslidar_imu_data are in this frame, as rslidar_sdk publishes them.
+           ${name}_optical  optical center, optical_z above the origin: the rays start here. The real height (and the
+                            off-axis radius, ignored here) comes per unit from DIFOP; 0.04 m is an estimate.
+         Published gz topics (legged_gazebo/config/airy_bridge.yaml, then legged_gazebo airy_points_relay):
+           /${name}/scan/points  PointCloudPacked (x y z intensity ring) in ${name}_optical, bridged to
+                                 /rslidar/points_optical; airy_points_relay republishes it as /rslidar_points
+                                 (rslidar_sdk XYZIRT, NaN for no return, frame ${name}, 32 deg gap every 10th frame)
+           /${name}/imu          bridged to /rslidar_imu_data (needs the gz::sim::systems::Imu world system)
+         The 900 x 96 grid at 10 Hz gives 864000 points/s; with the gap every 10th frame, ~856000 as in the datasheet.
+         Not modeled: the 100 ms sweep (the gz scan is instantaneous), the real IMU mounting rotation/offset and its
+         g units, the reflectivity scale (intensity is the gz retro value).
+         No collision geometry, so contacts are unchanged. -->
+    <xacro:macro name="RobosenseAiry" params="name:=rslidar parent xyz:='0 0 0' rpy:='0 0 0'
+                                              update_rate:=10 samples_h:=900 imu:=true imu_rate:=200
+                                              optical_z:=0.04">
+        <xacro:property name="airy_mass" value="0.230"/>
+        <xacro:property name="airy_radius" value="0.030"/>
+        <xacro:property name="airy_height" value="0.063"/>
+
+        <joint name="${name}_joint" type="fixed">
+            <origin xyz="${xyz}" rpy="${rpy}"/>
+            <parent link="${parent}"/>
+            <child link="${name}"/>
+        </joint>
+        <link name="${name}">
+            <inertial>
+                <mass value="${airy_mass}"/>
+                <origin rpy="0 0 0" xyz="0 0 ${airy_height/2}"/>
+                <inertia ixx="${airy_mass/12*(3*airy_radius**2 + airy_height**2)}" ixy="0" ixz="0"
+                         iyy="${airy_mass/12*(3*airy_radius**2 + airy_height**2)}" iyz="0"
+                         izz="${airy_mass/2*airy_radius**2}"/>
+            </inertial>
+            <visual>
+                <origin rpy="0 0 0" xyz="0 0 ${airy_height/2}"/>
+                <geometry>
+                    <cylinder radius="${airy_radius}" length="${airy_height}"/>
+                </geometry>
+                <material name="airy_grey">
+                    <color rgba="0.2 0.2 0.2 1"/>
+                </material>
+            </visual>
+        </link>
+
+        <joint name="${name}_optical_joint" type="fixed">
+            <origin xyz="0 0 ${optical_z}" rpy="0 0 0"/>
+            <parent link="${name}"/>
+            <child link="${name}_optical"/>
+        </joint>
+        <link name="${name}_optical"/>
+
+        <gazebo reference="${name}_optical">
+            <sensor name="${name}_lidar" type="gpu_lidar">
+                <always_on>true</always_on>
+                <update_rate>${update_rate}</update_rate>
+                <visualize>false</visualize>
+                <topic>${name}/scan</topic>
+                <gz_frame_id>${name}_optical</gz_frame_id>
+                <lidar>
+                    <scan>
+                        <horizontal>
+                            <samples>${samples_h}</samples>
+                            <resolution>1</resolution>
+                            <min_angle>${-pi}</min_angle>
+                            <max_angle>${pi - 2*pi/samples_h}</max_angle>
+                        </horizontal>
+                        <vertical>
+                            <samples>96</samples>
+                            <resolution>1</resolution>
+                            <min_angle>0</min_angle>
+                            <max_angle>${pi/2}</max_angle>
+                        </vertical>
+                    </scan>
+                    <range>
+                        <min>0.1</min>
+                        <max>60.0</max>
+                        <resolution>0.005</resolution>
+                    </range>
+                    <noise>
+                        <type>gaussian</type>
+                        <mean>0.0</mean>
+                        <stddev>0.015</stddev>
+                    </noise>
+                </lidar>
+            </sensor>
+        </gazebo>
+
+        <xacro:if value="${imu}">
+            <gazebo reference="${name}">
+                <sensor name="${name}_imu" type="imu">
+                    <always_on>true</always_on>
+                    <update_rate>${imu_rate}</update_rate>
+                    <topic>${name}/imu</topic>
+                    <gz_frame_id>${name}</gz_frame_id>
+                </sensor>
+            </gazebo>
+        </xacro:if>
+    </xacro:macro>
+</robot>

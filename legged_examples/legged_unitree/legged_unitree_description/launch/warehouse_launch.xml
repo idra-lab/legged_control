@@ -6,7 +6,7 @@
   <arg name="robot_type" default="aliengo" description="Robot type: [a1, aliengo, go1, laikago]"/>
   <arg name="use_sim_time" default="true"/>
   <arg name="camera" default="true" description="Mount the Intel RealSense D435i and bridge its rgb/depth images"/>
-  <arg name="lidar" default="true" description="Mount the Unitree 4D LiDAR L2 and bridge its point cloud/IMU"/>
+  <arg name="lidar" default="true" description="Mount the RoboSense Airy and publish its point cloud/IMU on the rslidar_sdk topics"/>
   <arg name="server" default="true" description="If true, run Gazebo headless (server only). If false, include GUI."/>
   <arg name="x" default="-5.0" description="Robot spawn x in the world frame [m]"/>
   <arg name="y" default="-3.0" description="Robot spawn y in the world frame [m]"/>
@@ -45,7 +45,10 @@
   </node>
 
   <node if="$(var lidar)" pkg="ros_gz_bridge" exec="parameter_bridge" name="lidar_bridge" output="screen">
-    <param name="config_file" value="$(find-pkg-share legged_gazebo)/config/unitree_l2_bridge.yaml"/>
+    <param name="config_file" value="$(find-pkg-share legged_gazebo)/config/airy_bridge.yaml"/>
+    <param name="use_sim_time" value="$(var use_sim_time)"/>
+  </node>
+  <node if="$(var lidar)" pkg="legged_gazebo" exec="airy_points_relay" name="airy_points_relay" output="screen">
     <param name="use_sim_time" value="$(var use_sim_time)"/>
   </node>
 </launch>

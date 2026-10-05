@@ -190,7 +190,7 @@ class OptiPessiController : public controller_interface::ControllerInterface {
   void holdForRecovery(const Eigen::Matrix<scalar_t, 2, 1>& com, scalar_t tolerance, scalar_t speed);
 
   /**
-   * Stops the walk, after a new goal once the goal was reached or at the end of a recovery: stops the MPC, lowers the
+   * Stops the walk at the end of a recovery: stops the MPC, lowers the
    * swinging feet where they are, holds the CoM at comHeight over the centre of the feet and hands over to standUp()'s
    * settling stage, which restarts from phase 0 with the MPC reset (cold start) once the CoM is at rest there.
    */
@@ -302,8 +302,7 @@ class OptiPessiController : public controller_interface::ControllerInterface {
   vector_t optiPessiRobotState_;           // measured 10-dof LIP state at the start of the current phase
   scalar_t optiPessiPhaseElapsed_ = 0.0;   // seconds spent in the current phase
   scalar_t optiPessiPhaseDuration_ = 0.0;  // duration applied on the last tick: u(DT), stretched if needed so the swing feet can land; 0 at phase start
-  bool optiPessiGoalReached_ = false;
-  size_t optiPessiReachedGoalSequence_ = 0;  // goal sequence optiPessiGoalReached_ refers to. Control thread only.
+  size_t optiPessiReachedGoalSequence_ = 0;  // goal sequence last logged as reached. Control thread only.
   bool optiPessiStopping_ = false;           // a solve failed: recover to the stand-up stance. Control thread only.
   size_t optiPessiFailedSolveStops_ = 0;     // stops caused by failed solves since activation, for the logs
   std::atomic_bool optiPessiMpcResetRequested_{false};  // set by restartFromStance(), cleared by the MPC thread's reset()

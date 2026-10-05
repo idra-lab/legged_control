@@ -151,6 +151,8 @@ install(PROGRAMS scripts/kill_node_sigint_service.py
                  scripts/tare_path_to_opti_pessi_goal.py
                  scripts/tare_finish_merge_map.py
                  scripts/lio_odom_alignment.py
+                 scripts/far_load_graph.py
+                 scripts/far_inspection_goals.py
         DESTINATION lib/${PROJECT_NAME}
         )
 

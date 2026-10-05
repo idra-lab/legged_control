@@ -11,7 +11,7 @@
     <xacro:include filename="$(find legged_unitree_description)/urdf/common/gazebo.xacro"/>
     <xacro:include filename="$(find legged_unitree_description)/urdf/common/imu.xacro"/>
     <xacro:include filename="$(find legged_unitree_description)/urdf/common/d435i.xacro"/>
-    <xacro:include filename="$(find legged_unitree_description)/urdf/common/unitree_l2.xacro"/>
+    <xacro:include filename="$(find legged_unitree_description)/urdf/common/robosense_airy.xacro"/>
 
     <xacro:include filename="$(find legged_unitree_description)/urdf/$(arg robot_type)/const.xacro"/>
 
@@ -56,11 +56,15 @@
         <xacro:D435i name="camera" parent="base" xyz="${trunk_length/2 + 0.03} 0 0" rpy="0 ${5*pi/180} 0"/>
     </xacro:if>
 
-    <!-- Unitree 4D LiDAR L2 mounted like on the Go2 (go2_description radar_joint, rpy="0 2.8782 0"):
-         upside down under the chin, dome tilted 15 deg forward, so it sees the terrain ahead and around
-         the feet. The base plate hangs 2 cm below the belly so the NEGA-mode rays clear the trunk. -->
+    <!-- RoboSense Airy on top of the trunk, 4 cm behind the front edge on a 1 cm riser, pitched 15 deg forward.
+         Its dome only covers 0-90 deg above its base plane: upright it would see nothing below its own height
+         (no ground, no low obstacles for terrainAnalysis). Pitched, the front of the dome dips 15 deg below the
+         horizon and sees the ground from ~1.9 m ahead. 15 deg, not more, keeps people and forklifts visible all
+         round for detection: behind the robot the dome starts 15 deg above the horizon (0.5 m + 0.27 m per meter
+         of distance), so heads stay in view to ~4 m and a forklift mast to ~6 m.
+         Mount-dependent: FAST-LIO imu_R/extrinsic_R and the static TFs of fast_lio_slam_launch.xml. -->
     <xacro:if value="$(arg lidar)">
-        <xacro:UnitreeL2 name="unilidar" parent="base" xyz="${trunk_length/2 - 0.03} 0 ${-trunk_height/2 - 0.02}" rpy="0 2.8782 0"/>
+        <xacro:RobosenseAiry name="rslidar" parent="base" xyz="${trunk_length/2 - 0.04} 0 ${trunk_height/2 + 0.01}" rpy="0 ${15*pi/180} 0"/>
     </xacro:if>
 
 

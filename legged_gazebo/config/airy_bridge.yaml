@@ -1,0 +1,15 @@
+# gz -> ROS bridge for the simulated RoboSense Airy (legged_unitree_description/urdf/common/robosense_airy.xacro).
+# gz topics are fixed by the sensors: a gpu_lidar with <topic>rslidar/scan</topic> publishes its cloud on
+# rslidar/scan/points. The cloud goes to airy_points_relay, which republishes it as rslidar_sdk does on
+# /rslidar_points; the IMU goes straight to the rslidar_sdk topic.
+- ros_topic_name: "/rslidar/points_optical"
+  gz_topic_name: "/rslidar/scan/points"
+  ros_type_name: "sensor_msgs/msg/PointCloud2"
+  gz_type_name: "gz.msgs.PointCloudPacked"
+  direction: GZ_TO_ROS
+
+- ros_topic_name: "/rslidar_imu_data"
+  gz_topic_name: "/rslidar/imu"
+  ros_type_name: "sensor_msgs/msg/Imu"
+  gz_type_name: "gz.msgs.IMU"
+  direction: GZ_TO_ROS

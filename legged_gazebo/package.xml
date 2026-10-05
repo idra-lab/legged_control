@@ -17,6 +17,12 @@
     <depend>simulation_interfaces</depend>
     <depend>ros_gz_interfaces</depend>
     <depend>gz_sim_vendor</depend>
+    <depend>sensor_msgs</depend>
+    <depend>tf2_ros</depend>
+    <depend>tf2_eigen</depend>
+    <depend>eigen</depend>
+
+    <test_depend>ament_cmake_gtest</test_depend>
 
     <export>
         <build_type>ament_cmake</build_type>

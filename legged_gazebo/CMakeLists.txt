@@ -17,6 +17,10 @@ find_package(gz-sim REQUIRED)
 # UPDATED: Replaced Gazebo Classic packages with modern Gazebo Harmonic wrappers
 find_package(ros_gz_sim REQUIRED)
 find_package(gz_ros2_control REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(tf2_eigen REQUIRED)
+find_package(Eigen3 REQUIRED)
 
 ###########
 ## Build ##
@@ -45,6 +49,32 @@ ament_target_dependencies(legged_hw_sim PUBLIC
 # UPDATED: Target package changed to gz_ros2_control
 pluginlib_export_plugin_description_file(gz_ros2_control legged_hw_sim_plugins.xml)
 
+# rslidar_sdk-style point cloud for the simulated RoboSense Airy (legged_unitree_description/urdf/common/robosense_airy.xacro)
+add_library(airy_points_conversion STATIC
+        src/AiryPointsConversion.cpp
+        )
+target_include_directories(airy_points_conversion PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        )
+target_link_libraries(airy_points_conversion PUBLIC Eigen3::Eigen)
+ament_target_dependencies(airy_points_conversion PUBLIC sensor_msgs)
+
+add_executable(airy_points_relay
+        src/AiryPointsRelay.cpp
+        )
+target_link_libraries(airy_points_relay airy_points_conversion)
+ament_target_dependencies(airy_points_relay rclcpp sensor_msgs tf2_ros tf2_eigen)
+
+# This package is built without a build type (-O0), where the Eigen per-point loop takes ~100 ms for a 900 x 96 cloud
+target_compile_options(airy_points_conversion PRIVATE -O2)
+target_compile_options(airy_points_relay PRIVATE -O2)
+
+if (BUILD_TESTING)
+    find_package(ament_cmake_gtest REQUIRED)
+    ament_add_gtest(test_airy_points_conversion test/test_airy_points_conversion.cpp)
+    target_link_libraries(test_airy_points_conversion airy_points_conversion)
+endif ()
+
 #########################
 ###   CLANG TOOLING   ###
 #########################
@@ -69,6 +99,10 @@ install(TARGETS legged_hw_sim
         ARCHIVE DESTINATION lib
         LIBRARY DESTINATION lib
         RUNTIME DESTINATION bin
+        )
+
+install(TARGETS airy_points_relay
+        RUNTIME DESTINATION lib/${PROJECT_NAME}
         )
 
 # Mark headers for installation

@@ -413,7 +413,6 @@ void OptiPessiController::beginStandUp() {
   optiPessiStandStartHeight_ = com.z();
   optiPessiStandElapsed_ = 0.0;
   optiPessiStandingUp_ = true;
-  optiPessiGoalReached_ = false;
   optiPessiStopping_ = false;
   optiPessiStandFootprintValid_ = false;
   optiPessiRecoveryStep_ = 0;
@@ -626,24 +625,6 @@ void OptiPessiController::writeJointCommands(const FallRecovery::JointCommands& 
 }
 
 void OptiPessiController::advanceOptiPessiPhase(const rclcpp::Time& time, const rclcpp::Duration& period) {
-  // Standing at the goal: holdStance() has set the references once. A new goal away from the robot restarts the walk
-  // from stance (standUp() measures phase 0 again).
-  if (optiPessiGoalReached_) {
-    vector_t goal;
-    size_t goalSequence = 0;
-    if (getOptiPessiGoal(goal, goalSequence) && goalSequence != optiPessiReachedGoalSequence_) {
-      optiPessiReachedGoalSequence_ = goalSequence;
-      const scalar_t distance = (optiPessiRobotState_.head(2) - goal).norm();
-      if (distance >= optiPessiInterface_->modelParameters().goalTolerance) {
-        RCLCPP_INFO(this->get_node()->get_logger(), "[OptiPessi] new goal (%.3f, %.3f) %.3f m away, walking again", goal(0), goal(1),
-                    distance);
-        optiPessiGoalReached_ = false;
-        restartFromStance();
-      }
-    }
-    return;
-  }
-
   // No plan yet (the MPC starts when standUp() ends, and restartFromStance() clears the plan): keep standing. A failed
   // solve has no step to wait for: the recovery starts from the robot standing here.
   if (!optiPessiPlan_.valid || optiPessiPlan_.phase > optiPessiPhase_) {
@@ -872,13 +853,15 @@ void OptiPessiController::advanceOptiPessiPhase(const rclcpp::Time& time, const 
     return;
   }
 
+  // Reaching the goal is only logged: the MPC keeps running and steps in place there, so a goal that moves is followed
+  // at once, with no restart. A four-feet stance latched at the goal only walked again on a goal message that changed.
   vector_t goal;
   size_t goalSequence = 0;
-  if (getOptiPessiGoal(goal, goalSequence) && (successorState.head(2) - goal).norm() < params.goalTolerance) {
-    optiPessiGoalReached_ = true;
+  if (getOptiPessiGoal(goal, goalSequence) && goalSequence != optiPessiReachedGoalSequence_ &&
+      (successorState.head(2) - goal).norm() < params.goalTolerance) {
     optiPessiReachedGoalSequence_ = goalSequence;
-    holdStance(optiPessiComReference_.position, optiPessiComReference_.yaw);
-    RCLCPP_INFO(this->get_node()->get_logger(), "[OptiPessi] goal reached after %zu phases", optiPessiPhase_);
+    RCLCPP_INFO(this->get_node()->get_logger(), "[OptiPessi] goal (%.3f, %.3f) reached after %zu phases, stepping in place until it moves",
+                goal(0), goal(1), optiPessiPhase_);
   }
 }
 
@@ -1200,12 +1183,8 @@ void OptiPessiController::handleMpcPlan(const opti_pessi::OptiPessiMpc::Plan& pl
   }
 
   // A failed solve is never executed, and the solver is not left to warm-start from it: the robot returns to its stand-up
-  // stance (continueRecovery()) and the MPC restarts cold. Standing at the goal nothing is executed, so it changes nothing
-  // there.
+  // stance (continueRecovery()) and the MPC restarts cold.
   if (plan.failed) {
-    if (optiPessiGoalReached_) {
-      return;
-    }
     mpcRunning_ = false;
     optiPessiStopping_ = true;
     ++optiPessiFailedSolveStops_;
@@ -1508,7 +1487,7 @@ void OptiPessiController::landSwingFeet() {
   }
 }
 
-/** All four feet in contact carrying m g / 4, CoM and yaw held: the stand-up and goal-reached posture. */
+/** All four feet in contact carrying m g / 4, CoM and yaw held: the stand-up and recovery posture. */
 void OptiPessiController::holdStance(const vector3_t& comPosition, scalar_t yaw) {
   const auto& params = optiPessiInterface_->modelParameters();
   for (FootReference& reference : optiPessiFootReferences_) {

@@ -16,8 +16,11 @@ the ground, farther than self_radius from the robot):
        if the line robot -> it keeps clearance: the path goes round walls and through doors, but flickers when TARE
        replans, so it is only taken when the straight way is blocked;
      - detour: a point up to detour_distance away, in the direction of the path goal (or else of the midpoint) turned
-       by the smallest multiple of detour_step (up to max_detour_angle each side) that keeps clearance;
-     - stop: the robot itself (OptiPessi stands at a reached goal);
+       by the smallest multiple of detour_step (up to max_detour_angle each side) that keeps clearance; if there is
+       none, the search is repeated with the distance halved down to min_detour_distance, then all over again with
+       min_clearance (as the autonomy stack's localPlanner shrinks pathRange, then pathScale);
+     - stop: the robot itself (OptiPessi stands at a reached goal). A stop is final while /way_point stays put: the
+       robot stands, so nothing the choice depends on changes;
   3. the goal follows the candidate, but a candidate that jumps (more than jump_distance in one tick: TARE replanned,
      the path flickered, the choice above changed) is only taken once it has stayed put for switch_time, as long as
      the current goal is still clear and more than reach_distance away;
@@ -157,6 +160,16 @@ def detour(robot, target, obstacles, clearance, distance, step, max_angle):
     return None
 
 
+def relaxed(value, minimum):
+    """value, then value halved while that stays above minimum, then minimum: the steps a limit is relaxed in."""
+    values = [value]
+    while values[-1] / 2.0 > minimum:
+        values.append(values[-1] / 2.0)
+    if minimum < values[-1]:
+        values.append(minimum)
+    return values
+
+
 class TareGoalBridge(Node):
     def __init__(self):
         super().__init__("tare_path_to_opti_pessi_goal")
@@ -176,7 +189,9 @@ class TareGoalBridge(Node):
         number("waypoint_tolerance", 0.3, "how far /way_point may lie off a path it is taken from [m]", 0.0, 2.0)
         number("max_waypoint_path_distance", 8.0, "farthest /way_point along the path from the robot "
                "(TARE: kLookAheadDistance plus a path segment) [m]", 1.0, 100.0)
+        number("min_clearance", 0.2, "clearance a detour may shrink to before the robot stops [m]", 0.0, 2.0)
         number("detour_distance", 1.0, "farthest detour goal from the robot [m]", 0.2, 5.0)
+        number("min_detour_distance", 0.3, "distance a detour may shrink to before the robot stops [m]", 0.05, 5.0)
         number("detour_step", 15.0, "angle between detour directions [deg]", 1.0, 90.0)
         number("max_detour_angle", 90.0, "largest detour turn each side [deg]", 0.0, 180.0)
         number("jump_distance", 0.5, "candidate move in one tick that is a jump [m]", 0.0, 10.0)
@@ -260,13 +275,21 @@ class TareGoalBridge(Node):
             return midpoint, "midpoint"
         if path_goal is not None and clear(robot, path_goal, obstacles, clearance):
             return path_goal, "path"
-        for target in (path_goal, midpoint):
-            if target is not None:
-                goal = detour(robot, target, obstacles, clearance, self.param("detour_distance"),
-                              np.radians(self.param("detour_step")), np.radians(self.param("max_detour_angle")))
-                if goal is not None:
-                    return goal, "detour"
-        return robot, "stop"
+        goal = self.relaxed_detour(robot, [t for t in (path_goal, midpoint) if t is not None], obstacles)
+        return (robot, "stop") if goal is None else (goal, "detour")
+
+    def relaxed_detour(self, robot, targets, obstacles):
+        """First detour (2,) towards one of targets, from detour_distance at clearance down to min_detour_distance at
+        min_clearance, or None. Relaxed before stopping: a stop is final, the robot stands and sees the same obstacles
+        from then on."""
+        step, max_angle = np.radians(self.param("detour_step")), np.radians(self.param("max_detour_angle"))
+        for clearance in relaxed(self.param("clearance"), self.param("min_clearance")):
+            for distance in relaxed(self.param("detour_distance"), self.param("min_detour_distance")):
+                for target in targets:
+                    goal = detour(robot, target, obstacles, clearance, distance, step, max_angle)
+                    if goal is not None:
+                        return goal
+        return None
 
     def tick(self):
         odom, way_point = self.fresh("/odom"), self.fresh("/way_point")
@@ -305,6 +328,11 @@ class TareGoalBridge(Node):
             distance = np.linalg.norm(obstacles - robot, axis=1)
             obstacles = obstacles[(distance > self.param("self_radius")) & (distance < reach)]
         candidate, source = self.choose(robot, waypoint, path_goal, obstacles)
+        if source == "stop":
+            self.get_logger().warn(
+                f"no way towards /way_point keeps {self.param('min_clearance'):.2f} m from /terrain_map obstacles "
+                f"(detours down to {self.param('min_detour_distance'):.2f} m): standing until /way_point moves",
+                throttle_duration_sec=5.0)
 
         # A new TARE waypoint, in TARE's frame: in goal_frame it moves with every odom -> lio_map update
         if self.last_way_point != (round(w.x, 1), round(w.y, 1)):

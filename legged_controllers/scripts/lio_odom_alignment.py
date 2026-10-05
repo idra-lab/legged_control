@@ -3,7 +3,7 @@
 lio_odom_alignment.py (ROS 2 Python)
 
 Publishes the odom -> lio_map TF that joins the legged estimator tree (odom -> base, /odom, what OptiPessi tracks) to
-the FAST-LIO tree (lio_map -> camera_init -> unilidar_lio -> lio_base, /Odometry, what TARE / FAR plan in).
+the FAST-LIO tree (lio_map -> camera_init -> rslidar_lio -> lio_base, /Odometry, what TARE / FAR plan in).
 
 The two estimators drift apart: the Kalman filter integrates leg kinematics and slips, FAST-LIO does not, and neither
 starts exactly where a static TF would assume. A static odom -> lio_map therefore maps a planner waypoint to an odom
