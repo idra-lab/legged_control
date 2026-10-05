@@ -1,0 +1,33 @@
+# terrainAnalysis / terrainAnalysisExt on the RoboSense Airy of the Aliengo (FAST-LIO /cloud_registered and /Odometry,
+# whose frame rslidar_lio is at the lidar). Loaded by tare_planner explore_warehouse_launch.xml and far_planner
+# far_planner_launch.xml: TARE, FAR and the goal bridges read obstacles from /terrain_map and /terrain_map_ext.
+#
+# The Airy dome sits on top of the trunk, pitched 15 deg forward: it sees the floor only from ~2 m ahead, and beside
+# and behind the robot only what is higher than itself (~0.5 m). With the defaults (ground = lowest points of each
+# cell, obstacles up to vehicleHeight 0.4 m above it) the bottom of a wall seen from 0.5 m up became "ground" and the
+# wall disappeared from the terrain maps. So:
+#  - groundPrior: a cell whose ground estimate is more than groundPriorTolerance above the floor the robot stands on
+#    (vehicleZ - sensorHeight) did not show its floor; its ground is that floor. Flat-floor assumption: a ramp rising
+#    more than the tolerance within the terrain map range would read as an obstacle.
+#  - sensorHeight: /Odometry above the floor when standing = base height 0.40 + rslidar_joint z 0.066.
+#  - vehicleHeight 1.0: obstacles are the points up to 1 m above the ground. The robot with the lidar is 0.53 m tall,
+#    but beside it obstacles only show above 0.5 m, a 0.4-0.6 m band would hold too few points.
+#  - the height window around the lidar is widened to match: from 0.18 m below the floor to vehicleHeight above it.
+terrainAnalysis:
+    ros__parameters:
+        groundPrior: true
+        sensorHeight: 0.47
+        groundPriorTolerance: 0.2
+        vehicleHeight: 1.0
+        minRelZ: -0.65
+        maxRelZ: 0.55
+
+terrainAnalysisExt:
+    ros__parameters:
+        groundPrior: true
+        sensorHeight: 0.47
+        groundPriorTolerance: 0.2
+        vehicleHeight: 1.0
+        lowerBoundZ: -0.65
+        upperBoundZ: 0.55
+        terrainUnderVehicle: -0.47
