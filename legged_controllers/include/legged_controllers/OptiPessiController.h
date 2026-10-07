@@ -22,8 +22,11 @@
 #include <hardware_interface/loaned_state_interface.hpp>
 #include <hardware_interface/loaned_command_interface.hpp>
 #include <hardware_interface/types/hardware_interface_type_values.hpp>
+#include <atomic>
+#include <cstdint>
 #include <limits>
 #include <mutex>
+#include <thread>
 #include <vector>
 
 #include <rclcpp/rclcpp.hpp>
@@ -162,6 +165,32 @@ class OptiPessiController : public controller_interface::ControllerInterface {
 
   /** Runs OptiPessiWbc on the current references and writes the joint commands. False if the safety check fails. */
   bool updateWholeBodyControl(const rclcpp::Duration& period);
+
+  /**
+   * The MPC and WBC benchmarks of the run so far as text: time of one MPC solve and of one WBC update, maximum and
+   * average, then formatSolverStatistics() if ipm.printSolverStatistics is on. Safe from any thread.
+   *
+   * They reach the user at the end of a run in three ways, because the process seldom ends cleanly (in Gazebo it
+   * crashes within a second of Ctrl-C, so the destructor that used to print them never runs):
+   *  - the SIGINT/SIGTERM handler installed by on_init() writes the text the benchmark thread keeps ready, then calls the
+   *    handler that was there before;
+   *  - the benchmark thread logs it once update() has not run for kBenchmarkIdleTime (a paused or stopped simulation);
+   *  - on_deactivate() logs it.
+   */
+  std::string formatBenchmarks(const char* reason) const;
+
+  /** Logs formatBenchmarks(). */
+  void logBenchmarks(const char* reason);
+
+  /**
+   * Logs the totals of OptiPessiMpc's solves and ocs2's profile of the solver. With ipm.printSolverStatistics on,
+   * update() calls it every optiPessiStatisticsPeriod_ of walking and on_deactivate() once more: ocs2 itself prints
+   * the profile from the solver's destructor, which a Gazebo process killed at shutdown never runs.
+   */
+  void logSolverStatistics();
+
+  /** Text of logSolverStatistics(), empty before the first solve. Safe from any thread. */
+  std::string formatSolverStatistics() const;
 
   /**
    * Stand-up stage run after activation: all feet down, CoM height ramped from the measured one to comHeight over
@@ -322,6 +351,17 @@ class OptiPessiController : public controller_interface::ControllerInterface {
   bool fallHeightArmed_ = false;  // the base-height fall test runs once standUp() has settled the robot
   std::unique_ptr<PinocchioInterface> fallKinematics_;  // copy of the model for measureBaseAboveFeet()
 
+  // Benchmarks at the end of a run (see logBenchmarks()). Written by the control thread, read by the benchmark thread.
+  std::atomic<int64_t> lastUpdateNanoseconds_{0};  // steady clock at the last update()
+  std::atomic_bool benchmarkPending_{false};       // update() has run since the last logBenchmarks()
+  std::atomic<uint64_t> wbcUpdates_{0};
+  std::atomic<double> wbcTimeSum_{0.0};            // [ms]
+  std::atomic<double> wbcTimeMax_{0.0};            // [ms]
+
+  // Solver statistics log (see logSolverStatistics()). Control thread only.
+  scalar_t optiPessiStatisticsElapsed_ = 0.0;   // walking time since the last log [s]
+  scalar_t optiPessiStatisticsPeriod_ = 10.0;   // [s]
+
   // Per-phase diagnostics, logged at the end of each phase with the "phaseDiagnostics" parameter on. Control thread only.
   scalar_t optiPessiWaitTime_ = 0.0;         // sim seconds of the phase run without its own policy (shifted plan, or none yet)
   size_t optiPessiQpFailuresAtPhaseStart_ = 0;
@@ -369,6 +409,7 @@ class OptiPessiController : public controller_interface::ControllerInterface {
  private:
   std::thread optiPessiMpcThread_;
   std::thread leggedMpcThread_;
+  std::thread benchmarkThread_;
   std::atomic_bool controllerRunning_{}, mpcRunning_{};
   benchmark::RepeatedTimer optiPessiMpcTimer_;
   benchmark::RepeatedTimer leggedMpcTimer_;

@@ -42,8 +42,13 @@
 #include <opti_pessi_interface/initialization/OptiPessiInitializer.h>
 
 #include <algorithm>
+#include <chrono>
+#include <csignal>
 #include <cstdio>
+#include <cstring>
 #include <numeric>
+
+#include <unistd.h>
 
 #include <boost/property_tree/info_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
@@ -98,6 +103,66 @@ FallRecoverySettings loadFallRecoverySettings(const std::string& file) {
   load("maxRollAttempts", settings.maxRollAttempts);
   load("maxConsecutiveFalls", settings.maxConsecutiveFalls);
   return settings;
+}
+
+/**
+ * Benchmarks written at SIGINT/SIGTERM (see OptiPessiController::formatBenchmarks()).
+ *
+ * A signal handler may only call async-signal-safe functions: it cannot format numbers or use a logger. So the benchmark
+ * thread formats the text ahead, into the one of two buffers the handler is not pointed at, and the handler only write()s
+ * the latest complete one to stderr, once, before calling the handler that was installed before it (Gazebo's, which
+ * stops the server).
+ */
+struct ShutdownBenchmarks {
+  static constexpr size_t kSize = 8192;
+  char text[2][kSize];
+  size_t length[2] = {0, 0};
+  std::atomic<int> latest{-1};  // buffer holding the latest complete text, -1: none yet
+  std::atomic_bool written{false};
+  std::atomic_bool installed{false};
+  struct sigaction previousSigint {};
+  struct sigaction previousSigterm {};
+};
+ShutdownBenchmarks shutdownBenchmarks;
+
+void onShutdownSignal(int signal) {
+  const int latest = shutdownBenchmarks.latest.load();
+  if (latest >= 0 && !shutdownBenchmarks.written.exchange(true)) {
+    const ssize_t ignored = ::write(STDERR_FILENO, shutdownBenchmarks.text[latest], shutdownBenchmarks.length[latest]);
+    static_cast<void>(ignored);
+  }
+  const struct sigaction& previous = signal == SIGINT ? shutdownBenchmarks.previousSigint : shutdownBenchmarks.previousSigterm;
+  if ((previous.sa_flags & SA_SIGINFO) != 0) {
+    if (previous.sa_sigaction != nullptr) {
+      previous.sa_sigaction(signal, nullptr, nullptr);
+    }
+  } else if (previous.sa_handler == SIG_DFL) {
+    ::signal(signal, SIG_DFL);
+    ::raise(signal);
+  } else if (previous.sa_handler != SIG_IGN) {
+    previous.sa_handler(signal);
+  }
+}
+
+/** Publishes `text` to the signal handler. Benchmark thread only. */
+void setShutdownBenchmarks(const std::string& text) {
+  const int next = shutdownBenchmarks.latest.load() == 0 ? 1 : 0;
+  const size_t length = std::min(text.size(), ShutdownBenchmarks::kSize);
+  std::memcpy(shutdownBenchmarks.text[next], text.data(), length);
+  shutdownBenchmarks.length[next] = length;
+  shutdownBenchmarks.latest = next;
+}
+
+/** Puts onShutdownSignal() in front of the current SIGINT and SIGTERM handlers, once per process. */
+void installShutdownBenchmarks() {
+  if (shutdownBenchmarks.installed.exchange(true)) {
+    return;
+  }
+  struct sigaction action {};
+  action.sa_handler = onShutdownSignal;
+  sigemptyset(&action.sa_mask);
+  ::sigaction(SIGINT, &action, &shutdownBenchmarks.previousSigint);
+  ::sigaction(SIGTERM, &action, &shutdownBenchmarks.previousSigterm);
 }
 
 }  // namespace
@@ -211,6 +276,23 @@ controller_interface::CallbackReturn OptiPessiController::on_init() {
               fallRecoverySettings.sideRollAlongGravity ? "along" : "against");
   fallRecovery_ = std::make_unique<FallRecovery>(fallRecoverySettings);
   fallKinematics_ = std::make_unique<PinocchioInterface>(leggedInterface_->getPinocchioInterface());
+
+  // The benchmarks of a run reach the user when it ends (see formatBenchmarks()).
+  installShutdownBenchmarks();
+  benchmarkThread_ = std::thread([this]() {
+    constexpr int64_t kBenchmarkIdleTime = 1000000000;  // [ns] without an update()
+    while (controllerRunning_) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(200));
+      if (benchmarkPending_) {
+        setShutdownBenchmarks("\n" + formatBenchmarks("interrupted") + "\n");
+      }
+      const int64_t now = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+      if (benchmarkPending_ && now - lastUpdateNanoseconds_ > kBenchmarkIdleTime) {
+        benchmarkPending_ = false;
+        logBenchmarks("the control loop stopped");
+      }
+    }
+  });
 
   return controller_interface::CallbackReturn::SUCCESS;
 }
@@ -431,6 +513,8 @@ void OptiPessiController::beginStandUp() {
 
 controller_interface::CallbackReturn OptiPessiController::on_deactivate(const rclcpp_lifecycle::State& /*previous_state*/) {
   mpcRunning_ = false;
+  benchmarkPending_ = false;
+  logBenchmarks("controller deactivated");
   // The hardware keeps applying the last command once the controller lets go of the joints (LeggedHWSim::write() holds
   // the last feedforward torque): leave them in damping mode instead. The interfaces are released after on_deactivate().
   if (fallRecovery_ && hybridJointHandles_.size() == static_cast<size_t>(FallRecovery::Vector12::RowsAtCompileTime)) {
@@ -444,6 +528,9 @@ controller_interface::CallbackReturn OptiPessiController::on_deactivate(const rc
 }
 
 controller_interface::return_type OptiPessiController::update(const rclcpp::Time& time, const rclcpp::Duration& period) {
+  lastUpdateNanoseconds_ = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+  benchmarkPending_ = true;
+
   // State Estimate
   updateStateEstimation(time, period);
 
@@ -497,6 +584,14 @@ controller_interface::return_type OptiPessiController::update(const rclcpp::Time
     standUp(period);
   } else {
     advanceOptiPessiPhase(time, period);
+  }
+
+  if (mpcRunning_ && optiPessiInterface_->ipmSettings().printSolverStatistics) {
+    optiPessiStatisticsElapsed_ += period.seconds();
+    if (optiPessiStatisticsElapsed_ >= optiPessiStatisticsPeriod_) {
+      optiPessiStatisticsElapsed_ = 0.0;
+      logSolverStatistics();
+    }
   }
 
   // Whole body control every tick, also while standing up or while the LIP clock is held. The safety check stays the
@@ -819,6 +914,61 @@ void OptiPessiController::advanceOptiPessiPhase(const rclcpp::Time& time, const 
   }
 }
 
+std::string OptiPessiController::formatBenchmarks(const char* reason) const {
+  const auto totals = std::static_pointer_cast<opti_pessi::OptiPessiMpc>(optiPessiMpc_)->getSolveTotals();
+  const uint64_t wbcUpdates = wbcUpdates_;
+  char text[512];
+  std::snprintf(text, sizeof(text),
+                "[OptiPessi] benchmarks (%s)"
+                "\n### OptiPessi MPC Benchmarking (%zu solves)"
+                "\n###   Maximum : %.3f[ms]."
+                "\n###   Average : %.3f[ms]."
+                "\n### WBC Benchmarking (%llu updates)"
+                "\n###   Maximum : %.3f[ms]."
+                "\n###   Average : %.3f[ms].",
+                reason, totals.solves, totals.solveTimeMax,
+                totals.solves > 0 ? totals.solveTimeSum / static_cast<scalar_t>(totals.solves) : 0.0,
+                static_cast<unsigned long long>(wbcUpdates), wbcTimeMax_.load(),
+                wbcUpdates > 0 ? wbcTimeSum_.load() / static_cast<scalar_t>(wbcUpdates) : 0.0);
+  std::string benchmarks = text;
+  if (optiPessiInterface_->ipmSettings().printSolverStatistics) {
+    const std::string statistics = formatSolverStatistics();
+    if (!statistics.empty()) {
+      benchmarks += "\n" + statistics;
+    }
+  }
+  return benchmarks;
+}
+
+void OptiPessiController::logBenchmarks(const char* reason) {
+  RCLCPP_INFO(this->get_node()->get_logger(), "%s", formatBenchmarks(reason).c_str());
+}
+
+std::string OptiPessiController::formatSolverStatistics() const {
+  const auto totals = std::static_pointer_cast<opti_pessi::OptiPessiMpc>(optiPessiMpc_)->getSolveTotals();
+  if (totals.solves == 0) {
+    return std::string();
+  }
+  const auto solves = static_cast<scalar_t>(totals.solves);
+  char text[640];
+  std::snprintf(text, sizeof(text),
+                "[OptiPessi] solver statistics over %zu solves since the controller was loaded: solve time mean %.1f ms, max %.1f ms | "
+                "iterations mean %.0f, at the cap in %.0f %% of the solves | warm start: same phase %zu, shifted %zu, cold %zu | cold "
+                "retries after a failed warm start %zu, unsolved %zu | solver profile since its last cold start:",
+                totals.solves, totals.solveTimeSum / solves, totals.solveTimeMax, static_cast<scalar_t>(totals.iterations) / solves,
+                100.0 * static_cast<scalar_t>(totals.atIterationCap) / solves, totals.samePhase, totals.shifted, totals.cold,
+                totals.coldRetries, totals.unsolved);
+  // The profile is ocs2's own block (the one printSolverStatistics prints at destruction); it starts with a newline.
+  return std::string(text) + totals.solverProfile;
+}
+
+void OptiPessiController::logSolverStatistics() {
+  const std::string statistics = formatSolverStatistics();
+  if (!statistics.empty()) {
+    RCLCPP_INFO(this->get_node()->get_logger(), "%s", statistics.c_str());
+  }
+}
+
 bool OptiPessiController::updateWholeBodyControl(const rclcpp::Duration& period) {
   // opti_pessi::Foot and contactNames3DoF share the foot order (LF, RF, LH, RH).
   WbcReference reference;
@@ -839,6 +989,13 @@ bool OptiPessiController::updateWholeBodyControl(const rclcpp::Duration& period)
   wbcTimer_.startTimer();
   const vector_t x = wbc_->update(reference, measuredRbdState_);
   wbcTimer_.endTimer();
+  {
+    // Copies for logBenchmarks(), which runs on another thread: this thread is their only writer.
+    const scalar_t wbcTime = wbcTimer_.getLastIntervalInMilliseconds();
+    wbcUpdates_ = wbcUpdates_ + 1;
+    wbcTimeSum_ = wbcTimeSum_ + wbcTime;
+    wbcTimeMax_ = std::max(wbcTimeMax_.load(), wbcTime);
+  }
 
   // Posture and contact statistics of the current phase, logged at its end by advanceOptiPessiPhase().
   // measuredRbdState_ = [yaw, pitch, roll, base position, ...]; the contact flags are the estimator's (sensors).
@@ -1601,6 +1758,10 @@ OptiPessiController::~OptiPessiController() {
   }
   if (leggedMpcThread_.joinable()) {
     leggedMpcThread_.join();
+  }
+
+  if (benchmarkThread_.joinable()) {
+    benchmarkThread_.join();
   }
 
   executor_->cancel();
