@@ -377,7 +377,7 @@ class OptiPessiController : public controller_interface::ControllerInterface {
   bool fallHeightArmed_ = false;  // the base-height fall test runs once standUp() has settled the robot
   std::unique_ptr<PinocchioInterface> fallKinematics_;  // copy of the model for measureBaseAboveFeet()
 
-  // Per-phase diagnostics, logged at the end of each phase. Control thread only.
+  // Per-phase diagnostics, logged at the end of each phase with the "phaseDiagnostics" parameter on. Control thread only.
   scalar_t optiPessiWaitTime_ = 0.0;         // sim seconds of the phase run without its own policy (shifted plan, or none yet)
   size_t optiPessiQpFailuresAtPhaseStart_ = 0;
 

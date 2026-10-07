@@ -136,6 +136,9 @@ controller_interface::CallbackReturn OptiPessiController::on_init() {
   if (!node->has_parameter("fallRecoveryFile")) {
     node->declare_parameter<std::string>("fallRecoveryFile", "");
   }
+  if (!node->has_parameter("phaseDiagnostics")) {
+    node->declare_parameter<bool>("phaseDiagnostics", false);
+  }
 
   std::string urdfFile = node->get_parameter("urdfFile").as_string();
   std::string taskFile = node->get_parameter("taskFile").as_string();
@@ -721,8 +724,9 @@ void OptiPessiController::advanceOptiPessiPhase(const rclcpp::Time& time, const 
 
   // Diagnostics of the phase just ended, in sim time: how long the LIP clock waited for its policy, how far the
   // measured robot ended from the LIP prediction (plan realizable?) and from the WBC references (tracking?), and
-  // how many WBC QPs failed during it.
-  {
+  // how many WBC QPs failed during it. Logged only with the "phaseDiagnostics" parameter on; it is read every phase, so
+  // `ros2 param set` switches the log on a running controller.
+  if (this->get_node()->get_parameter("phaseDiagnostics").as_bool()) {
     using opti_pessi::RobotX;
     const vector_t& predicted = nextState;
     const vector_t lipError = predicted - successorState;
@@ -738,8 +742,6 @@ void OptiPessiController::advanceOptiPessiPhase(const rclcpp::Time& time, const 
                 optiPessiComReference_.position.y() - successorState(RobotX::CY), optiPessiComReference_.yaw - successorState(RobotX::TH),
                 optiPessiComReference_.yawRate - successorState(RobotX::DTH), successorState.segment(RobotX::DCX, 2).norm(),
                 successorState(RobotX::DTH), qpFailures - optiPessiQpFailuresAtPhaseStart_);
-    optiPessiQpFailuresAtPhaseStart_ = qpFailures;
-    optiPessiWaitTime_ = 0.0;
 
     // Foot order of the contact counters: LF, RF, LH, RH (contact_flag_t).
     const PhaseDiagnostics& d = optiPessiPhaseDiagnostics_;
@@ -772,7 +774,6 @@ void OptiPessiController::advanceOptiPessiPhase(const rclcpp::Time& time, const 
                   optiPessiLiftoffPositions_[s1].z() - optiPessiFootReferences_[s1].position.z(), measuredContacts[s1] ? 1 : 0,
                   d.durationMin, d.durationMax, d.durationStretch, d.footholdDrift, d.policyUpdates);
     }
-    optiPessiPhaseDiagnostics_ = PhaseDiagnostics();
 
     // Plan quality: the applied knot as the OCP bounds it (StageInequalityConstraint rows on x_1), and the latest
     // MPC solve. A predicted successor beyond the limits means the applied policy was not a feasible plan.
@@ -825,6 +826,9 @@ void OptiPessiController::advanceOptiPessiPhase(const rclcpp::Time& time, const 
                   hullClearance(predicted, centre));
     }
   }
+  optiPessiQpFailuresAtPhaseStart_ = wbc_->getNumQpFailures();
+  optiPessiWaitTime_ = 0.0;
+  optiPessiPhaseDiagnostics_ = PhaseDiagnostics();
   {
     std::lock_guard<std::mutex> lock(optiPessiPhaseMutex_);
     optiPessiRobotState_ = successorState;

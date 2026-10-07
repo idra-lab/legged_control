@@ -45,8 +45,11 @@
     <exec_depend>rviz2</exec_depend>
     <!-- far_load_graph.py -->
     <exec_depend>visibility_graph_msg</exec_depend>
+    <!-- dynamic_obstacles_to_opti_pessi_obstacles.py -->
+    <exec_depend>people_perception_msgs</exec_depend>
 
     <test_depend>ament_cmake_gtest</test_depend>
+    <test_depend>ament_cmake_pytest</test_depend>
 
     <member_of_group>rosidl_interface_packages</member_of_group>
 

@@ -8,6 +8,7 @@
   <!-- Opti-Pessi costs/constraints are CppAD libraries with task.info values compiled in: regenerate after editing it -->
   <arg name="recompile"           default="false" description="Regenerate the Opti-Pessi CppAD libraries from opti_pessi_interface/config/task.info"/>
   <arg name="obstacleDetour"      default="true"  description="Walk around obstacles blocking the line to the goal (opti_pessi_interface/ObstacleDetour.h)"/>
+  <arg name="phaseDiagnostics"    default="false" description="Log the per-phase diagnostics block (diag, posture, wbc, touchdown, plan, obstacle lines)"/>
 
   <arg name="joy_dev" default="/dev/input/js0"/>
   <arg name="teleop_config" default="$(find-pkg-share legged_controllers)/config/joy.yaml"/>
@@ -40,6 +41,7 @@
     <param name="libraryFolder" value="$(var libraryFolder)"/>
     <param name="recompile" value="$(var recompile)"/>
     <param name="obstacleDetour" value="$(var obstacleDetour)"/>
+    <param name="phaseDiagnostics" value="$(var phaseDiagnostics)"/>
     <param name="fallRecoveryFile" value="$(var fallRecoveryFile)"/>
   </node>
 
