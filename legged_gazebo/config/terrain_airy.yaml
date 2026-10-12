@@ -13,7 +13,10 @@
 #  - vehicleHeight 1.0: obstacles are the points up to 1 m above the ground. The robot with the lidar is 0.53 m tall,
 #    but beside it obstacles only show above 0.5 m, a 0.4-0.6 m band would hold too few points.
 #  - the height window around the lidar is widened to match: from 0.18 m below the floor to vehicleHeight above it.
-terrainAnalysis:
+#
+# Keys /**/<node name>: the same values in every namespace. explore_warehouse_launch.xml runs a second pair of these
+# nodes in far_static, on the scans without the people, for the graph of far_planner.
+/**/terrainAnalysis:
     ros__parameters:
         groundPrior: true
         sensorHeight: 0.47
@@ -22,7 +25,7 @@ terrainAnalysis:
         minRelZ: -0.65
         maxRelZ: 0.55
 
-terrainAnalysisExt:
+/**/terrainAnalysisExt:
     ros__parameters:
         groundPrior: true
         sensorHeight: 0.47

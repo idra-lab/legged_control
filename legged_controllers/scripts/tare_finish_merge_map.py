@@ -4,8 +4,13 @@ tare_finish_merge_map.py (ROS 2 Python)
 
 Ends a TARE exploration unattended. Once TARE reports the exploration finished (/exploration_finish, std_msgs/Bool,
 true from "Exploration completed, returning home" on), it
-  1. sends SIGINT to the nodes in stop_nodes (TARE and the goal bridges), so the robot does not go on to TARE's
-     return home; the ones still alive after flush_time get SIGTERM;
+  0. with return_home, lets TARE and the goal bridge walk the robot back home first: home is where FAST-LIO
+     (/Odometry) had the robot when this node started, which is TARE's home when both come from the same launch with
+     the robot standing. It goes on when the robot is within home_tolerance of it (on the floor: FAST-LIO drifts in
+     z), or after return_home_timeout, wherever the robot is then. SC-PGO and far_planner keep mapping on the way.
+     Without return_home it goes on at once, where the exploration ended;
+  1. sends SIGINT to the nodes in stop_nodes (TARE and the goal bridges): TARE would go on sending its home
+     waypoint; the ones still alive after flush_time get SIGTERM;
   2. stops the robot: a /opti_pessi/goal at its /odom position (OptiPessi stands at a reached goal), sent again every
      tick until the merge starts, in case a bridge tick raced the SIGINT;
   3. after flush_time, once SC-PGO (pgo_node) has rewritten its pose files (1 Hz) with the last keyframes, runs
@@ -27,6 +32,7 @@ above the legged_controllers install that has a src/.
 Usage: ros2 run legged_controllers tare_finish_merge_map.py --ros-args -p map_name:=optimized_map.pcd
 """
 
+import math
 import os
 import signal
 import subprocess
@@ -36,7 +42,7 @@ from pathlib import Path
 import rclpy
 from ament_index_python.packages import get_package_prefix
 from nav_msgs.msg import Odometry
-from rcl_interfaces.msg import ParameterType
+from rcl_interfaces.msg import ParameterDescriptor, ParameterType
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.parameter_client import AsyncParameterClient
@@ -84,6 +90,11 @@ class TareFinishMergeMap(Node):
         self.graph_name = self.declare_parameter("graph_name", "warehouse.vgh").value
         self.graph_nodes = self.declare_parameter("graph_nodes", ["far_planner", "graph_decoder"]).value
         self.graph_timeout = self.declare_parameter("graph_timeout", 10.0).value
+        self.return_home = self.declare_parameter("return_home", True).value
+        self.home_tolerance = self.declare_parameter("home_tolerance", 0.5).value
+        # dynamic typing: a launch argument like return_home_timeout:=300 arrives as an int
+        self.return_home_timeout = float(self.declare_parameter(
+            "return_home_timeout", 600.0, ParameterDescriptor(dynamic_typing=True)).value)
 
         root = workspace()
         if root is not None:
@@ -96,13 +107,18 @@ class TareFinishMergeMap(Node):
 
         self.odom = None
         self.create_subscription(Odometry, "/odom", lambda msg: setattr(self, "odom", msg), 5)
+        # FAST-LIO, the frame TARE plans in: where home is and how far the robot is from it
+        self.home = None
+        self.position = None
+        self.create_subscription(Odometry, "/Odometry", self.on_lio_odometry, 5)
         self.create_subscription(Bool, "/exploration_finish", self.on_exploration_finish, 5)
         self.goal_pub = self.create_publisher(MarkerArray, "/opti_pessi/goal", 1)
         self.save_graph_pub = self.create_publisher(String, "/save_file_dir", 5)
         self.pgo_params = AsyncParameterClient(self, self.pgo_node)
         self.save_directory_future = None
 
-        self.state = "exploring"  # -> stopping -> merging -> done
+        self.state = "exploring"  # -> returning (with return_home) -> stopping -> merging -> done
+        self.return_since = None
         self.finished_at = None
         self.stop_goal = None
         self.merge = None
@@ -114,12 +130,32 @@ class TareFinishMergeMap(Node):
         self.graph_size = -1
         self.create_timer(0.5, self.tick)
         where = self.save_directory or f"{self.pgo_node}'s save_directory"
-        self.get_logger().info(f"waiting for /exploration_finish, then merging {self.map_name} in {where}")
+        then = "the robot back home, then " if self.return_home else ""
+        self.get_logger().info(f"waiting for /exploration_finish, then {then}merging {self.map_name} in {where}")
+
+    def on_lio_odometry(self, msg):
+        self.position = (msg.pose.pose.position.x, msg.pose.pose.position.y)
+        if self.home is None:
+            self.home = self.position
+
+    def home_distance(self):
+        return math.hypot(self.position[0] - self.home[0], self.position[1] - self.home[1])
 
     def on_exploration_finish(self, msg):
         if not msg.data or self.state != "exploring":
             return
-        self.get_logger().info(f"exploration finished: stopping {', '.join(self.stop_nodes)} and the robot")
+        if self.return_home and self.home is None:
+            self.get_logger().warn("exploration finished, but no /Odometry: home unknown, ending it here")
+        elif self.return_home and self.home_distance() > self.home_tolerance:
+            self.get_logger().info(
+                f"exploration finished {self.home_distance():.1f} m from home ({self.home[0]:.2f}, {self.home[1]:.2f}): "
+                f"waiting for TARE to bring the robot back, at most {self.return_home_timeout:.0f} s")
+            self.state, self.return_since = "returning", time.monotonic()
+            return
+        self.stop_exploration()
+
+    def stop_exploration(self):
+        self.get_logger().info(f"stopping {', '.join(self.stop_nodes)} and the robot")
         self.state, self.finished_at = "stopping", time.monotonic()
         self.signal_nodes(signal.SIGINT)
         if self.odom is None:
@@ -191,7 +227,18 @@ class TareFinishMergeMap(Node):
 
     def tick(self):
         self.tick_graph()
-        if self.state == "stopping":
+        if self.state == "returning":
+            distance, waited = self.home_distance(), time.monotonic() - self.return_since
+            if distance <= self.home_tolerance:
+                self.get_logger().info(f"robot back home after {waited:.0f} s")
+            elif waited > self.return_home_timeout:
+                self.get_logger().warn(f"robot still {distance:.1f} m from home after {waited:.0f} s "
+                                       "(return_home_timeout): ending the exploration where it is")
+            else:
+                self.get_logger().info(f"returning home: {distance:.1f} m to go", throttle_duration_sec=10.0)
+                return
+            self.stop_exploration()
+        elif self.state == "stopping":
             if self.stop_goal is not None:
                 self.goal_pub.publish(self.stop_goal)
             if time.monotonic() - self.finished_at < self.flush_time:

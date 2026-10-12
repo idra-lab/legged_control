@@ -4,6 +4,12 @@ far_inspection_goals.py (ROS 2 Python)
 
 Inspection mission: sends the points picked with map_point_picker (selected_points.yaml) to far_planner as goals,
 one after the other, in the order of the file:
+  0. waits for the start command: a file of points on /start_inspection (std_msgs/String; empty: goals_file), which
+     the Start inspection button of map_point_picker sends with the file it has just saved. The points are read
+     then, not at the launch. A command during an inspection starts over with the points of its file; a file that
+     cannot be read or has no points changes nothing. By hand:
+       ros2 topic pub -1 /start_inspection std_msgs/msg/String "{data: ''}"
+     With auto_start there is no waiting: goals_file is inspected at once, and the node exits after the last point;
   1. waits for far_planner's v-graph (/robot_vgraph) and, with wait_for_graph, for the saved graph that
      far_load_graph.py loads (/decoded_vgraph, then one more /robot_vgraph), so that the first route is planned on
      the whole graph and not only on what the robot sees;
@@ -14,7 +20,7 @@ one after the other, in the order of the file:
      far_planner drops goals that arrive before its v-graph is initialized, so a goal that gets no /way_point
      within ack_timeout s is published again;
   3. waits dwell_time s at the point (reached or not) and goes on to the next; with loop it starts over after the
-     last one, otherwise it logs a summary and exits.
+     last one, otherwise it logs a summary and waits for the next start command.
 
 Frames: the points are in the frame of the map they were picked on (optimized_map.pcd, i.e. camera_init of the
 exploration), which is far_planner's map here (static camera_init -> map). Like the loaded graph, they only line
@@ -39,7 +45,7 @@ from rcl_interfaces.msg import ParameterDescriptor
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, String
 from visibility_graph_msg.msg import Graph
 from visualization_msgs.msg import Marker, MarkerArray
 
@@ -77,6 +83,7 @@ class FarInspectionGoals(Node):
         self.idle_timeout = float(param("idle_timeout", 10.0))
         self.goal_timeout = float(param("goal_timeout", 600.0))
         self.loop = bool(param("loop", False))
+        self.auto_start = bool(param("auto_start", False))
 
         self.goals = []
         self.status = []
@@ -87,7 +94,9 @@ class FarInspectionGoals(Node):
         self.merged = False          # far_planner published a v-graph after that
         self.last_waypoint = None    # ROS time of the last /way_point
         self.reached = False         # far_planner reported the active goal reached
-        self.state = "waiting"       # -> active -> dwell -> active ... -> done
+        # idle (no start command yet) -> waiting (for the graph) -> active -> dwell -> active ...
+        # -> idle again after the last point (with auto_start: done)
+        self.state = "idle"
         self.started = None
         self.goal_started = None     # first publication of the active goal
         self.sent_at = None          # last publication of the active goal
@@ -98,9 +107,15 @@ class FarInspectionGoals(Node):
         self.create_subscription(Graph, "/decoded_vgraph", self.on_decoded, 5)
         self.create_subscription(PointStamped, "/way_point", self.on_waypoint, 5)
         self.create_subscription(Bool, "/far_reach_goal_status", self.on_reach, 5)
+        self.create_subscription(String, "/start_inspection", self.on_start, 5)
         self.goal_pub = self.create_publisher(PointStamped, "/goal_point", 5)
         latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self.marker_pub = self.create_publisher(MarkerArray, "/inspection_goals", latched)
+        if self.auto_start:
+            self.start(self.goals_file)
+        else:
+            self.get_logger().info("waiting for the start command (Start inspection in map_point_picker, "
+                                   "/start_inspection)")
 
     # ------------------------------------------------------------ callbacks
 
@@ -121,10 +136,37 @@ class FarInspectionGoals(Node):
         if msg.data and self.state == "active":
             self.reached = True
 
+    def on_start(self, msg):
+        self.start(os.path.abspath(os.path.expanduser(msg.data.strip())) if msg.data.strip() else self.goals_file)
+
     # ------------------------------------------------------------ mission
 
     def now(self):
         return self.get_clock().now().nanoseconds * 1e-9
+
+    def start(self, path):
+        """Begins the inspection of the points of path, from the first one. False, and nothing changes, when there
+        are none to read."""
+        if not os.path.isfile(path):
+            self.get_logger().warning(f"goals file '{path}' not found: no inspection "
+                                      "(far_planner still takes goals from RViz)")
+            return False
+        try:
+            goals = load_goals(path)
+        except Exception as e:
+            self.get_logger().error(f"cannot read goals file '{path}': {e}")
+            return False
+        if not goals:
+            self.get_logger().warning(f"no points in '{path}': no inspection")
+            return False
+        if self.state in ("waiting", "active", "dwell"):
+            self.get_logger().info(f"start command during the inspection of {self.goals_file}: starting over")
+        self.goals_file, self.goals = path, goals
+        self.status = ["pending"] * len(goals)
+        self.index = 0
+        self.state, self.started = "waiting", None
+        self.publish_markers()
+        return True
 
     def send_goal(self):
         x, y, _ = self.goals[self.index]
@@ -173,7 +215,7 @@ class FarInspectionGoals(Node):
                 if self.odom is None or self.graph_size == 0:
                     self.get_logger().error(f"no /Odometry or no far_planner v-graph after {self.graph_timeout:.0f} s: "
                                             "inspection not started")
-                    self.state = "done"
+                    self.state = "done" if self.auto_start else "idle"
                     return
                 self.get_logger().warning(f"saved graph not loaded after {self.graph_timeout:.0f} s: "
                                           "starting on far_planner's own graph")
@@ -199,7 +241,7 @@ class FarInspectionGoals(Node):
             if self.index == len(self.goals):
                 self.log_summary()
                 if not self.loop:
-                    self.state = "done"
+                    self.state = "done" if self.auto_start else "idle"
                     return
                 self.index = 0
                 self.status = ["pending"] * len(self.goals)
@@ -240,20 +282,8 @@ def main():
     rclpy.init()
     node = FarInspectionGoals()
     try:
-        if not os.path.isfile(node.goals_file):
-            node.get_logger().warning(f"goals file '{node.goals_file}' not found: no inspection "
-                                      "(far_planner still takes goals from RViz)")
+        if node.auto_start and node.state == "idle":  # nothing to inspect in goals_file
             return
-        try:
-            node.goals = load_goals(node.goals_file)
-        except Exception as e:
-            node.get_logger().error(f"cannot read goals file '{node.goals_file}': {e}")
-            return
-        if not node.goals:
-            node.get_logger().warning(f"no points in '{node.goals_file}': no inspection")
-            return
-        node.status = ["pending"] * len(node.goals)
-        node.publish_markers()
         while rclpy.ok() and node.state != "done":
             rclpy.spin_once(node, timeout_sec=0.2)
             node.tick()
