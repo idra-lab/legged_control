@@ -21,13 +21,11 @@
 #include <ocs2_legged_robot/foot_planner/CubicSpline.h>
 #include <ocs2_legged_robot/foot_planner/SplineCpg.h>
 #include <ocs2_legged_robot/gait/MotionPhaseDefinition.h>
-#include <ocs2_legged_robot_ros/gait/GaitReceiver.h>
 #include <ocs2_pinocchio_interface/PinocchioEndEffectorKinematics.h>
 #include <ocs2_ros_interfaces/common/RosMsgConversions.h>
 #include <ocs2_ros_interfaces/visualization/VisualizationHelpers.h>
 #include <ocs2_robotic_tools/common/RotationDerivativesTransforms.h>
 #include <ocs2_ros_interfaces/synchronized_module/RosReferenceManager.h>
-#include <ocs2_sqp/SqpMpc.h>
 #include <ocs2_ipm/IpmMpc.h>
 
 #include <angles/angles.h>
@@ -195,9 +193,6 @@ controller_interface::CallbackReturn OptiPessiController::on_init() {
   if (!node->has_parameter("backend")) {
     node->declare_parameter<std::string>("backend", "Ipm");
   }
-  if (!node->has_parameter("obstacleDetour")) {
-    node->declare_parameter<bool>("obstacleDetour", true);
-  }
   if (!node->has_parameter("fallRecoveryFile")) {
     node->declare_parameter<std::string>("fallRecoveryFile", "");
   }
@@ -213,7 +208,6 @@ controller_interface::CallbackReturn OptiPessiController::on_init() {
   std::string libraryFolder = node->get_parameter("libraryFolder").as_string();
   bool recompile = node->get_parameter("recompile").as_bool();
   std::string backendStr = node->get_parameter("backend").as_string();
-  optiPessiDetourEnabled_ = node->get_parameter("obstacleDetour").as_bool();
   fallRecoveryFile_ = node->get_parameter("fallRecoveryFile").as_string();
   opti_pessi::SolverBackend backend = opti_pessi::SolverBackend::Ipm;
   if (backendStr == "Ipm") {
@@ -236,9 +230,7 @@ controller_interface::CallbackReturn OptiPessiController::on_init() {
   // LeggedInterface first: the Opti-Pessi model takes its mass and inertia from the URDF.
   setupLeggedInterface(taskFile, urdfFile, referenceFile, verbose);
   setupOptiPessiInterface(optipessiFile, scenarioFile, libraryFolder, recompile, backend);
-  // setupLeggedMpc();
   setupOptiPessiMpc();
-  // setupLeggedMrt();
   setupOptiPessiMrt();
 
   // Visualization
@@ -263,18 +255,7 @@ controller_interface::CallbackReturn OptiPessiController::on_init() {
   safetyChecker_ = std::make_shared<SafetyChecker>(leggedInterface_->getCentroidalModelInfo());
 
   // Fall recovery
-  const FallRecoverySettings fallRecoverySettings = readFallRecoverySettings();
-  RCLCPP_INFO(node->get_logger(),
-              "[OptiPessi] fall recovery: fallen past %.0f deg tilt or %.2f m base height, upright below %.0f deg, damping kd=%.1f, "
-              "joint PD kp=%.1f kd=%.1f, tuck=(%.2f, %.2f, %.2f) rollLeft=(%.2f, %.2f, %.2f) rollRight=(%.2f, %.2f, %.2f), on a side "
-              "roll %s gravity",
-              fallRecoverySettings.tiltFallen * 180.0 / M_PI, fallRecoverySettings.minBaseHeight,
-              fallRecoverySettings.tiltUpright * 180.0 / M_PI, fallRecoverySettings.dampingKd, fallRecoverySettings.kp,
-              fallRecoverySettings.kd, fallRecoverySettings.tuck(0), fallRecoverySettings.tuck(1), fallRecoverySettings.tuck(2),
-              fallRecoverySettings.rollLeft(0), fallRecoverySettings.rollLeft(1), fallRecoverySettings.rollLeft(2),
-              fallRecoverySettings.rollRight(0), fallRecoverySettings.rollRight(1), fallRecoverySettings.rollRight(2),
-              fallRecoverySettings.sideRollAlongGravity ? "along" : "against");
-  fallRecovery_ = std::make_unique<FallRecovery>(fallRecoverySettings);
+  fallRecovery_ = std::make_unique<FallRecovery>(readFallRecoverySettings());
   fallKinematics_ = std::make_unique<PinocchioInterface>(leggedInterface_->getPinocchioInterface());
 
   // The benchmarks of a run reach the user when it ends (see formatBenchmarks()).
@@ -479,15 +460,6 @@ void OptiPessiController::beginStandUp() {
   // starts once the robot stands, from the LIP state measured then.
   const vector_t robotState = measureLipState(0, optiPessiLiftoffPositions_);
   const vector3_t com = measureCenterOfMass();
-  RCLCPP_INFO(node->get_logger(), "[OptiPessi] measured initial state: c=(%.3f, %.3f) theta=%.3f v=(%.3f, %.3f) dtheta=%.3f "
-              "p0=(%.3f, %.3f) p1=(%.3f, %.3f)",
-              robotState(0), robotState(1), robotState(2), robotState(3), robotState(4), robotState(5), robotState(6),
-              robotState(7), robotState(8), robotState(9));
-  // measuredRbdState_ = [yaw, pitch, roll, base position, ...]; feet indexed by opti_pessi::Foot (FL, FR, RL, RR).
-  RCLCPP_INFO(node->get_logger(), "[OptiPessi] measured initial posture: baseZ=%.3f comZ=%.3f pitch=%.3f roll=%.3f "
-              "feetZ=(%.3f, %.3f, %.3f, %.3f)",
-              measuredRbdState_(5), com.z(), measuredRbdState_(1), measuredRbdState_(2), optiPessiLiftoffPositions_[0].z(),
-              optiPessiLiftoffPositions_[1].z(), optiPessiLiftoffPositions_[2].z(), optiPessiLiftoffPositions_[3].z());
 
   for (size_t i = 0; i < optiPessiFootReferences_.size(); ++i) {
     optiPessiFootReferences_[i].position = optiPessiLiftoffPositions_[i];
@@ -778,7 +750,8 @@ void OptiPessiController::advanceOptiPessiPhase(const rclcpp::Time& time, const 
   // measured robot ended from the LIP prediction (plan realizable?) and from the WBC references (tracking?), and
   // how many WBC QPs failed during it. Logged only with the "phaseDiagnostics" parameter on; it is read every phase, so
   // `ros2 param set` switches the log on a running controller.
-  if (this->get_node()->get_parameter("phaseDiagnostics").as_bool()) {
+  const bool phaseDiagnostics = this->get_node()->get_parameter("phaseDiagnostics").as_bool();
+  if (phaseDiagnostics) {
     using opti_pessi::RobotX;
     const vector_t& predicted = nextState;
     const vector_t lipError = predicted - successorState;
@@ -890,9 +863,11 @@ void OptiPessiController::advanceOptiPessiPhase(const rclcpp::Time& time, const 
   optiPessiPhaseDuration_ = 0.0;
   landSwingFeet();
 
-  RCLCPP_INFO(this->get_node()->get_logger(), "[OptiPessi] phase %zu: dt=%.3f c=(%.3f, %.3f) theta=%.3f v=(%.3f, %.3f)",
-              optiPessiPhase_, phaseDuration, successorState(opti_pessi::RobotX::CX), successorState(opti_pessi::RobotX::CY),
-              successorState(opti_pessi::RobotX::TH), successorState(opti_pessi::RobotX::DCX), successorState(opti_pessi::RobotX::DCY));
+  if (phaseDiagnostics) {
+    RCLCPP_INFO(this->get_node()->get_logger(), "[OptiPessi] phase %zu: dt=%.3f c=(%.3f, %.3f) theta=%.3f v=(%.3f, %.3f)",
+                optiPessiPhase_, phaseDuration, successorState(opti_pessi::RobotX::CX), successorState(opti_pessi::RobotX::CY),
+                successorState(opti_pessi::RobotX::TH), successorState(opti_pessi::RobotX::DCX), successorState(opti_pessi::RobotX::DCY));
+  }
 
   // Publish the LIP state at each phase start
   SystemObservation lipObservation;
@@ -1376,12 +1351,10 @@ void OptiPessiController::publishOptiPessiPlan() {
   // blue. The reference manager is not read here, the MPC thread writes it.
   std::vector<ObstacleObservation> obstacles;
   vector_t goalPosition;
-  vector_t detourGoalPosition;
   {
     std::lock_guard<std::mutex> lock(optiPessiReferenceMutex_);
     obstacles = optiPessiObstacles_;
     goalPosition = optiPessiGoal_;
-    detourGoalPosition = optiPessiDetourGoal_;
   }
   for (size_t j = 0; j < obstacles.size(); ++j) {
     const bool car = obstacles[j].type == opti_pessi::ObstacleType::Car;
@@ -1398,20 +1371,6 @@ void OptiPessiController::publishOptiPessiPlan() {
     goal.pose.position = point(goalPosition(0), goalPosition(1), 0.05);
     goal.scale.x = goal.scale.y = goal.scale.z = 0.1;
     markers.markers.push_back(goal);
-  }
-
-  // The actual local goal tracked by the OCP while an obstacle detour is active (cyan).
-  if (detourGoalPosition.size() == 2) {
-    Marker detourGoal = makeMarker("detour_goal", 0, Marker::SPHERE, 0.0F, 0.9F, 0.9F, 1.0F);
-    detourGoal.pose.position = point(detourGoalPosition(0), detourGoalPosition(1), 0.05);
-    detourGoal.scale.x = detourGoal.scale.y = detourGoal.scale.z = 0.1;
-    markers.markers.push_back(detourGoal);
-
-    Marker detourLine = makeMarker("detour_goal", 1, Marker::LINE_STRIP, 0.1F, 0.4F, 1.0F, 0.9F);
-    detourLine.scale.x = 0.01;
-    detourLine.points.push_back(getPointMsg(measureCenterOfMass()));
-    detourLine.points.push_back(detourGoal.pose.position);
-    markers.markers.push_back(detourLine);
   }
 
   optiPessiPlanPublisher_->publish(markers);
@@ -1620,25 +1579,8 @@ void OptiPessiController::pushOptiPessiReferences(const vector_t& robotState) {
   }
   referenceManager.setObstacles(positions, radii, maxSpeeds);
 
-  // The OCP tracks a detour goal while an obstacle blocks the straight line to the goal: its short horizon never pays
-  // for walking around, and stalls at the grown keep-out otherwise. Goal-reached checks keep using the real goal.
-  // With the obstacleDetour parameter false, the OCP tracks the goal itself.
   if (goal.size() == 2) {
-    if (!optiPessiDetourEnabled_) {
-      referenceManager.setGoal(goal);
-      return;
-    }
-    const bool wasActive = optiPessiDetour_->active();
-    const vector_t ocpGoal = optiPessiDetour_->detourGoal(robotState, goal, positions, radii, maxSpeeds);
-    referenceManager.setGoal(ocpGoal);
-    {
-      std::lock_guard<std::mutex> lock(optiPessiReferenceMutex_);
-      optiPessiDetourGoal_ = optiPessiDetour_->active() ? ocpGoal : vector_t();
-    }
-    if (optiPessiDetour_->active() != wasActive) {
-      RCLCPP_INFO(ros2_node_->get_logger(), "[OptiPessi] obstacle detour %s: OCP goal (%.3f, %.3f), goal (%.3f, %.3f)",
-                  optiPessiDetour_->active() ? "on" : "off", ocpGoal(0), ocpGoal(1), goal(0), goal(1));
-    }
+    referenceManager.setGoal(goal);
   }
 }
 
@@ -1673,17 +1615,10 @@ void OptiPessiController::setupOptiPessiReferenceSubscribers() {
           }
           vector_t goal(2);
           goal << marker.pose.position.x, marker.pose.position.y;
-          bool changed = false;
-          {
-            std::lock_guard<std::mutex> lock(optiPessiReferenceMutex_);
-            changed = optiPessiGoal_.size() != 2 || !optiPessiGoal_.isApprox(goal);
-            if (changed) {
-              optiPessiGoal_ = goal;
-              ++optiPessiGoalSequence_;
-            }
-          }
-          if (changed) {
-            RCLCPP_INFO(ros2_node_->get_logger(), "[OptiPessi] goal (%.3f, %.3f)", goal(0), goal(1));
+          std::lock_guard<std::mutex> lock(optiPessiReferenceMutex_);
+          if (optiPessiGoal_.size() != 2 || !optiPessiGoal_.isApprox(goal)) {
+            optiPessiGoal_ = goal;
+            ++optiPessiGoalSequence_;
           }
           return;
         }
@@ -1756,10 +1691,6 @@ OptiPessiController::~OptiPessiController() {
   if (optiPessiMpcThread_.joinable()) {
     optiPessiMpcThread_.join();
   }
-  if (leggedMpcThread_.joinable()) {
-    leggedMpcThread_.join();
-  }
-
   if (benchmarkThread_.joinable()) {
     benchmarkThread_.join();
   }
@@ -1768,16 +1699,6 @@ OptiPessiController::~OptiPessiController() {
   if (spin_thread_.joinable()) {
     spin_thread_.join();
   }
-
-  std::cerr << "\n### OptiPessi MPC Benchmarking";
-  std::cerr << "\n###   Maximum : " << optiPessiMpcTimer_.getMaxIntervalInMilliseconds() << "[ms].";
-  std::cerr << "\n###   Average : " << optiPessiMpcTimer_.getAverageInMilliseconds() << "[ms]." << std::endl;
-  std::cerr << "\n### Legged MPC Benchmarking";
-  std::cerr << "\n###   Maximum : " << leggedMpcTimer_.getMaxIntervalInMilliseconds() << "[ms].";
-  std::cerr << "\n###   Average : " << leggedMpcTimer_.getAverageInMilliseconds() << "[ms]." << std::endl;
-  std::cerr << "\n### WBC Benchmarking";
-  std::cerr << "\n###   Maximum : " << wbcTimer_.getMaxIntervalInMilliseconds() << "[ms].";
-  std::cerr << "\n###   Average : " << wbcTimer_.getAverageInMilliseconds() << "[ms].";
 }
 
 void OptiPessiController::setupOptiPessiInterface(const std::string& optipessiFile, const std::string& scenarioFile,
@@ -1803,7 +1724,6 @@ void OptiPessiController::setupOptiPessiInterface(const std::string& optipessiFi
   char modelFolder[64];
   std::snprintf(modelFolder, sizeof(modelFolder), "/m%.3f_I%.4f", mass, inertia);
   optiPessiInterface_->setupOptimalControlProblem(libraryFolder + modelFolder, recompile, backend);
-  optiPessiDetour_ = std::make_unique<opti_pessi::ObstacleDetour>(optiPessiInterface_->modelParameters());
 }
 
 void OptiPessiController::setupLeggedInterface(const std::string& taskFile, const std::string& urdfFile, const std::string& referenceFile,
@@ -1825,36 +1745,15 @@ void OptiPessiController::setupOptiPessiMpc() {
 
   const std::string robotName = "opti_pessi_robot";
 
-  // Gait receiver
-  // auto gaitReceiverPtr =
-  //     std::make_shared<GaitReceiver>(ros2_node_, optiPessiInterface_->getSwitchedModelReferenceManagerPtr()->getGaitSchedule(), robotName);
   // ROS ReferenceManager
   auto rosReferenceManagerPtr = std::make_shared<RosReferenceManager>(robotName, optiPessiInterface_->getReferenceManagerPtr());
   rosReferenceManagerPtr->subscribe(ros2_node_);
-  // optiPessiMpc_->getSolverPtr()->addSynchronizedModule(gaitReceiverPtr);
   optiPessiMpc_->getSolverPtr()->setReferenceManager(rosReferenceManagerPtr);
   optiPessiObservationPublisher_ = ros2_node_->create_publisher<ocs2_msgs::msg::MpcObservation>(robotName + "_mpc_observation", 1);
   optiPessiPlanPublisher_ = ros2_node_->create_publisher<visualization_msgs::msg::MarkerArray>("/opti_pessi/plan", 1);
   optiPessiTrajectoryPublisher_ =
       ros2_node_->create_publisher<visualization_msgs::msg::MarkerArray>("/opti_pessi/optimizedStateTrajectory", 1);
   setupOptiPessiReferenceSubscribers();
-}
-
-void OptiPessiController::setupLeggedMpc() {
-  leggedMpc_ = std::make_shared<SqpMpc>(leggedInterface_->mpcSettings(), leggedInterface_->sqpSettings(),
-                                        leggedInterface_->getOptimalControlProblem(), leggedInterface_->getInitializer());
-
-  const std::string robotName = "legged_robot";
-
-  // Gait receiver
-  auto gaitReceiverPtr =
-      std::make_shared<GaitReceiver>(ros2_node_, leggedInterface_->getSwitchedModelReferenceManagerPtr()->getGaitSchedule(), robotName);
-  // ROS ReferenceManager
-  auto rosReferenceManagerPtr = std::make_shared<RosReferenceManager>(robotName, leggedInterface_->getReferenceManagerPtr());
-  rosReferenceManagerPtr->subscribe(ros2_node_);
-  leggedMpc_->getSolverPtr()->addSynchronizedModule(gaitReceiverPtr);
-  leggedMpc_->getSolverPtr()->setReferenceManager(rosReferenceManagerPtr);
-  leggedObservationPublisher_ = ros2_node_->create_publisher<ocs2_msgs::msg::MpcObservation>(robotName + "_mpc_observation", 1);
 }
 
 void OptiPessiController::setupOptiPessiMrt() {
@@ -1887,33 +1786,6 @@ void OptiPessiController::setupOptiPessiMrt() {
     }
   });
   setThreadPriority(optiPessiInterface_->ipmSettings().threadPriority, optiPessiMpcThread_);
-}
-
-void OptiPessiController::setupLeggedMrt() {
-  leggedMrtInterface_ = std::make_shared<MPC_MRT_Interface>(*leggedMpc_);
-  leggedMrtInterface_->initRollout(&leggedInterface_->getRollout());
-  leggedMpcTimer_.reset();
-
-  controllerRunning_ = true;
-  leggedMpcThread_ = std::thread([&]() {
-    while (controllerRunning_) {
-      try {
-        executeAndSleep(
-            [&]() {
-              if (mpcRunning_) {
-                leggedMpcTimer_.startTimer();
-                leggedMrtInterface_->advanceMpc();
-                leggedMpcTimer_.endTimer();
-              }
-            },
-            leggedInterface_->mpcSettings().mpcDesiredFrequency_);
-      } catch (const std::exception& e) {
-        controllerRunning_ = false;
-        RCLCPP_ERROR(ros2_node_->get_logger(), "[Legged MPC thread] Error : %s", e.what());
-      }
-    }
-  });
-  setThreadPriority(leggedInterface_->sqpSettings().threadPriority, leggedMpcThread_);
 }
 
 void OptiPessiController::setupStateEstimate(const std::string& taskFile, bool verbose) {

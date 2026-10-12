@@ -45,7 +45,6 @@
 #include <legged_interface/LeggedInterface.h>
 #include <legged_wbc/OptiPessiWbc.h>
 
-#include <opti_pessi_interface/ObstacleDetour.h>
 #include <opti_pessi_interface/OptiPessiInterface.h>
 #include <opti_pessi_interface/OptiPessiMpc.h>
 #include <opti_pessi_interface/SolverBackend.h>
@@ -83,9 +82,7 @@ class OptiPessiController : public controller_interface::ControllerInterface {
   virtual void setupLeggedInterface(const std::string& taskFile, const std::string& urdfFile, const std::string& referenceFile,
                                     bool verbose);
   virtual void setupOptiPessiMpc();
-  virtual void setupLeggedMpc();
   virtual void setupOptiPessiMrt();
-  virtual void setupLeggedMrt();
   virtual void setupStateEstimate(const std::string& taskFile, bool verbose);
 
   /** Hands the current LIP phase to the Opti-Pessi MPC. Runs on the MPC thread, right before advanceMpc(). */
@@ -248,7 +245,7 @@ class OptiPessiController : public controller_interface::ControllerInterface {
     vector3_t touchdownForce = vector3_t::Zero();  // contact force at the end of the phase
   };
 
-  /** Draws the Opti-Pessi references in odom: obstacles, goal, detour goal. */
+  /** Draws the Opti-Pessi references in odom: obstacles and goal. */
   void publishOptiPessiPlan();
 
   /**
@@ -284,9 +281,7 @@ class OptiPessiController : public controller_interface::ControllerInterface {
 
   // Nonlinear MPC
   std::shared_ptr<MPC_BASE> optiPessiMpc_;
-  std::shared_ptr<MPC_BASE> leggedMpc_;
   std::shared_ptr<MPC_MRT_Interface> optiPessiMrtInterface_;
-  std::shared_ptr<MPC_MRT_Interface> leggedMrtInterface_;
 
   // Opti-Pessi LIP loop, closed on the measured robot at every phase start (see measureLipState()).
   // update() writes the phase and its start state under the mutex, the MPC thread reads them.
@@ -309,12 +304,6 @@ class OptiPessiController : public controller_interface::ControllerInterface {
   vector_t optiPessiGoal_;               // empty until the first goal arrives
   size_t optiPessiGoalSequence_ = 0;     // increments with every goal received
   std::vector<ObstacleObservation> optiPessiObstacles_;
-  vector_t optiPessiDetourGoal_;         // OCP goal while a detour is active, empty otherwise. Written by the MPC thread.
-
-  // Detour goal around an obstacle blocking the line to the goal (see opti_pessi_interface/ObstacleDetour.h). MPC thread
-  // only (pushOptiPessiReferences()).
-  std::unique_ptr<opti_pessi::ObstacleDetour> optiPessiDetour_;
-  bool optiPessiDetourEnabled_ = true;  // "obstacleDetour" parameter, set in on_init()
 
   /**
    * Latest Opti-Pessi plan, in robot coordinates, as the solver returned it. A phase starts on it at once -- shifted by
@@ -393,7 +382,6 @@ class OptiPessiController : public controller_interface::ControllerInterface {
 
   // ROS 2 publishers and subscribers
   rclcpp::Publisher<ocs2_msgs::msg::MpcObservation>::SharedPtr optiPessiObservationPublisher_;
-  rclcpp::Publisher<ocs2_msgs::msg::MpcObservation>::SharedPtr leggedObservationPublisher_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr optiPessiPlanPublisher_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr optiPessiTrajectoryPublisher_;
   rclcpp::Subscription<std_msgs::msg::Int16MultiArray>::SharedPtr contactSub_;
@@ -408,11 +396,9 @@ class OptiPessiController : public controller_interface::ControllerInterface {
 
  private:
   std::thread optiPessiMpcThread_;
-  std::thread leggedMpcThread_;
   std::thread benchmarkThread_;
   std::atomic_bool controllerRunning_{}, mpcRunning_{};
   benchmark::RepeatedTimer optiPessiMpcTimer_;
-  benchmark::RepeatedTimer leggedMpcTimer_;
   benchmark::RepeatedTimer wbcTimer_;
 };
 

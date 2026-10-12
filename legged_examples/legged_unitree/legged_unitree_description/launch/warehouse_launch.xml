@@ -8,8 +8,8 @@
   <arg name="camera" default="true" description="Mount the Intel RealSense D435i and bridge its rgb/depth images"/>
   <arg name="lidar" default="true" description="Mount the RoboSense Airy and publish its point cloud/IMU on the rslidar_sdk topics"/>
   <arg name="server" default="true" description="If true, run Gazebo headless (server only). If false, include GUI."/>
-  <arg name="x" default="-5.0" description="Robot spawn x in the world frame [m]"/>
-  <arg name="y" default="-3.0" description="Robot spawn y in the world frame [m]"/>
+  <arg name="x" default="0.0" description="Robot spawn x in the world frame [m]"/>
+  <arg name="y" default="0.0" description="Robot spawn y in the world frame [m]"/>
 
   <let name="legged_robot_description" value="$(command 'xacro $(find-pkg-share legged_unitree_description)/urdf/robot.xacro robot_type:=$(var robot_type) camera:=$(var camera) lidar:=$(var lidar)')"/>
 
