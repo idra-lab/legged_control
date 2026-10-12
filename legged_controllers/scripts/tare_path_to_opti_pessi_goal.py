@@ -31,6 +31,18 @@ Without a fresh /terrain_map nothing is checked: the path goal is taken, or else
 /odom are fresh the last goal is kept. kExtendWayPoint must stay false in the TARE config (the path goal needs
 /way_point on the path). All distances can be changed at run time (ros2 param set).
 
+With far_planner (route_topic:=/viz_path_topic, set by far_planner_launch.xml) the goal is taken on the route
+far_planner has planned, the line it shows from the robot through its graph nodes to the goal (a LINE_STRIP Marker,
+published on every planning loop, empty when it has no route), instead of step 2:
+     - path: lookahead_distance ahead of the robot along the route (pure pursuit, see pursue()), its end at most,
+       if the line robot -> it keeps clearance; if not, the same with the lookahead halved down to
+       min_detour_distance, which stays on the route and stops short of what is in the way;
+     - detour, then stop, as above, towards the first of those points.
+/way_point is not used then. far_planner makes it for a local planner that steers in a direction: it is pushed to
+local_planner_range (2.5 m) from the robot, past the next node and off the route, and it jumps whenever the route
+changes. It is only used while far_planner publishes no route (goal reached: /way_point is the goal; no way found:
+/way_point is the robot), with step 2 as it is.
+
 The robot comes from /odom by message, not from the odom -> base TF, which OptiPessi's visualizer stamps with wall time.
 
 Usage: ros2 run legged_controllers tare_path_to_opti_pessi_goal.py --ros-args -p clearance:=0.3
@@ -116,7 +128,14 @@ def follow(path, robot, waypoint, lookahead, waypoint_tolerance, max_waypoint_pa
     gap = np.abs(waypoint_s[None, :] - robot_s[:, None])  # (robot, waypoint) projections
     plausible = np.flatnonzero(gap.min(axis=1) <= max_waypoint_path_distance)
     i = plausible[np.argmin(robot_distance[plausible])] if len(plausible) else np.argmin(gap.min(axis=1))
-    start, end = robot_s[i], waypoint_s[np.argmin(gap[i])]
+    return ahead_on_path(path, vertex_s, robot_s[i], waypoint_s[np.argmin(gap[i])], robot, lookahead,
+                         max_chord_deviation)
+
+
+def ahead_on_path(path, vertex_s, start, end, robot, lookahead, max_chord_deviation):
+    """Point (3,) lookahead along path (n, 3) from arc length start towards arc length end, end at most, pulled back
+    to the path vertex it would cut past when a vertex in between lies more than max_chord_deviation off the straight
+    line robot (2,) -> it."""
     direction = 1.0 if end >= start else -1.0
     ahead = (vertex_s - start) * direction  # arc length of each vertex ahead of the robot's projection
 
@@ -131,6 +150,21 @@ def follow(path, robot, waypoint, lookahead, waypoint_tolerance, max_waypoint_pa
         if distance_to_segment(candidates[:k, :2], robot, candidates[k, :2]).max() <= max_chord_deviation:
             return candidates[k]
     return candidates[0]
+
+
+def pursue(path, robot, lookahead, max_chord_deviation):
+    """Pure pursuit along a route (n, 3) that starts at the robot (2,) and ends at the goal, as far_planner's does:
+    the point lookahead further along it than the robot, the end of the route at most, not cutting corners (see
+    ahead_on_path()). The robot is where the route is nearest; if it passes the robot again later (out and back round
+    the end of a wall), at the first of those places."""
+    distance, s, vertex_s = project(robot, path[:, :2])
+    start = s[distance <= distance.min() + MATCH_SLACK].min()
+    return ahead_on_path(path, vertex_s, start, vertex_s[-1], robot, lookahead, max_chord_deviation)
+
+
+def without_empty_segments(path):
+    """path (n, 3) without the vertices that repeat the one before (TARE appends the robot or a loop's start again)."""
+    return path[np.concatenate(([True], np.linalg.norm(np.diff(path[:, :2], axis=0), axis=1) > 1e-6))]
 
 
 def clear(robot, goal, obstacles, clearance):
@@ -183,7 +217,8 @@ class TareGoalBridge(Node):
         number("obstacle_height", 0.2, "/terrain_map points higher above the ground are obstacles [m]", 0.0, 2.0)
         number("self_radius", 0.3, "obstacles nearer the robot are ignored (the robot's own legs, a wall it "
                "brushes) [m]", 0.0, 1.0)
-        number("lookahead_distance", 3.0, "path goal distance ahead of the robot along the TARE path [m]", 0.2, 5.0)
+        number("lookahead_distance", 3.0, "path goal distance ahead of the robot along the TARE path or far_planner's "
+               "route [m]", 0.2, 5.0)
         number("max_chord_deviation", 0.2, "how far path vertices may lie off the line robot -> path goal [m]", 0.0,
                2.0)
         number("waypoint_tolerance", 0.3, "how far /way_point may lie off a path it is taken from [m]", 0.0, 2.0)
@@ -191,7 +226,8 @@ class TareGoalBridge(Node):
                "(TARE: kLookAheadDistance plus a path segment) [m]", 1.0, 100.0)
         number("min_clearance", 0.2, "clearance a detour may shrink to before the robot stops [m]", 0.0, 2.0)
         number("detour_distance", 1.0, "farthest detour goal from the robot [m]", 0.2, 5.0)
-        number("min_detour_distance", 0.3, "distance a detour may shrink to before the robot stops [m]", 0.05, 5.0)
+        number("min_detour_distance", 0.3, "distance a detour, or the lookahead along far_planner's route, may shrink "
+               "to before the robot stops [m]", 0.05, 5.0)
         number("detour_step", 15.0, "angle between detour directions [deg]", 1.0, 90.0)
         number("max_detour_angle", 90.0, "largest detour turn each side [deg]", 0.0, 180.0)
         number("jump_distance", 0.5, "candidate move in one tick that is a jump [m]", 0.0, 10.0)
@@ -202,6 +238,8 @@ class TareGoalBridge(Node):
                60.0)
         self.goal_frame = self.declare_parameter("goal_frame", "odom").value
         self.path_topics = self.declare_parameter("path_topics", ["/exploration_path", "/global_path_full"]).value
+        # far_planner's route (LINE_STRIP Marker): when set and published, the goal is taken on it, not from /way_point
+        self.route_topic = self.declare_parameter("route_topic", "").value
         rate = self.declare_parameter("rate", 10.0).value
 
         self.tf_buffer = Buffer()
@@ -222,6 +260,8 @@ class TareGoalBridge(Node):
 
         for topic in self.path_topics:
             self.create_subscription(Path, topic, keep(topic), 1)
+        if self.route_topic:
+            self.create_subscription(Marker, self.route_topic, keep(self.route_topic), 1)
         self.create_subscription(PointStamped, "/way_point", keep("/way_point"), 5)
         self.create_subscription(Odometry, "/odom", keep("/odom"), 5)
         self.create_subscription(PointCloud2, "/terrain_map", keep_obstacles, 1)
@@ -255,8 +295,7 @@ class TareGoalBridge(Node):
     def path_goal(self, paths, robot, waypoint):
         """Pure-pursuit goal (2,) along the first path /way_point lies on, or None."""
         for path in paths:
-            # Repeated nodes (TARE appends the robot or a loop's start again) make empty segments
-            path = path[np.concatenate(([True], np.linalg.norm(np.diff(path[:, :2], axis=0), axis=1) > 1e-6))]
+            path = without_empty_segments(path)
             if len(path) < 2:
                 continue
             goal = follow(path, robot, waypoint, self.param("lookahead_distance"), self.param("waypoint_tolerance"),
@@ -278,6 +317,21 @@ class TareGoalBridge(Node):
         goal = self.relaxed_detour(robot, [t for t in (path_goal, midpoint) if t is not None], obstacles)
         return (robot, "stop") if goal is None else (goal, "detour")
 
+    def choose_on_route(self, robot, route, obstacles):
+        """Candidate goal (2,) on far_planner's route (n, 3) and where it comes from (see the module docstring)."""
+        route = without_empty_segments(route)
+        if len(route) < 2:  # the robot is at the goal
+            return route[0, :2], "path"
+        goals = [pursue(route, robot, lookahead, self.param("max_chord_deviation"))[:2]
+                 for lookahead in relaxed(self.param("lookahead_distance"), self.param("min_detour_distance"))]
+        if obstacles is None:
+            return goals[0], "path"
+        for goal in goals:
+            if clear(robot, goal, obstacles, self.param("clearance")):
+                return goal, "path"
+        goal = self.relaxed_detour(robot, goals[:1], obstacles)
+        return (robot, "stop") if goal is None else (goal, "detour")
+
     def relaxed_detour(self, robot, targets, obstacles):
         """First detour (2,) towards one of targets, from detour_distance at clearance down to min_detour_distance at
         min_clearance, or None. Relaxed before stopping: a stop is final, the robot stands and sees the same obstacles
@@ -293,22 +347,30 @@ class TareGoalBridge(Node):
 
     def tick(self):
         odom, way_point = self.fresh("/odom"), self.fresh("/way_point")
-        if odom is None or way_point is None:
+        route_msg = self.fresh(self.route_topic) if self.route_topic else None
+        if route_msg is not None and len(route_msg.points) < 2:
+            route_msg = None  # far_planner has no route now: /way_point says where to stand
+        if odom is None or (way_point is None and route_msg is None):
             self.get_logger().info("waiting for /odom and /way_point", throttle_duration_sec=10.0)
             return
         terrain = self.fresh("/terrain_map")
-        p, w = odom.pose.pose.position, way_point.point
+        p = odom.pose.pose.position
         paths = []  # (n, 3) in goal_frame
-        obstacles = None
+        obstacles = route = waypoint = None
         try:
             robot = self.to_goal_frame(odom.header.frame_id, np.array([[p.x, p.y, p.z]]))[0]
-            waypoint = self.to_goal_frame(way_point.header.frame_id, np.array([[w.x, w.y, w.z]]))[0, :2]
-            for topic in self.path_topics:
-                path_msg = self.fresh(topic)
-                if path_msg is not None and len(path_msg.poses) >= 2:
-                    path = np.array([[q.pose.position.x, q.pose.position.y, q.pose.position.z]
-                                     for q in path_msg.poses])
-                    paths.append(self.to_goal_frame(path_msg.header.frame_id, path))
+            if route_msg is not None:
+                route = self.to_goal_frame(route_msg.header.frame_id,
+                                           np.array([[q.x, q.y, q.z] for q in route_msg.points]))
+            else:
+                w = way_point.point
+                waypoint = self.to_goal_frame(way_point.header.frame_id, np.array([[w.x, w.y, w.z]]))[0, :2]
+                for topic in self.path_topics:
+                    path_msg = self.fresh(topic)
+                    if path_msg is not None and len(path_msg.poses) >= 2:
+                        path = np.array([[q.pose.position.x, q.pose.position.y, q.pose.position.z]
+                                         for q in path_msg.poses])
+                        paths.append(self.to_goal_frame(path_msg.header.frame_id, path))
             if terrain is not None:
                 obstacles = self.to_goal_frame(*terrain)[:, :2]
         except TransformException as e:
@@ -316,26 +378,29 @@ class TareGoalBridge(Node):
             return
         robot_z, robot = robot[2], robot[:2]
 
-        path_goal = self.path_goal(paths, robot, waypoint)
         if obstacles is None:
             self.get_logger().warn("no /terrain_map, goal not checked for obstacles", throttle_duration_sec=5.0)
         else:
             # Only obstacles a goal (at most /way_point, lookahead_distance, detour_distance or the current goal away)
             # can come near
-            reach = max(np.linalg.norm(waypoint - robot), self.param("lookahead_distance"),
+            reach = max(0.0 if waypoint is None else np.linalg.norm(waypoint - robot), self.param("lookahead_distance"),
                         self.param("detour_distance"),
                         0.0 if self.goal is None else np.linalg.norm(self.goal - robot)) + self.param("clearance")
             distance = np.linalg.norm(obstacles - robot, axis=1)
             obstacles = obstacles[(distance > self.param("self_radius")) & (distance < reach)]
-        candidate, source = self.choose(robot, waypoint, path_goal, obstacles)
+        if route is not None:
+            candidate, source = self.choose_on_route(robot, route, obstacles)
+        else:
+            candidate, source = self.choose(robot, waypoint, self.path_goal(paths, robot, waypoint), obstacles)
         if source == "stop":
+            towards = "towards /way_point" if route is None else "along far_planner's route"
             self.get_logger().warn(
-                f"no way towards /way_point keeps {self.param('min_clearance'):.2f} m from /terrain_map obstacles "
-                f"(detours down to {self.param('min_detour_distance'):.2f} m): standing until /way_point moves",
+                f"no way {towards} keeps {self.param('min_clearance'):.2f} m from /terrain_map obstacles "
+                f"(detours down to {self.param('min_detour_distance'):.2f} m): standing until it changes",
                 throttle_duration_sec=5.0)
 
         # A new TARE waypoint, in TARE's frame: in goal_frame it moves with every odom -> lio_map update
-        if self.last_way_point != (round(w.x, 1), round(w.y, 1)):
+        if waypoint is not None and self.last_way_point != (round(w.x, 1), round(w.y, 1)):
             self.last_way_point = (round(w.x, 1), round(w.y, 1))
             self.get_logger().info(f"/way_point ({waypoint[0]:.2f}, {waypoint[1]:.2f}), "
                                    f"{np.linalg.norm(waypoint - robot):.2f} m away")

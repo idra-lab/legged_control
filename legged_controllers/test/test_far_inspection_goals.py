@@ -6,6 +6,8 @@ import pytest
 import rclpy
 from geometry_msgs.msg import Point
 from std_msgs.msg import Bool, String
+from visibility_graph_msg.msg import Graph
+from visibility_graph_msg.msg import Node as GraphNode
 
 os.environ["ROS_DOMAIN_ID"] = "93"  # the node publishes goals: never on the domain of a robot
 
@@ -24,8 +26,10 @@ def points_file(path, *points):
 class Inspection:
     """The node with far_planner ready (graph loaded, robot localized), a clock the test moves, goals caught."""
 
-    def __init__(self, goals_file, auto_start):
-        rclpy.init(args=['--ros-args', '-p', f'goals_file:={goals_file}', '-p', 'wait_for_graph:=false',
+    def __init__(self, goals_file, auto_start, graph_file=''):
+        graph = ['-p', f'graph_file:={graph_file}', '-p', 'wait_for_graph:=true'] if graph_file else \
+            ['-p', 'wait_for_graph:=false']
+        rclpy.init(args=['--ros-args', '-p', f'goals_file:={goals_file}', *graph,
                          '-p', f'auto_start:={str(auto_start).lower()}', '-p', 'dwell_time:=2.0'])
         self.node = script.FarInspectionGoals()
         self.clock = 50.0
@@ -52,8 +56,8 @@ class Inspection:
 def inspection():
     made = []
 
-    def make(goals_file, auto_start=False):
-        made.append(Inspection(goals_file, auto_start))
+    def make(goals_file, auto_start=False, graph_file=''):
+        made.append(Inspection(goals_file, auto_start, graph_file))
         return made[0]
 
     yield make
@@ -150,3 +154,33 @@ def test_auto_start_inspects_goals_file_at_once_and_ends_after_the_last_point(in
     i.reach_goal()
 
     assert i.node.state == 'done'
+
+
+def saved_graph(path, nodes):
+    path.write_text("".join(f"{i} 1 0.0 0.0 0.0 0 0 0 0 0 0 1 0 0 0 | | | \n" for i in range(nodes)))
+    return str(path)
+
+
+def test_with_a_saved_graph_it_waits_until_far_planner_has_it(inspection, tmp_path):
+    i = inspection(points_file(tmp_path / 'selected_points.yaml', (4.0, 1.0)),
+                   graph_file=saved_graph(tmp_path / 'warehouse.vgh', 120))
+    i.node.graph_size = 3  # what far_planner sees around the robot
+    i.start_command()
+    i.tick()
+    assert i.sent == []
+
+    i.node.on_decoded(Graph(nodes=[GraphNode()] * 120))    # graph_decoder read the file
+    i.node.on_vgraph(Graph(nodes=[GraphNode()] * 121))     # and far_planner merged it
+    i.tick()
+    assert i.sent == [(4.0, 1.0)]
+
+
+def test_a_saved_graph_loaded_before_the_node_could_hear_of_it_still_counts(inspection, tmp_path):
+    # far_planner up at once: graph_decoder publishes the loaded graph once, before this node is discovered
+    i = inspection(points_file(tmp_path / 'selected_points.yaml', (4.0, 1.0)),
+                   graph_file=saved_graph(tmp_path / 'warehouse.vgh', 120))
+    i.node.graph_size = 121  # far_planner publishes its graph on every loop: the saved nodes are in it
+    i.start_command()
+    i.tick()
+
+    assert i.sent == [(4.0, 1.0)]

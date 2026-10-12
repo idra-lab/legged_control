@@ -12,7 +12,9 @@ one after the other, in the order of the file:
      With auto_start there is no waiting: goals_file is inspected at once, and the node exits after the last point;
   1. waits for far_planner's v-graph (/robot_vgraph) and, with wait_for_graph, for the saved graph that
      far_load_graph.py loads (/decoded_vgraph, then one more /robot_vgraph), so that the first route is planned on
-     the whole graph and not only on what the robot sees;
+     the whole graph and not only on what the robot sees. /decoded_vgraph is published once: a far_planner that is
+     up at once has the graph loaded before this node is discovered, so a /robot_vgraph about as large as
+     graph_file counts as well;
   2. publishes goal i on /goal_point and watches it:
        reached: far_planner reports /far_reach_goal_status true, or /Odometry comes within reach_tolerance (xy);
        failed:  far_planner stops publishing /way_point for idle_timeout s (it gives up on an unreachable goal
@@ -76,6 +78,10 @@ class FarInspectionGoals(Node):
         graph_file = os.path.expanduser(param("graph_file", ""))
         # far_load_graph.py gives up on a missing graph file: nothing to wait for then
         self.wait_for_graph = bool(param("wait_for_graph", True)) and (not graph_file or os.path.isfile(graph_file))
+        self.saved_nodes = None      # nodes in graph_file, one per line
+        if self.wait_for_graph and graph_file:
+            with open(graph_file) as f:
+                self.saved_nodes = sum(1 for line in f if line.strip())
         self.graph_timeout = float(param("graph_timeout", 120.0))
         self.reach_tolerance = float(param("reach_tolerance", 0.3))
         self.dwell_time = float(param("dwell_time", 2.0))
@@ -208,7 +214,9 @@ class FarInspectionGoals(Node):
         if self.state == "waiting":
             if self.started is None:
                 self.started = t
-            graph_ready = self.graph_size > 0 and (not self.wait_for_graph or self.merged)
+            # far_planner may merge a few saved nodes into its own
+            has_saved = self.merged or (self.saved_nodes and self.graph_size >= 0.9 * self.saved_nodes)
+            graph_ready = self.graph_size > 0 and (not self.wait_for_graph or has_saved)
             if self.odom is None or not graph_ready:
                 if t - self.started < self.graph_timeout:
                     return
