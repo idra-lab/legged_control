@@ -28,7 +28,7 @@ from value_function_manager import ValueFunctionManager
 
 
 class TestManager():
-    def __init__(self, use_nn=False, only_mpc = False, only_rl = True, nom_rl = False, only_nom = False, abs = False, sensor_rl=True):
+    def __init__(self, use_nn=False, only_mpc = False, only_rl = True, nom_rl = False, only_nom = False, abs_vf = False, sensor_rl=False):
         # -------------------------------
         # Simulation Thresholds and Constants
         # -------------------------------
@@ -97,32 +97,34 @@ class TestManager():
         self.fall_height = 0.1 
         self.knee_height = 0.05
         
-        
-        # Backup policy
-        self.backup_policy = RlVelocityController('aliengo', self.dt, use_nn_se=True)
-        self.kp_backup = self.backup_policy.kp[0]
-        self.kd_backup = self.backup_policy.kd[0]
-        self.backup_policy.velocity_cmd = np.zeros(3)
-        self.ffw_torques = np.zeros(12)
+        if not self.sensor_rl:
+            # Backup policy
+            self.backup_policy = RlVelocityController('aliengo', self.dt, use_nn_se=True)
+            self.kp_backup = self.backup_policy.kp[0]
+            self.kd_backup = self.backup_policy.kd[0]
+            self.backup_policy.velocity_cmd = np.zeros(3)
+            self.ffw_torques = np.zeros(12)
 
         if sensor_rl:
             self.nominal_policy = RlVelocityController('aliengo', self.dt, use_nn_se=True, debug=False, policy="velocity")
             self.nominal_policy.velocity_cmd = self.velocity_cmd
             self.ffw_torques = np.zeros(12)
 
-        if (only_rl or nom_rl) and not sensor_rl:
+        elif only_rl or nom_rl:
             self.nominal_policy = RlVelocityControllerNoSE('aliengo', self.dt)
             self.nominal_policy.velocity_cmd = self.velocity_cmd
 
-        if only_mpc or (nom_rl and not only_rl):
+        if sensor_rl:
+            min_switch = self.config['settings']['tests']['switch_min_sensor']
+            self.threshold = self.config['settings']['tests']['threshold_vf_sensor']
+        elif only_mpc or (nom_rl and not only_rl):
             min_switch = self.config['settings']['tests']['switch_min_mpc']
             self.threshold = self.config['settings']['tests']['threshold_vf_mpc']
-        elif abs:
+        elif abs_vf:
             min_switch = self.config['settings']['tests']['switch_min_abs']
             self.threshold = self.config['settings']['tests']['threshold_vf_abs']
-        print('min_switch',min_switch,'self.threshold',self.threshold)
-        self.vf = ValueFunctionManager(use_nn=True, nom_rl=nom_rl, only_mpc=only_mpc, only_rl=only_rl, abs=abs, min_switch=min_switch)
-
+        #print('min_switch',min_switch,'self.threshold',self.threshold)
+        self.vf = ValueFunctionManager(use_nn=True, nom_rl=nom_rl, only_mpc=only_mpc, only_rl=only_rl, abs_vf=abs_vf, sensor_based=sensor_rl, min_switch=min_switch)
         
 
     def init_ros(self):
@@ -390,10 +392,13 @@ class TestManager():
         if not self.only_rl and not self.nom_rl and not self.sensor_rl:
             self.pubSub.publish_button([3]) # Trot
             time.sleep(1)
+        
+            
 
         for self.step in range(max_steps):
             #init_time = time.time()
             # Update messages
+            
             data_new = [self.pubSub.pose, self.pubSub.twist, self.pubSub.joint_pos, self.pubSub.joint_vel, self.pubSub.imu_quat, self.pubSub.imu_ang_vel, self.pubSub.imu_lin_acc,
                         self.pubSub.coordinates_RF, self.pubSub.coordinates_LF, self.pubSub.coordinates_RH, self.pubSub.coordinates_LH,
                         self.pubSub.odom_lin_vel, self.pubSub.joint_eff]
@@ -425,7 +430,7 @@ class TestManager():
                 applyForce(self.Fx, self.Fy, self.Fz, 0, 0, 0, self.force_time)
 
             if self.isrec:
-                if self.use_nn or self.only_rl or self.nom_rl or self.sensor_rl:
+                if self.sensor_rl or self.use_nn or self.only_rl or self.nom_rl:
                     body_ang_vel = copy.copy(data_new[5])
                     proj_gravity = quat_rotate_inverse(
                         torch.tensor(data_new[4], device='cuda:0', dtype=torch.double).unsqueeze(0),
@@ -434,16 +439,10 @@ class TestManager():
                     )[0].cpu().numpy()
                     if (self.step*self.dt > 0.5) and (decimation_counter_vf % self.decimation_vf) == 0 and not self.only_nom:
                         self.isrec, V_safe = self.vf.computeValueFnc(body_ang_vel, proj_gravity, joint_pos=data_new[2], joint_vel=data_new[3], threshold=self.threshold, vf_additional_term = self.vf_additional_term)
-
-                    qDes_no = self.backup_policy.action(data_new[6], None, body_ang_vel, proj_gravity, data_new[2], data_new[3], policy_type="safe")
+                    if not self.sensor_rl:
+                        qDes_no = self.backup_policy.action(data_new[6], None, body_ang_vel, proj_gravity, data_new[2], data_new[3], policy_type="safe")
     
                 if self.sensor_rl:
-                    body_ang_vel = copy.copy(data_new[5])
-                    proj_gravity = quat_rotate_inverse(
-                        torch.tensor(data_new[4], device='cuda:0', dtype=torch.double).unsqueeze(0),
-                        #torch.tensor(data_new[0][3:], device='cuda:0', dtype=torch.double).unsqueeze(0),
-                        self.grav_tens
-                    )[0].cpu().numpy()
 
                     qDes = self.nominal_policy.action(data_new[6], None, body_ang_vel, proj_gravity, data_new[2], data_new[3], policy_type="default")
                     self.pubSub.publish_is_reset(False)
@@ -459,7 +458,7 @@ class TestManager():
                     self.pubSub.publish_is_reset(False)
                     self.pubSub.publish_rl(qDes, np.zeros(12), self.ffw_torques)
                     self.pubSub.publish_button([3])
-            elif not self.isrec and (self.only_mpc or self.nom_rl):
+            elif not self.sensor_rl and not self.isrec and (self.only_mpc or self.nom_rl):
                 self.backup_used = True
                 cmd_vel = np.array([0, 0, 0, 0, 0, 0, 0.])
                 self.pubSub.publish_vel(cmd_vel)

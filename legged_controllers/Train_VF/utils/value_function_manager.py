@@ -51,13 +51,17 @@ def critic_inference(critic_model, params, obs):
 
 
 class ValueFunctionManager:
-    def __init__(self, use_nn=True, nom_rl=False, only_mpc=False, only_rl=False, abs = False, min_switch=1):
+    def __init__(self, use_nn=True, nom_rl=False, only_mpc=False, only_rl=False, abs_vf = False, sensor_based = False, min_switch=1):
 
         full_path = os.path.realpath(__file__)
         self.threshold_back = 0.3
 
-        if use_nn and (not nom_rl or only_rl) and not only_mpc:
-            if abs:
+        if sensor_based:
+            model_path = os.path.dirname(full_path) + '/../models/VF_rl_sensor_new_6_5_original_300_radius_2A.pkl'#VF_rl_sensor_new_6_5_original_100_radiusB.pkl'#VF_rl_sensor_new_6_5_original_200_radiusB.pkl'#VF_rl_sensor_new_3_5_original_200_radiusB.pkl'#VF_rl_sensor_new_5_5_original_300_radius.pkl'#
+            self.min_switch = min_switch
+            self.min_back = 200
+        elif use_nn and (not nom_rl or only_rl) and not only_mpc:
+            if abs_vf:
                 model_path = os.path.dirname(full_path) + '/../models/VF_abs_test.pkl'
             else:
                 model_path = os.path.dirname(full_path) + '/../models/VF_rl_controller_250_high_pushes_3_5_original_radiusG.pkl'
@@ -91,7 +95,6 @@ class ValueFunctionManager:
         self.critic_network = CriticEvaluator(self.critic_model, self.params)
 
     def computeValueFnc(self, body_ang_vel, proj_gravity, joint_pos, joint_vel,   threshold, vf_additional_term):
-
         # dimension of observation vector = 3+3+12+12=30
         obs_flax_np = np.concatenate((
             proj_gravity.astype(np.float32),

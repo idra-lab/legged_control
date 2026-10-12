@@ -165,7 +165,7 @@ if __name__ == '__main__':
     sim_time_push = 0
 
     sim = True
-    sim_push = False
+    sim_push = True
     use_backup = True
     use_joy = False
     only_button_switch = False
@@ -181,12 +181,13 @@ if __name__ == '__main__':
     only_mpc = False
     only_rl = True
     nom_rl = False
-    sensor_based = True
+    sensor_rl = True
+    abs_vf = False
 
 
     grav_tens = torch.tensor([[0., 0., -1.]], device='cuda:0', dtype=torch.double)
 
-    if sensor_based:
+    if sensor_rl:
         nominal_policy = RlVelocityController('aliengo', dt, use_nn_se=True, debug=False, policy="velocity")
         nominal_policy.velocity_cmd = np.array([0.5, 0, 0])
     else:
@@ -238,7 +239,11 @@ if __name__ == '__main__':
         nom_rl_arg = 'nom_rl:=true' 
     else:
         nom_rl_arg = 'nom_rl:=false' 
-    launch_controller = launchFileNode('legged_controllers', 'load_controller.launch', additional_args=['joy:=true', nn_arg, 'mps:=true', 'joy_msg:=true', only_rl_arg, only_mpc_arg, nom_rl_arg,'rviz:=true'])
+    if sensor_rl:
+        sensor_rl_arg = 'sensor_rl:=true' 
+    else:
+        sensor_rl_arg = 'sensor_rl:=false'
+    launch_controller = launchFileNode('legged_controllers', 'load_controller.launch', additional_args=['joy:=true', nn_arg, 'mps:=true', 'joy_msg:=true', only_rl_arg, only_mpc_arg, nom_rl_arg,'rviz:=false', sensor_rl_arg])
     launch_controller.start()
     #time.sleep(2)
 
@@ -261,11 +266,14 @@ if __name__ == '__main__':
     pubSub.publish_rl(np.zeros(12),np.zeros(12),np.zeros(12))
     # Load value function
     
-    if use_nn and not nom_rl:
-        vf = ValueFunctionManager(use_nn, nom_rl, only_mpc, only_rl, 5)
+    if sensor_rl:
+        vf = ValueFunctionManager(use_nn, nom_rl, only_mpc, only_rl, abs_vf, sensor_rl, 6)
+        threshold = 0.8#6
+    elif use_nn and not nom_rl:
+        vf = ValueFunctionManager(use_nn, nom_rl, only_mpc, only_rl, abs_vf, sensor_rl, 5)
         threshold = 0.6#5#7
     else:
-        vf = ValueFunctionManager(use_nn, nom_rl, only_mpc, only_rl, 2)
+        vf = ValueFunctionManager(use_nn, nom_rl, only_mpc, only_rl, abs_vf, sensor_rl, 2)
         threshold = 0.7
     
     pubSub.publish_is_rec(isrec)
@@ -321,7 +329,7 @@ if __name__ == '__main__':
             #torch.tensor(data_new[0][3:], device='cuda:0', dtype=torch.double).unsqueeze(0),
             grav_tens
         )[0].cpu().numpy()
-        if False:#not manual_switch and (sim_time > 0.5) and (decimation_counter % decimation)==0 and sim_time_push > 1:
+        if not manual_switch and (sim_time > 0.5) and (decimation_counter % decimation)==0 and sim_time_push > 1:
             isrec, V_safe = vf.computeValueFnc(body_ang_vel, proj_gravity, joint_pos=data_new[2], joint_vel=data_new[3], threshold=threshold, vf_additional_term = 0.0)
             pubSub.publish_vf(V_safe)
             if only_button_switch:
@@ -340,12 +348,12 @@ if __name__ == '__main__':
         if not prev_rec and isrec:
             sim_time_push = 0
 
-        if (only_rl or nom_rl) and isrec and not sensor_based:
+        if (only_rl or nom_rl) and isrec and not sensor_rl:
             qDes = nominal_policy.action(data_new[7], body_ang_vel, proj_gravity, data_new[2], data_new[3], policy_type="default")
             pubSub.publish_is_reset(False)
             pubSub.publish_rl(qDes, np.zeros(12), ffw_torques)
             pubSub.publish_button([3])
-        if sensor_based and isrec:
+        if sensor_rl and isrec:
             qDes = nominal_policy.action(data_new[6], None, body_ang_vel, proj_gravity, data_new[2], data_new[3], policy_type="default")
             pubSub.publish_is_reset(False)
             pubSub.publish_rl(qDes, np.zeros(12), ffw_torques)
@@ -361,7 +369,7 @@ if __name__ == '__main__':
         if sim and not stop and not use_joy and isrec and not only_rl and not nom_rl:
             #print('return')
             pubSub.publish_button_no_joy([4])
-        if not prev_rec and isrec and use_backup and use_nn:
+        if not prev_rec and isrec and use_backup and use_nn and not sensor_rl:
             if not only_rl and not nom_rl:
                 pubSub.publish_rl(np.zeros(12),np.zeros(12),np.zeros(12))
             time_rec = sim_time
@@ -383,11 +391,11 @@ if __name__ == '__main__':
             
             pubSub.publish_is_rec(isrec)
         
-        if isrec and use_backup and use_nn and not stop_backup and not nom_rl and not sensor_based:
+        if isrec and use_backup and use_nn and not stop_backup and not nom_rl and not sensor_rl:
             qDes_no = backup_policy.action(data_new[6], None, body_ang_vel, proj_gravity, data_new[2], data_new[3], policy_type="safe")
             if not only_rl:
                 pubSub.publish_rl(qDes_no, np.zeros(12), ffw_torques)
-        if not isrec and use_backup and use_nn and not sensor_based:
+        if not isrec and use_backup and use_nn and not sensor_rl:
             if backup_trot:
                 qDes = backup_policy.compute_actions(data_new[4], data_new[5], data_new[2], data_new[3])
                 #qDes = backup_policy.compute_actions(data_new[0][3:], data_new[1][3:], data_new[2], data_new[3])
@@ -402,7 +410,7 @@ if __name__ == '__main__':
             pubSub.publish_is_rec(isrec)
             pubSub.publish_rl(qDes,np.zeros(12),ffw_torques)
 
-        if not isrec and sensor_based:
+        if not isrec and sensor_rl:
             qDes_no = nominal_policy.action(data_new[6], None, body_ang_vel, proj_gravity, data_new[2], data_new[3], policy_type="safe")
             pubSub.publish_is_rec(isrec)
             pubSub.publish_rl(qDes_no, np.zeros(12), ffw_torques)

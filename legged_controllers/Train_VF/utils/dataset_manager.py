@@ -408,8 +408,8 @@ class DatasetManager():
                 if self.step == push_instant:
                     #[self.pubSub.pose, self.pubSub.twist, self.pubSub.joint_pos, self.pubSub.joint_vel]
                     #apply as a twisch change
-                    vx = np.random.uniform(-1.5, 1.5) #(-2.0, 2.0)#+ self.quadruped.baseTwistW[0]
-                    vy = np.random.uniform(-1.5, 1.5) #(-2.0, 2.0) #+ self.quadruped.baseTwistW[1]
+                    vx = np.random.uniform(-6.5, 6.5) #(-2.0, 2.0)#+ self.quadruped.baseTwistW[0]
+                    vy = np.random.uniform(-6.5, 6.5) #(-2.0, 2.0) #+ self.quadruped.baseTwistW[1]
                     #debug makes it fall
                     # vx = -1.645
                     # vy = -1.239
@@ -550,7 +550,7 @@ class DatasetManager():
 
                 stats = np.array(stats, dtype=int)
 
-                np.save(os.path.join(save_path, "observations_sensor_100_1_5_original_radius.npy"), padded_obs)
+                np.save(os.path.join(save_path, "observations_rl_sensor_new_6_5_original_300_radiusD.npy"), padded_obs)
 
                 print(f"Episodi completati: {i+1}")
                 print(f"Caduti: {np.sum(stats[:, 0])}, CP raggiunto: {np.sum(stats[:, 1])}")
@@ -583,7 +583,7 @@ class DatasetManager():
 
         stats = np.array(stats, dtype=int)
 
-        np.save(os.path.join(save_path, "observations_rl_sensor_new_0_5_original_radius.npy"), padded_obs)
+        np.save(os.path.join(save_path, "observations_rl_sensor_new_6_5_original_300_radius.npy"), padded_obs)
 
         print(f"Episodi completati: {n_episodes}")
         print(f"Caduti: {np.sum(stats[:, 0])}, CP raggiunto: {np.sum(stats[:, 1])}")

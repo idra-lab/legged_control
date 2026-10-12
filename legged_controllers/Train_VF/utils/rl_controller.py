@@ -17,6 +17,8 @@ Two policy families are supported behind one interface:
 The default is unchanged, so existing callers keep the policies and the behaviour they had.
 """
 
+import sys
+
 import numpy as np
 import onnxruntime as ort
 import os
@@ -24,6 +26,10 @@ import json
 from termcolor import colored
 import rospy
 from geometry_msgs.msg import Vector3
+
+full_path = os.path.realpath(__file__)
+sys.path.append(os.path.dirname(full_path) + '/../Train_VF')
+    
 
 LEGACY = "legacy"
 VELOCITY = "velocity"
@@ -194,7 +200,10 @@ class RlVelocityController():
         """Load the single-network policy and present it through this class's attributes."""
         # Imported here rather than at module scope so that a workspace without the newer package
         # still loads this module for the legacy path.
-        from utils.velocity_policy import VelocityPolicy
+        try:
+            from velocity_policy import VelocityPolicy
+        except ImportError:
+            from utils.velocity_policy import VelocityPolicy
 
         if not use_nn_se:
             # Not a warning to be tidy: with use_nn_se False the caller passes base_lin_acc as None

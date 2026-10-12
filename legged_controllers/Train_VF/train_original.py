@@ -28,10 +28,9 @@ os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "True"
 # ====================================
 full_path = os.path.realpath(__file__)
 folder_path = os.path.dirname(full_path)
-data_path = folder_path + '/observation_datasets/observations_mpc_controller_100 1_original_radius.npy'
-model_path = folder_path + '/models/VF_mpc_controller_100 1_original_radiusD.pkl'
-load_parameters = True
-
+data_path = folder_path + '/observation_datasets/observations_rl_sensor_new_5_5_original_300_radius.npy'
+model_path = folder_path + '/models/VF_rl_sensor_new_6_5_original_300_radius_2.pkl'
+load_parameters = True  # Set to True to load existing model parameters
 data = np.load(data_path)
 
 print("Dataset loaded:", data.shape)
@@ -223,7 +222,7 @@ def get_batches(states, next_states, dones, capt_p, batch_size, rng):
 # ====================================
 #           Training Loop
 # ====================================
-epochs = 250
+epochs = 1200# 1000#250
 batch_size = 512
 rng = jax.random.PRNGKey(int(time.time()))
 losses, min_losses, max_losses = [], [], []
