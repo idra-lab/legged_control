@@ -1,0 +1,205 @@
+<?xml version="1.0" ?>
+<!-- An empty 70 x 45 m room with one person, for the scenarios of legged_controllers opti_pessi_scenario.py. Run with
+     its person flag, that script sends the position of its obstacle to the person below, who walks there, and the
+     controller gets the obstacle from the lidar people pipeline (fast_lio_slam_launch.xml people:=true) instead of
+     from the script. Launch: legged_unitree_description scenario_room_launch.xml.
+
+     The script lays the scenario out in this world. The robot spawns at the world origin facing +x: FAST-LIO, started
+     with the robot standing there, then has this world frame as its lio_map, through which the script knows where
+     the robot is and where in odom, the frame of the controller, the goal is (odom drifts as the robot walks).
+     Inner faces of the walls at x = -10 and 60, y = -25 and 20 (3 m high, with a ceiling): the obstacle paths of the
+     four scenarios stay inside (x 3..50, y -16..10). Walls and ceiling are for FAST-LIO, on which the people pipeline
+     runs: the Airy sees the floor only far ahead, so the walls hold its position and the ceiling its height. -->
+<sdf version="1.7">
+  <world name="scenario_room">
+    <physics name="default_physics" default="true" type="dart">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+      <real_time_update_rate>1000</real_time_update_rate>
+    </physics>
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-contact-system" name="gz::sim::systems::Contact"/>
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <!-- Drives <sensor type="imu"> (the IMU of the lidar); the base IMU is read by LeggedHWSim -->
+    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
+    <scene>
+      <ambient>0.6 0.6 0.6 1</ambient>
+      <background>0.3 0.7 0.9 1</background>
+      <shadows>0</shadows>
+      <grid>1</grid>
+    </scene>
+
+    <!-- Gives the faces of the walls different shades; no shadows -->
+    <light type="directional" name="sun">
+      <cast_shadows>false</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <!-- Contact as in the other worlds; the visual is the floor of the room only (centre 25, -2.5) -->
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>200 200</size>
+            </plane>
+          </geometry>
+          <surface>
+            <friction>
+              <ode>
+                <mu>100</mu>
+                <mu2>50</mu2>
+              </ode>
+            </friction>
+            <contact>
+              <ode>
+                <soft_cfm>0</soft_cfm>
+                <soft_erp>0.2</soft_erp>
+                <kp>1e+13</kp>
+                <kd>1</kd>
+                <max_vel>0.01</max_vel>
+                <min_depth>0.001</min_depth>
+              </ode>
+            </contact>
+          </surface>
+        </collision>
+        <visual name="visual">
+          <pose>25 -2.5 0 0 0 0</pose>
+          <cast_shadows>false</cast_shadows>
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>70.4 45.4</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>0.8 0.8 0.8 1</ambient>
+            <diffuse>0.8 0.8 0.8 1</diffuse>
+            <specular>0.8 0.8 0.8 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Walls, 0.2 m thick: the inner faces are the sides of the room -->
+    <model name="wall_north">
+      <static>true</static>
+      <pose>25 20.1 1.5 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>70.4 0.2 3</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>70.4 0.2 3</size></box></geometry>
+          <material>
+            <ambient>0.85 0.85 0.85 1</ambient>
+            <diffuse>0.85 0.85 0.85 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="wall_south">
+      <static>true</static>
+      <pose>25 -25.1 1.5 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>70.4 0.2 3</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>70.4 0.2 3</size></box></geometry>
+          <material>
+            <ambient>0.85 0.85 0.85 1</ambient>
+            <diffuse>0.85 0.85 0.85 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="wall_east">
+      <static>true</static>
+      <pose>60.1 -2.5 1.5 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.2 45 3</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.2 45 3</size></box></geometry>
+          <material>
+            <ambient>0.85 0.85 0.85 1</ambient>
+            <diffuse>0.85 0.85 0.85 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="wall_west">
+      <static>true</static>
+      <pose>-10.1 -2.5 1.5 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.2 45 3</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.2 45 3</size></box></geometry>
+          <material>
+            <ambient>0.85 0.85 0.85 1</ambient>
+            <diffuse>0.85 0.85 0.85 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Ceiling on top of the walls: around the robot the Airy sees nothing lower than itself; with the dome upright
+         and no ceiling FAST-LIO had no surface to hold its height on and z drifted (0.2 m in 5 minutes standing).
+         A plane facing down: the lidar and the cameras see it from below, the GUI looks through it from above. -->
+    <model name="ceiling">
+      <static>true</static>
+      <pose>25 -2.5 3 3.14159265 0 0</pose>
+      <link name="link">
+        <visual name="visual">
+          <cast_shadows>false</cast_shadows>
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>70.4 45.4</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>0.9 0.9 0.9 1</ambient>
+            <diffuse>0.9 0.9 0.9 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- The person. An actor is an animated visual only (no collision): cameras and the lidar see it, the robot
+         does not bump into it. It has no script: ActorPoseFollower (legged_gazebo/src/ActorPoseFollower.cpp) puts
+         it where /scenario_person/pose says and makes it walk there. Until the first position it stands here, over
+         10 m from the robot: farther than the people the obstacle adapter passes to the controller (max_range).
+         z = 1 puts the hips of walk.dae at walking height. animation_x_vel: that mesh plays one cycle of 5.79167 s
+         while its root bone moves 1.38424 m. -->
+    <actor name="scenario_person">
+      <pose>5 12 1.0 0 0 0</pose>
+      <skin>
+        <filename>model://walking_actor/meshes/walk.dae</filename>
+        <scale>1.0</scale>
+      </skin>
+      <animation name="walking">
+        <filename>model://walking_actor/meshes/walk.dae</filename>
+        <scale>1.0</scale>
+        <interpolate_x>true</interpolate_x>
+      </animation>
+      <plugin filename="legged_actor_pose_follower" name="legged::ActorPoseFollower">
+        <topic>/scenario_person/pose</topic>
+        <animation_x_vel>4.184</animation_x_vel>
+      </plugin>
+    </actor>
+  </world>
+</sdf>

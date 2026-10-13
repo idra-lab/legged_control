@@ -69,6 +69,12 @@ ament_target_dependencies(airy_points_relay rclcpp sensor_msgs tf2_ros tf2_eigen
 target_compile_options(airy_points_conversion PRIVATE -O2)
 target_compile_options(airy_points_relay PRIVATE -O2)
 
+# gz-sim system of the actor of worlds/scenario_room.world: it walks where opti_pessi_scenario.py --person puts its obstacle
+add_library(legged_actor_pose_follower SHARED
+        src/ActorPoseFollower.cpp
+        )
+target_link_libraries(legged_actor_pose_follower PRIVATE gz-sim::core)
+
 if (BUILD_TESTING)
     find_package(ament_cmake_gtest REQUIRED)
     ament_add_gtest(test_airy_points_conversion test/test_airy_points_conversion.cpp)
@@ -103,6 +109,11 @@ install(TARGETS legged_hw_sim
 
 install(TARGETS airy_points_relay
         RUNTIME DESTINATION lib/${PROJECT_NAME}
+        )
+
+# In lib/: ros_gz_sim adds LD_LIBRARY_PATH to GZ_SIM_SYSTEM_PLUGIN_PATH, where Gazebo looks for the systems of a world
+install(TARGETS legged_actor_pose_follower
+        LIBRARY DESTINATION lib
         )
 
 # Mark headers for installation

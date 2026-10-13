@@ -7,8 +7,10 @@ fails:
   rate      /rslidar_points ~10 Hz, /rslidar_imu_data ~200 Hz
   gap       exactly the frames 10 apart have no valid point in the 180-212 deg wedge (columns 1-79)
   self-hit  no valid point closer than --self-hit-radius to the rslidar origin
-  imu       mean linear acceleration close to --expected-acc (gravity seen by the pitched sensor)
-  coverage  nearest ground point ahead of the base (|y| < 0.3 m) closer than --max-ground-ahead
+  imu       mean linear acceleration close to --expected-acc (default: gravity as the mount, TF base -> rslidar, sees it)
+  coverage  the dome looks where its mount says: with the pitch p of the TF base -> rslidar, the lowest return straight
+            ahead is p under the horizon and the lowest straight behind p above it, within --pitch-tolerance; and there
+            are returns ahead, left, behind and right (needs floor or a wall ahead and walls on every side within 60 m)
 """
 import argparse
 import sys
@@ -44,9 +46,9 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--frames', type=int, default=20)
     parser.add_argument('--self-hit-radius', type=float, default=0.4)
-    parser.add_argument('--expected-acc', type=float, nargs=3, default=[-2.54, 0.0, 9.48])
+    parser.add_argument('--expected-acc', type=float, nargs=3, default=None)
     parser.add_argument('--acc-tolerance', type=float, default=0.5)
-    parser.add_argument('--max-ground-ahead', type=float, default=2.3)
+    parser.add_argument('--pitch-tolerance', type=float, default=1.5, help='[deg]')
     args = parser.parse_args()
 
     rclpy.init()
@@ -54,7 +56,7 @@ def main():
         Parameter('use_sim_time', Parameter.Type.BOOL, True)])
     clouds, imus = [], []
     # Reliable, as rslidar_sdk publishes: a best-effort subscription loses most of the ~2.3 MB clouds
-    node.create_subscription(PointCloud2, '/rslidar_points', clouds.append, 10)
+    cloud_subscription = node.create_subscription(PointCloud2, '/rslidar_points', clouds.append, 10)
     node.create_subscription(Imu, '/rslidar_imu_data', imus.append, qos_profile_sensor_data)
     tf_buffer = Buffer()
     TransformListener(tf_buffer, node)
@@ -76,10 +78,6 @@ def main():
 
     stamps = np.array([c.header.stamp.sec + c.header.stamp.nanosec * 1e-9 for c in clouds])
     cloud_hz = (len(stamps) - 1) / (stamps[-1] - stamps[0])
-    imu_stamps = np.array([m.header.stamp.sec + m.header.stamp.nanosec * 1e-9 for m in imus])
-    imu_hz = (len(imu_stamps) - 1) / (imu_stamps[-1] - imu_stamps[0]) if len(imus) > 1 else 0.0
-    results.append(('rate', 9.0 < cloud_hz < 11.0 and 180.0 < imu_hz < 220.0,
-                    f'cloud {cloud_hz:.1f} Hz, imu {imu_hz:.1f} Hz (sim time)'))
 
     grids = [np.frombuffer(bytes(c.data), dtype=RS_DTYPE).reshape(c.height, c.width) for c in clouds]
     wedge_valid = [int(np.isfinite(g['x'][:, GAP_COLUMNS]).sum()) for g in grids]
@@ -96,31 +94,50 @@ def main():
                     f'{len(near)} points within {args.self_hit_radius} m, min range {ranges.min():.3f} m'
                     + (f', mean {near.mean(axis=0).round(3).tolist()}' if len(near) else '')))
 
+    # The IMU on its own: while this process takes in the 2.3 MB clouds it loses best-effort IMU samples
+    node.destroy_subscription(cloud_subscription)
+    imus.clear()
     imu_deadline = time.monotonic() + 3.0
     while time.monotonic() < imu_deadline:
         rclpy.spin_once(node, timeout_sec=0.05)
-    if not imus:
+    if len(imus) < 2:
         print('FAIL receive: no /rslidar_imu_data')
         return 1
+    imu_stamps = np.array([m.header.stamp.sec + m.header.stamp.nanosec * 1e-9 for m in imus])
+    imu_hz = (len(imu_stamps) - 1) / (imu_stamps[-1] - imu_stamps[0])
+    results.insert(1, ('rate', 9.0 < cloud_hz < 11.0 and 180.0 < imu_hz < 220.0,
+                       f'cloud {cloud_hz:.1f} Hz, imu {imu_hz:.1f} Hz (sim time)'))
     acc = np.array([[m.linear_acceleration.x, m.linear_acceleration.y, m.linear_acceleration.z] for m in imus[-400:]])
     mean_acc = acc.mean(axis=0)
-    results.append(('imu', np.all(np.abs(mean_acc - args.expected_acc) < args.acc_tolerance) and
-                    imus[-1].header.frame_id == 'rslidar',
-                    f'mean acc {mean_acc.round(2).tolist()} frame {imus[-1].header.frame_id}'))
 
     try:
         tf = tf_buffer.lookup_transform('base', 'rslidar', Time()).transform
         rotation = quat_to_matrix(tf.rotation)
         translation = np.array([tf.translation.x, tf.translation.y, tf.translation.z])
+        pitch = np.degrees(np.arcsin(rotation[0, 2]))   # forward pitch of the dome on the base
+        # At rest the IMU reads the reaction to gravity, in the frame of the lidar
+        expected_acc = np.array(args.expected_acc) if args.expected_acc else rotation.T @ np.array([0.0, 0.0, 9.81])
+        results.append(('imu', np.all(np.abs(mean_acc - expected_acc) < args.acc_tolerance) and
+                        imus[-1].header.frame_id == 'rslidar',
+                        f'mean acc {mean_acc.round(2).tolist()}, expected {expected_acc.round(2).tolist()}, '
+                        f'frame {imus[-1].header.frame_id}'))
+
         in_base = xyz @ rotation.T + translation
-        ground_z = np.percentile(in_base[:, 2], 1)
-        ground = in_base[(np.abs(in_base[:, 2] - ground_z) < 0.05) & (np.abs(in_base[:, 1]) < 0.3) &
-                         (in_base[:, 0] > 0)]
-        ahead = ground[:, 0].min() if len(ground) else np.inf
-        results.append(('coverage', ahead < args.max_ground_ahead,
-                        f'ground at z_base {ground_z:.2f} m, nearest ahead {ahead:.2f} m'))
+        # Seen from the optical centre, in the orientation of the base (level when the robot stands)
+        rays = in_base - (translation + rotation @ np.array([0.0, 0.0, 0.04]))
+        elevation = np.degrees(np.arctan2(rays[:, 2], np.linalg.norm(rays[:, :2], axis=1)))
+        azimuth = np.degrees(np.arctan2(rays[:, 1], rays[:, 0]))
+        sides = [int((np.abs((azimuth - centre + 180.0) % 360.0 - 180.0) < 45.0).sum()) for centre in (0, 90, 180, -90)]
+        ahead = elevation[np.abs(azimuth) < 5.0]
+        behind = elevation[np.abs(azimuth) > 175.0]
+        lowest_ahead = ahead.min() if len(ahead) else np.nan
+        lowest_behind = behind.min() if len(behind) else np.nan
+        results.append(('coverage', abs(lowest_ahead + pitch) < args.pitch_tolerance and
+                        abs(lowest_behind - pitch) < args.pitch_tolerance and min(sides) > 0,
+                        f'mount pitch {pitch:.1f} deg; lowest return ahead {lowest_ahead:.1f} deg, behind '
+                        f'{lowest_behind:.1f} deg from the horizon; returns ahead/left/behind/right {sides}'))
     except Exception as e:  # noqa: BLE001
-        results.append(('coverage', False, f'no TF base -> rslidar: {e}'))
+        results.append(('imu, coverage', False, f'no TF base -> rslidar: {e}'))
 
     for name, ok, detail in results:
         print(f'{"PASS" if ok else "FAIL"} {name}: {detail}')

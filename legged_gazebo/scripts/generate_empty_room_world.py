@@ -3,9 +3,7 @@
 generate_empty_room_world.py
 
 Writes worlds/empty_room.world: a square room with nothing in it but a few packages on the floor and a few people
-walking around, and the script with which people_perception fake_people_detector follows those people
-(people_perception config/fake_people_empty_room_actors.yaml). Both come from the same paths: edit and run this
-script rather than one of the two files.
+walking around. Edit and run this script rather than the world file.
 
     python3 generate_empty_room_world.py [--seed N] [--people N] [--packages N]
 
@@ -14,7 +12,7 @@ is a random closed walk for each person, drawn here once (same seed, same world)
 
 How a walk is made: random corners across the room, a smooth closed curve through them, then WAYPOINTS points at
 equal distance along that curve, one every WAYPOINT_DT. Gazebo moves an actor on a Catmull-Rom spline through its
-waypoints (gz-math Spline, see people_perception scripts/fake_people_detector.py), so close and evenly spaced
+waypoints (gz-math Spline), so close and evenly spaced
 waypoints give a steady pace on a smooth path. A walk is kept only if the path Gazebo will follow stays clear of the
 walls, of the packages, of where the robot spawns and, at every instant, of the people already placed: every walk
 lasts PERIOD, so two people who do not meet in the first lap never meet.
@@ -30,7 +28,6 @@ ROOM = 30.0              # [m] side of the room, wall to wall
 WALL_HEIGHT = 3.0        # [m]
 WALL_THICKNESS = 0.2     # [m]
 SPAWN = (0.0, 0.0)       # [m] default spawn of the robot in empty_room_launch.xml, facing +x
-AIRY_AHEAD = 0.2835      # [m] the Airy is this far ahead of the base (robot.xacro): camera_init of FAST-LIO is there
 
 PACKAGE_SIZE = ((0.4, 0.9), (0.3, 0.7), (0.25, 0.6))  # [m] ranges of length, width, height
 PACKAGE_WALL_CLEARANCE = 2.5    # [m] centre of a package to a wall: room to walk around it
@@ -54,9 +51,7 @@ SPAWN_CLEARANCE = 2.0    # [m] path of a person to the spawn
 PEOPLE_CLEARANCE = 1.5   # [m] between two people at the same instant
 CHECK_DT = 0.05          # [s] step at which a walk is checked
 
-PERSON_SIZE = (0.6, 0.6, 1.8)   # [m] box of a person for the detector
 ACTOR_Z = 1.0            # [m] puts the hips of walk.dae at walking height
-SENSOR_HEIGHT = 0.47     # [m] the Airy above the floor when the robot stands
 
 
 def spline(points, samples):
@@ -241,10 +236,9 @@ def world_file(packages, people, settings):
                               "0.72 0.53 0.33 1") for p in packages)
     return f"""<?xml version="1.0" ?>
 <!-- Written by legged_gazebo/scripts/generate_empty_room_world.py ({settings}):
-     change that script and run it again rather than editing this file. The same run writes people_perception
-     config/fake_people_empty_room_actors.yaml, the people of this world for the fake people detector.
+     change that script and run it again rather than editing this file.
 
-     A {ROOM:g} x {ROOM:g} m room centred on the world origin (walls {WALL_HEIGHT:g} m high, no ceiling), {len(packages)} static packages on the
+     A {ROOM:g} x {ROOM:g} m room centred on the world origin (walls {WALL_HEIGHT:g} m high, with a ceiling), {len(packages)} static packages on the
      floor and {len(people)} people. Each person repeats a random closed walk of {PERIOD:g} s, clear of the walls, of the packages,
      of the other people and of the world origin, where empty_room_launch.xml spawns the robot. -->
 <sdf version="1.7">
@@ -328,6 +322,29 @@ def world_file(packages, people, settings):
 
     <!-- Walls: the inner faces are at +-{half:g} m -->
 {walls}
+    <!-- Ceiling on top of the walls: around the robot the Airy sees nothing lower than itself; with the dome upright
+         and no ceiling FAST-LIO had no surface to hold its height on and z drifted. A plane facing down: the lidar
+         and the cameras see it from below, the GUI looks through it from above. -->
+    <model name="ceiling">
+      <static>true</static>
+      <pose>0 0 {WALL_HEIGHT:g} {math.pi:.8f} 0 0</pose>
+      <link name="link">
+        <visual name="visual">
+          <cast_shadows>false</cast_shadows>
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>{outside:g} {outside:g}</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>0.9 0.9 0.9 1</ambient>
+            <diffuse>0.9 0.9 0.9 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
     <!-- Packages -->
 {boxes}
     <!-- People. Actors are animated visuals only (no collision): cameras and the lidar see them, the robot does not
@@ -338,45 +355,13 @@ def world_file(packages, people, settings):
 """
 
 
-def people_script(people, settings):
-    entries = "".join(f"""  - name: {person["name"]}              # {person["speed"]:.2f} m/s
-    size: [{", ".join(f"{v:g}" for v in PERSON_SIZE)}]
-    floor_z: {-SENSOR_HEIGHT:g}
-    loop: true
-    delay_start: 0.0
-    interpolation: gazebo
-    waypoints:                  # [t, x, y] in the world
-""" + "".join(f"      - [{t:g}, {x:g}, {y:g}]\n" for t, (x, y) in zip(person["times"], person["points"]))
-                      for person in people)
-    return f"""# Script for fake_people_detector that follows the {len(people)} walking actors of legged_gazebo/worlds/empty_room.world.
-# Written with that world by legged_gazebo/scripts/generate_empty_room_world.py ({settings}):
-# change that script and run it again rather than editing this file.
-#
-# The waypoints are those of the world file, in world coordinates. interpolation: gazebo moves them as Gazebo
-# Harmonic moves a scripted actor (see scripts/fake_people_detector.py): script time is the simulation time, which is
-# the stamp of the scans.
-#
-# origin is where the world origin is in camera_init. It holds only if
-#   - the robot is at the default spawn of empty_room_launch.xml (x:={SPAWN[0]:g} y:={SPAWN[1]:g}, facing +x), and
-#   - FAST-LIO is started with the robot standing there (camera_init is where the Airy is at that moment), and
-#   - Gazebo has run since the world was loaded (the actors move with the simulation time).
-# Spawned or started elsewhere, change origin: [x, y, yaw] of the world origin seen from camera_init.
-frame: camera_init
-origin: [{-(SPAWN[0] + AIRY_AHEAD):g}, {0.0 - SPAWN[1]:g}, 0.0]      # the Airy is {AIRY_AHEAD:g} m ahead of the base, no turn
-start_time: 0.0
-people:
-{entries}"""
-
-
 def main():
     package = Path(__file__).resolve().parents[1]
-    parser = argparse.ArgumentParser(description="Write worlds/empty_room.world and the fake people script of it")
+    parser = argparse.ArgumentParser(description="Write worlds/empty_room.world")
     parser.add_argument("--seed", type=int, default=3, help="Of the random packages and walks")
     parser.add_argument("--people", type=int, default=4)
     parser.add_argument("--packages", type=int, default=7)
     parser.add_argument("--world", type=Path, default=package / "worlds" / "empty_room.world")
-    parser.add_argument("--people-script", type=Path, default=package.parents[1] / "people_perception" /
-                        "people_perception" / "config" / "fake_people_empty_room_actors.yaml")
     args = parser.parse_args()
 
     rng = np.random.default_rng(args.seed)
@@ -385,13 +370,12 @@ def main():
 
     settings = f"seed {args.seed}, {args.people} people, {args.packages} packages"  # no "--": it goes in an XML comment
     args.world.write_text(world_file(packages, people, settings))
-    args.people_script.write_text(people_script(people, settings))
     for p in packages:
         print(f"{p['name']}: {p['size'][0]:g} x {p['size'][1]:g} x {p['size'][2]:g} m at ({p['pose'][0]:g}, "
               f"{p['pose'][1]:g})")
     for person in people:
         print(f"{person['name']}: {person['speed'] * PERIOD:.0f} m in {PERIOD:g} s, {person['speed']:.2f} m/s")
-    print(f"wrote {args.world}\nwrote {args.people_script}")
+    print(f"wrote {args.world}")
 
 
 if __name__ == "__main__":

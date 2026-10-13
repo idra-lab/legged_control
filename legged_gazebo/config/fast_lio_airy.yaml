@@ -1,12 +1,12 @@
 # FAST-LIO (src/FAST_LIO_SLAM_ROS2/FAST_LIO_ROS2) on the simulated RoboSense Airy of the Aliengo
 # (legged_unitree_description/urdf/common/robosense_airy.xacro, mounted in urdf/robot.xacro).
 #
-# The Airy is pitched 15 deg forward, so imu_R rotates the IMU readings into a frame with the base
-# orientation (the rslidar_joint rotation, rpy="0 15deg 0"). FAST-LIO then estimates that upright frame:
-# camera_init, /Odometry and /cloud_registered_body are gravity-aligned when the robot starts level.
-# The IMU sits at the rslidar origin and /rslidar_points is in rslidar, so the lidar->body extrinsic is the
-# same rotation with zero translation.
-# Keep imu_R and extrinsic_R in sync with the mount in robot.xacro.
+# The Airy is pitched 5 deg forward, so imu_R rotates the IMU readings into a frame with the base orientation (the
+# rslidar_joint rotation, rpy="0 5deg 0"). FAST-LIO then estimates that upright frame: camera_init, /Odometry and
+# /cloud_registered_body are gravity-aligned when the robot starts level. The IMU sits at the rslidar origin and
+# /rslidar_points is in rslidar, so the lidar->body extrinsic is the same rotation with zero translation.
+# Keep imu_R and extrinsic_R in sync with the mount in robot.xacro: both are Ry(pitch) = [c 0 s; 0 1 0; -s 0 c]
+# (15 deg until 2026-10-13, then the identity for a few hours, then 5 deg).
 /**:
     ros__parameters:
         feature_extract_enable: false
@@ -46,12 +46,12 @@
             det_range: 60.0              # Airy max range
             extrinsic_est_en: false      # exact in simulation
             extrinsic_T: [0.0, 0.0, 0.0]
-            extrinsic_R: [0.965926, 0.0, 0.258819,
+            extrinsic_R: [0.996195, 0.0, 0.087156,
                           0.0,      1.0, 0.0,
-                          -0.258819, 0.0, 0.965926]
-            imu_R: [0.965926, 0.0, 0.258819,
+                          -0.087156, 0.0, 0.996195]
+            imu_R: [0.996195, 0.0, 0.087156,
                     0.0,      1.0, 0.0,
-                    -0.258819, 0.0, 0.965926]
+                    -0.087156, 0.0, 0.996195]
 
         publish:
             path_en: true

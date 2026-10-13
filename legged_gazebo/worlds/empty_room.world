@@ -2,7 +2,7 @@
 <!-- Written by legged_gazebo/scripts/generate_empty_room_world.py (seed 3, 4 people, 7 packages):
      change that script and run it again rather than editing this file.
 
-     A 30 x 30 m room centred on the world origin (walls 3 m high, no ceiling), 7 static packages on the
+     A 30 x 30 m room centred on the world origin (walls 3 m high, with a ceiling), 7 static packages on the
      floor and 4 people. Each person repeats a random closed walk of 120 s, clear of the walls, of the packages,
      of the other people and of the world origin, where empty_room_launch.xml spawns the robot. -->
 <sdf version="1.7">
@@ -149,6 +149,29 @@
           <material>
             <ambient>0.85 0.85 0.85 1</ambient>
             <diffuse>0.85 0.85 0.85 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Ceiling on top of the walls: around the robot the Airy sees nothing lower than itself; with the dome upright
+         and no ceiling FAST-LIO had no surface to hold its height on and z drifted. A plane facing down: the lidar
+         and the cameras see it from below, the GUI looks through it from above. -->
+    <model name="ceiling">
+      <static>true</static>
+      <pose>0 0 3 3.14159265 0 0</pose>
+      <link name="link">
+        <visual name="visual">
+          <cast_shadows>false</cast_shadows>
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>30.4 30.4</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>0.9 0.9 0.9 1</ambient>
+            <diffuse>0.9 0.9 0.9 1</diffuse>
           </material>
         </visual>
       </link>

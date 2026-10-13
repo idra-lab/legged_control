@@ -180,6 +180,9 @@ if (BUILD_TESTING)
     find_package(ament_cmake_pytest REQUIRED)
     ament_add_pytest_test(test_dynamic_obstacles_to_opti_pessi_obstacles
             test/test_dynamic_obstacles_to_opti_pessi_obstacles.py)
+    # Where opti_pessi_scenario.py sends its obstacle: the controller, or the person of scenario_room.world
+    ament_add_pytest_test(test_opti_pessi_scenario
+            test/test_opti_pessi_scenario.py)
 endif ()
 
 #####################
