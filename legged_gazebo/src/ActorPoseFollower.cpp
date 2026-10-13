@@ -1,6 +1,6 @@
 // Moves a Gazebo actor to the positions received on a topic, as a person walking there: it faces the way it moves and
 // its walk animation advances with the distance covered. The actor of worlds/scenario_room.world has it, and gets the
-// positions of the obstacle of legged_controllers opti_pessi_scenario.py --person.
+// positions of the obstacle of opti_pessi_interface opti_pessi_scenario.py --person.
 //
 //   <plugin filename="legged_actor_pose_follower" name="legged::ActorPoseFollower">
 //     <topic>/scenario_person/pose</topic>        gz.msgs.Pose in the world frame; x and y are read

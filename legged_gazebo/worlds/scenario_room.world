@@ -1,5 +1,5 @@
 <?xml version="1.0" ?>
-<!-- An empty 70 x 45 m room with one person, for the scenarios of legged_controllers opti_pessi_scenario.py. Run with
+<!-- An empty 70 x 45 m room with one person, for the scenarios of opti_pessi_interface opti_pessi_scenario.py. Run with
      its person flag, that script sends the position of its obstacle to the person below, who walks there, and the
      controller gets the obstacle from the lidar people pipeline (fast_lio_slam_launch.xml people:=true) instead of
      from the script. Launch: legged_unitree_description scenario_room_launch.xml.

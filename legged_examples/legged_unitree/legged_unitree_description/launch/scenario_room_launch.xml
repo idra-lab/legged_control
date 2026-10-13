@@ -1,6 +1,6 @@
 <launch>
   <!-- The robot in legged_gazebo/worlds/scenario_room.world: an empty room with one person, who walks where
-       legged_controllers opti_pessi_scenario.py, run with its person flag, puts its obstacle.
+       opti_pessi_interface opti_pessi_scenario.py, run with its person flag, puts its obstacle.
        The robot spawns at the world origin, with no argument to move it: the script gives the person world
        positions, and takes for the world frame the lio_map of FAST-LIO started with the robot standing at the spawn
        (odom, until lio_odom_alignment.py runs). -->

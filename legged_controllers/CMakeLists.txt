@@ -146,14 +146,6 @@ install(DIRECTORY include/
 
 # Install executable scripts to standard ROS 2 workspace layout
 install(PROGRAMS scripts/kill_node_sigint_service.py
-                 scripts/opti_pessi_scenario.py
-                 scripts/way_point_to_opti_pessi_goal.py
-                 scripts/tare_path_to_opti_pessi_goal.py
-                 scripts/tare_finish_merge_map.py
-                 scripts/lio_odom_alignment.py
-                 scripts/far_load_graph.py
-                 scripts/far_inspection_goals.py
-                 scripts/dynamic_obstacles_to_opti_pessi_obstacles.py
         DESTINATION lib/${PROJECT_NAME}
         )
 
@@ -175,14 +167,6 @@ if (BUILD_TESTING)
             )
     target_include_directories(${PROJECT_NAME}_fall_recovery_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
     target_link_libraries(${PROJECT_NAME}_fall_recovery_test Eigen3::Eigen)
-
-    # The people of people_perception as the obstacles of the controller
-    find_package(ament_cmake_pytest REQUIRED)
-    ament_add_pytest_test(test_dynamic_obstacles_to_opti_pessi_obstacles
-            test/test_dynamic_obstacles_to_opti_pessi_obstacles.py)
-    # Where opti_pessi_scenario.py sends its obstacle: the controller, or the person of scenario_room.world
-    ament_add_pytest_test(test_opti_pessi_scenario
-            test/test_opti_pessi_scenario.py)
 endif ()
 
 #####################
