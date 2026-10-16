@@ -807,10 +807,11 @@ void OptiPessiController::advanceOptiPessiPhase(const rclcpp::Time& time, const 
     const auto solve = std::static_pointer_cast<opti_pessi::OptiPessiMpc>(optiPessiMpc_)->getLastSolveStatistics();
     RCLCPP_INFO(this->get_node()->get_logger(),
                 "[OptiPessi] phase %zu plan: predicted dcBody=(%.3f, %.3f) dth=%.3f (limits %.2f, %.2f, %.2f) | latest solve: "
-                "gaitOffset=%d warmStart=%s solved=%d iterations=%zu cost=%.3e dynamicsViolationSSE=%.3e equalityConstraintsSSE=%.3e "
-                "| applied plan of phase %zu (shift %zu, %s)",
+                "gaitOffset=%d warmStart=%s obstacleSlots=%d obstaclesChanged=%d solved=%d iterations=%zu cost=%.3e "
+                "dynamicsViolationSSE=%.3e equalityConstraintsSSE=%.3e | applied plan of phase %zu (shift %zu, %s)",
                 optiPessiPhase_, dcBody(0), dcBody(1), predicted(RobotX::DTH), params.dcxMax, params.dcyMax, params.dthetaMax,
-                solve.gaitOffset, solve.warmStart, solve.solved ? 1 : 0, solve.numIterations, solve.performance.cost,
+                solve.gaitOffset, solve.warmStart, solve.obstacleSlots, solve.obstaclesChanged ? 1 : 0, solve.solved ? 1 : 0,
+                solve.numIterations, solve.performance.cost,
                 solve.performance.dynamicsViolationSSE, solve.performance.equalityConstraintsSSE, optiPessiPlan_.phase, offset,
                 optiPessiPlan_.source.c_str());
 
@@ -928,11 +929,12 @@ std::string OptiPessiController::formatSolverStatistics() const {
   char text[640];
   std::snprintf(text, sizeof(text),
                 "[OptiPessi] solver statistics over %zu solves since the controller was loaded: solve time mean %.1f ms, max %.1f ms | "
-                "iterations mean %.0f, at the cap in %.0f %% of the solves | warm start: same phase %zu, shifted %zu, cold %zu | cold "
-                "retries after a failed warm start %zu, unsolved %zu | solver profile since its last cold start:",
+                "iterations mean %.0f, at the cap in %.0f %% of the solves | warm start: same phase %zu, shifted %zu, cold %zu, "
+                "remapped to other obstacles %zu | cold retries after a failed warm start %zu, unsolved %zu | solver profile since its "
+                "last cold start:",
                 totals.solves, totals.solveTimeSum / solves, totals.solveTimeMax, static_cast<scalar_t>(totals.iterations) / solves,
                 100.0 * static_cast<scalar_t>(totals.atIterationCap) / solves, totals.samePhase, totals.shifted, totals.cold,
-                totals.coldRetries, totals.unsolved);
+                totals.obstacleChanges, totals.coldRetries, totals.unsolved);
   // The profile is ocs2's own block (the one printSolverStatistics prints at destruction); it starts with a newline.
   return std::string(text) + totals.solverProfile;
 }
@@ -1531,7 +1533,6 @@ void OptiPessiController::pushOptiPessiObservation() {
 }
 
 void OptiPessiController::pushOptiPessiReferences(const vector_t& robotState) {
-  using vector2_t = Eigen::Matrix<scalar_t, 2, 1>;
   const auto& params = optiPessiInterface_->modelParameters();
   vector_t goal;
   std::vector<ObstacleObservation> seen;
@@ -1542,42 +1543,18 @@ void OptiPessiController::pushOptiPessiReferences(const vector_t& robotState) {
   }
   auto& referenceManager = *optiPessiInterface_->getOptiPessiReferenceManagerPtr();
 
-  // Slots keep the message order, so a slot keeps its obstacle (and the hyperplanes warm-started for it) between solves.
-  // With more obstacles than slots, the closest keep-out disks take them.
-  const vector2_t com = robotState.head<2>();
-  const size_t numSlots = static_cast<size_t>(params.numObstacles());
-  std::vector<size_t> selected(seen.size());
-  std::iota(selected.begin(), selected.end(), 0);
-  if (seen.size() > numSlots) {
-    const auto clearance = [&](size_t k) {
-      return (vector2_t(seen[k].x, seen[k].y) - com).norm() - opti_pessi::obstacleTypeOf(params, seen[k].type).radius;
-    };
-    std::partial_sort(selected.begin(), selected.begin() + static_cast<std::ptrdiff_t>(numSlots), selected.end(),
-                      [&](size_t a, size_t b) { return clearance(a) < clearance(b); });
-    selected.resize(numSlots);
-    std::sort(selected.begin(), selected.end());
+  // Each obstacle with the keep-out model of its type; the reference manager picks and keeps the slots.
+  std::vector<opti_pessi::ObservedObstacle> observed;
+  observed.reserve(seen.size());
+  for (const ObstacleObservation& obstacle : seen) {
+    const opti_pessi::ObstacleTypeModel& model = opti_pessi::obstacleTypeOf(params, obstacle.type);
+    observed.push_back({obstacle.x, obstacle.y, model.radius, model.maxSpeed});
+  }
+  if (referenceManager.setObservedObstacles(observed, robotState.head(2)) > 0) {
     RCLCPP_WARN_THROTTLE(ros2_node_->get_logger(), *ros2_node_->get_clock(), 5000,
-                         "[OptiPessi] %zu obstacles but %zu OCP slots (scenario obstacles.numObstacles): tracking the closest", seen.size(),
-                         numSlots);
+                         "[OptiPessi] %zu obstacles but %d OCP slots (scenario obstacles.numSlots): tracking the closest", seen.size(),
+                         params.numObstacles());
   }
-
-  // A free slot holds a point obstacle with no speed bound, parked out of reach of the horizon.
-  constexpr scalar_t kParkingDistance = 100.0;  // [m] from the CoM
-  matrix_t positions(numSlots, 2);
-  vector_t radii = vector_t::Zero(numSlots);
-  vector_t maxSpeeds = vector_t::Zero(numSlots);
-  for (size_t j = 0; j < numSlots; ++j) {
-    if (j < selected.size()) {
-      const ObstacleObservation& obstacle = seen[selected[j]];
-      const opti_pessi::ObstacleTypeModel& model = opti_pessi::obstacleTypeOf(params, obstacle.type);
-      positions.row(j) << obstacle.x, obstacle.y;
-      radii(j) = model.radius;
-      maxSpeeds(j) = model.maxSpeed;
-    } else {
-      positions.row(j) << com.x() + kParkingDistance, com.y();
-    }
-  }
-  referenceManager.setObstacles(positions, radii, maxSpeeds);
 
   if (goal.size() == 2) {
     referenceManager.setGoal(goal);
@@ -1719,10 +1696,10 @@ void OptiPessiController::setupOptiPessiInterface(const std::string& optipessiFi
               mass, optiPessiInterface_->modelParameters().mass, inertia, optiPessiInterface_->modelParameters().inertia);
   optiPessiInterface_->setRobotModel(mass, inertia);
 
-  // Both values are compiled into the CppAD libraries: one library folder per model, so a different model generates
-  // its own libraries instead of loading stale ones.
+  // Both values are compiled into the CppAD libraries, and the obstacle slot count sizes their input and parameters: one
+  // library folder per model and slot count, so a different one generates its own libraries instead of loading stale ones.
   char modelFolder[64];
-  std::snprintf(modelFolder, sizeof(modelFolder), "/m%.3f_I%.4f", mass, inertia);
+  std::snprintf(modelFolder, sizeof(modelFolder), "/m%.3f_I%.4f_o%d", mass, inertia, optiPessiInterface_->numObstacles());
   optiPessiInterface_->setupOptimalControlProblem(libraryFolder + modelFolder, recompile, backend);
 }
 
@@ -1736,19 +1713,17 @@ void OptiPessiController::setupLeggedInterface(const std::string& taskFile, cons
 }
 
 void OptiPessiController::setupOptiPessiMpc() {
-  // Not IpmMpc: a new contact phase must warm-start from the previous plan shifted one knot, see OptiPessiMpc.h.
-  optiPessiMpc_ = std::make_shared<opti_pessi::OptiPessiMpc>(optiPessiInterface_->mpcSettings(), optiPessiInterface_->ipmSettings(),
-                                                             optiPessiInterface_->getOptimalControlProblem(),
-                                                             optiPessiInterface_->getInitializer(),
-                                                             optiPessiInterface_->getOptiPessiReferenceManagerPtr(),
-                                                             optiPessiInterface_->modelParameters());
+  // Not IpmMpc: a new contact phase must warm-start from the previous plan shifted one knot, and each solve takes the OCP
+  // with one slot per obstacle present, see OptiPessiMpc.h.
+  auto optiPessiMpc = std::make_shared<opti_pessi::OptiPessiMpc>(*optiPessiInterface_);
+  optiPessiMpc_ = optiPessiMpc;
 
   const std::string robotName = "opti_pessi_robot";
 
-  // ROS ReferenceManager
+  // ROS ReferenceManager, for the solvers of every OCP size
   auto rosReferenceManagerPtr = std::make_shared<RosReferenceManager>(robotName, optiPessiInterface_->getReferenceManagerPtr());
   rosReferenceManagerPtr->subscribe(ros2_node_);
-  optiPessiMpc_->getSolverPtr()->setReferenceManager(rosReferenceManagerPtr);
+  optiPessiMpc->setReferenceManager(rosReferenceManagerPtr);
   optiPessiObservationPublisher_ = ros2_node_->create_publisher<ocs2_msgs::msg::MpcObservation>(robotName + "_mpc_observation", 1);
   optiPessiPlanPublisher_ = ros2_node_->create_publisher<visualization_msgs::msg::MarkerArray>("/opti_pessi/plan", 1);
   optiPessiTrajectoryPublisher_ =

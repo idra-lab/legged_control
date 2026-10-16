@@ -96,9 +96,8 @@ class OptiPessiController : public controller_interface::ControllerInterface {
 
   /**
    * Hands the latest goal and obstacles to the Opti-Pessi reference manager, from the MPC thread so they cannot change
-   * under a solve. The OCP has a fixed number of obstacle slots (scenario obstacles.numObstacles): with more obstacles
-   * than slots the ones whose keep-out disks come closest to the CoM of `robotState` take them, and free slots hold a
-   * point obstacle parked far from the robot.
+   * under a solve. Each obstacle goes with the keep-out model of its type; which OCP slot it takes is
+   * OptiPessiReferenceManager::setObservedObstacles()'s business.
    */
   void pushOptiPessiReferences(const vector_t& robotState);
 

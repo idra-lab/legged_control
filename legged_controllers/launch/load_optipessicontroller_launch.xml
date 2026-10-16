@@ -8,6 +8,8 @@
   <!-- Opti-Pessi costs/constraints are CppAD libraries with task.info values compiled in: regenerate after editing it -->
   <arg name="recompile"           default="false" description="Regenerate the Opti-Pessi CppAD libraries from opti_pessi_interface/config/task.info"/>
   <arg name="phaseDiagnostics"    default="false" description="Log the per-phase lines (phase, diag, posture, wbc, touchdown, plan, obstacle)"/>
+  <!-- obstacles.numSlots of this file is the number of obstacles the OCP keeps out at once -->
+  <arg name="scenarioFile"        default="$(find-pkg-share opti_pessi_interface)/config/scenario_live.info" description="Opti-Pessi scenario file: obstacle slot count and goal tolerance"/>
 
   <arg name="joy_dev" default="/dev/input/js0"/>
   <arg name="teleop_config" default="$(find-pkg-share legged_controllers)/config/joy.yaml"/>
@@ -18,7 +20,6 @@
   <let name="referenceFile" value="$(find-pkg-share legged_controllers)/config/$(var robot_type)/reference.info"/>
   <let name="gaitCommandFile" value="$(find-pkg-share legged_controllers)/config/$(var robot_type)/gait.info"/>
   <let name="optipessiFile" value="$(find-pkg-share opti_pessi_interface)/config/task.info"/>
-  <let name="scenarioFile" value="$(find-pkg-share opti_pessi_interface)/config/scenario_S1.info"/>
   <let name="libraryFolder" value="$(find-pkg-share opti_pessi_interface)/lib"/>
   <let name="fallRecoveryFile" value="$(find-pkg-share legged_controllers)/config/$(var robot_type)/fall_recovery.info"/>
 
