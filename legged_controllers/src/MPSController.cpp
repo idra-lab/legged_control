@@ -167,7 +167,7 @@ void MPSController::update(const ros::Time& time, const ros::Duration& period) {
     auto eff_rl = jointReceiverPtr->getJointEfforts();
     // Not recoverable
     for (size_t j = 0; j < leggedInterface_->getCentroidalModelInfo().actuatedDofNum; ++j) {
-      hybridJointHandles_[j].setCommand(pos_rl[j], 0, 25, 0.5, 0+ eff_rl[j]);
+      hybridJointHandles_[j].setCommand(pos_rl[j], 0, 25, 0.5, 0);//+ eff_rl[j]);
     }
   }
   else if ((onlyRL_ || nomRL_) && isRecReceiverPtr->getIsRec()){
