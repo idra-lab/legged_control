@@ -75,6 +75,10 @@ install(TARGETS ${PROJECT_NAME}_3_3_1 ${PROJECT_NAME}_3_8_0
         RUNTIME DESTINATION bin
         )
 
+install(FILES lib/libunitree_legged_sdk_amd64_3_3_1.so
+        DESTINATION lib
+        )
+
 install(DIRECTORY include/
         DESTINATION include
         FILES_MATCHING PATTERN "*.h"

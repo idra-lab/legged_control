@@ -137,10 +137,10 @@ export ROBOT_TYPE=aliengo
 ros2 launch legged_unitree_description empty_world_launch.xml
 ```
 
-Or on the robot hardware (not tested):
+Or on the robot hardware:
 
 ```bash
-ros2 launch legged_unitree_hw legged_unitree_hw.launch.py
+ros2 launch legged_unitree_hw legged_unitree_hw_launch.xml
 ```
 
 > [!TIP]

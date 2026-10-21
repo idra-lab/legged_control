@@ -33,6 +33,8 @@ class UnitreeHW : public LeggedHW {
   // ROS 2 Control Lifecycle Methods
   hardware_interface::CallbackReturn on_init(const hardware_interface::HardwareInfo & info) override;
 
+  std::vector<hardware_interface::StateInterface> export_state_interfaces() override;
+
   hardware_interface::return_type read(const rclcpp::Time & time, const rclcpp::Duration & period) override;
 
   hardware_interface::return_type write(const rclcpp::Time & time, const rclcpp::Duration & period) override;
@@ -40,6 +42,8 @@ class UnitreeHW : public LeggedHW {
   void updateJoystick(const rclcpp::Time & time);
 
   void updateContact(const rclcpp::Time & time);
+
+  void checkRobotState(const rclcpp::Time & time);
 
  private:
   // Maps URDF joint list ordering to the low-level Unitree 0-11 SDK index structure
@@ -50,14 +54,21 @@ class UnitreeHW : public LeggedHW {
   UNITREE_LEGGED_SDK::LowState lowState_{};
   UNITREE_LEGGED_SDK::LowCmd lowCmd_{};
 
+  std::string robotIp_;
   int powerLimit_{0};
   double contactThreshold_{0.0};
+
+  double contactStates_[4] = {0.0, 0.0, 0.0, 0.0};
 
   // Internal node context required to handle topic publishing inside a plugin environment
   rclcpp::Node::SharedPtr node_;
   rclcpp::Publisher<sensor_msgs::msg::Joy>::SharedPtr joyPublisher_;
   rclcpp::Publisher<std_msgs::msg::Int16MultiArray>::SharedPtr contactPublisher_;
   rclcpp::Time lastJoyPub_, lastContactPub_;
+
+  uint32_t lastTick_{0};
+  rclcpp::Time lastStateTime_;
+  bool receivingState_{false};
 };
 
 }  // namespace legged

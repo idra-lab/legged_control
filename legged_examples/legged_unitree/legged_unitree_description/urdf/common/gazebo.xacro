@@ -3,6 +3,12 @@
 
     <xacro:arg name="sim" default="true"/>
 
+    <!-- Real robot only (sim:=false): Unitree SDK of the hardware plugin (3_8_0 or 3_3_1) and the parameters UnitreeHW reads; legged_unitree_hw_launch.xml passes them -->
+    <xacro:arg name="unitree_sdk" default="3_3_1"/>
+    <xacro:arg name="robot_ip" default="192.168.123.10"/>
+    <xacro:arg name="power_limit" default="7"/>
+    <xacro:arg name="contact_threshold" default="40"/>
+
     <!-- ===================================================================
          ros2_control configuration
          Only joints are declared here. Sensors (IMU, contacts) are handled
@@ -18,6 +24,12 @@
             </xacro:if>
             <xacro:unless value="$(arg sim)">
                 <plugin>legged_hw/LeggedHW</plugin>
+                <!-- UnitreeHW exports the foot contacts (RF_FOOT/contact, ...) itself, undeclared as in Gazebo -->
+                <plugin>legged_unitree_hw/UnitreeHW_$(arg unitree_sdk)</plugin>
+                <param name="robot_type">$(arg robot_type)</param>
+                <param name="robot_ip">$(arg robot_ip)</param>
+                <param name="power_limit">$(arg power_limit)</param>
+                <param name="contact_threshold">$(arg contact_threshold)</param>
             </xacro:unless>
         </hardware>
 
