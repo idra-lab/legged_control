@@ -2,7 +2,7 @@
   <arg name="robot_type" default="$(env ROBOT_TYPE)" description="Robot type: [a1, aliengo, go1, laikago]"/>
   <arg name="unitree_sdk" default="3_3_1" description="Unitree SDK of the hardware plugin: [3_8_0, 3_3_1]"/>
   <arg name="robot_ip" default="192.168.123.10" description="Low-level UDP server of the robot (port 8007), SDK 3.8.0 only"/>
-  <arg name="power_limit" default="7" description="Safety::PowerProtect factor, 1-10 (10-100 % of the power): over it the SDK cuts the motors"/>
+  <arg name="power_limit" default="10" description="Safety::PowerProtect factor, 1-10 (10-100 % of the power): over it the SDK cuts the motors"/>
   <arg name="contact_threshold" default="40" description="footForce above which a foot is in contact"/>
   <arg name="camera" default="true" description="D435i in the URDF"/>
   <arg name="lidar" default="true" description="RoboSense Airy in the URDF"/>

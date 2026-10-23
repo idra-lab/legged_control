@@ -190,10 +190,16 @@ class OptiPessiController : public controller_interface::ControllerInterface {
 
   /**
    * Stand-up stage run after activation: all feet down, CoM height ramped from the measured one to comHeight over
-   * optiPessiStandUpDuration_, then optiPessiStandSettleDuration_ of holding. At its end phase 0 is measured and
-   * the MPC starts.
+   * optiPessiStandUpDuration_, then optiPessiStandSettleDuration_ of holding. At its end, once there is a goal farther
+   * than optiPessiGoalStandDistance_, phase 0 is measured and the MPC starts.
    */
   void standUp(const rclcpp::Duration& period);
+
+  /**
+   * Goal reached at a phase end: stops the MPC and the LIP clock and holds a four-feet stance at robotState's CoM and
+   * heading, in standUp() past its height ramp, which walks again when the goal moves away.
+   */
+  void standAtGoal(const vector_t& robotState);
 
   /**
    * Starts standUp() from the robot as it lies now: measures it, holds its feet where they are and resets the walk and
@@ -289,7 +295,7 @@ class OptiPessiController : public controller_interface::ControllerInterface {
   vector_t optiPessiRobotState_;           // measured 10-dof LIP state at the start of the current phase
   scalar_t optiPessiPhaseElapsed_ = 0.0;   // seconds spent in the current phase
   scalar_t optiPessiPhaseDuration_ = 0.0;  // duration applied on the last tick: u(DT), stretched if needed so the swing feet can land; 0 at phase start
-  size_t optiPessiReachedGoalSequence_ = 0;  // goal sequence last logged as reached. Control thread only.
+  scalar_t optiPessiGoalStandDistance_ = 0.1;  // CoM this close to the goal at a phase end: stop trotting and stand [m]
   std::atomic_bool optiPessiMpcResetRequested_{false};  // set by beginStandUp(), cleared by the MPC thread's reset()
 
   // Goal and obstacles as last received on their topics, in odom. Written by the spin thread, read by the control and

@@ -878,16 +878,36 @@ void OptiPessiController::advanceOptiPessiPhase(const rclcpp::Time& time, const 
   lipObservation.mode = optiPessiPhase_;
   optiPessiObservationPublisher_->publish(ros_msg_conversions::createObservationMsg(lipObservation));
 
-  // Reaching the goal is only logged: the MPC keeps running and steps in place there, so a goal that moves is followed
-  // at once, with no restart. A four-feet stance latched at the goal only walked again on a goal message that changed.
+  // Within optiPessiGoalStandDistance_ of the goal the robot stops trotting and stands. Checked here, at a phase end,
+  // because only now are all four feet down: the swing pair has just landed.
   vector_t goal;
   size_t goalSequence = 0;
-  if (getOptiPessiGoal(goal, goalSequence) && goalSequence != optiPessiReachedGoalSequence_ &&
-      (successorState.head(2) - goal).norm() < params.goalTolerance) {
-    optiPessiReachedGoalSequence_ = goalSequence;
-    RCLCPP_INFO(this->get_node()->get_logger(), "[OptiPessi] goal (%.3f, %.3f) reached after %zu phases, stepping in place until it moves",
+  if (getOptiPessiGoal(goal, goalSequence) && (successorState.head(2) - goal).norm() < optiPessiGoalStandDistance_) {
+    RCLCPP_INFO(this->get_node()->get_logger(), "[OptiPessi] goal (%.3f, %.3f) reached after %zu phases, standing until it moves",
                 goal(0), goal(1), optiPessiPhase_);
+    standAtGoal(successorState);
   }
+}
+
+void OptiPessiController::standAtGoal(const vector_t& robotState) {
+  using opti_pessi::RobotX;
+  const auto& params = optiPessiInterface_->modelParameters();
+
+  // All four feet down where they were measured at this phase end, the CoM held where it is, at comHeight.
+  for (size_t i = 0; i < optiPessiFootReferences_.size(); ++i) {
+    optiPessiFootReferences_[i].position = optiPessiLiftoffPositions_[i];
+  }
+  holdStance(vector3_t(robotState(RobotX::CX), robotState(RobotX::CY), params.comHeight), robotState(RobotX::TH));
+
+  // Back to standUp(), past its height ramp: it holds this stance and starts phase 0 again once the goal is farther than
+  // optiPessiGoalStandDistance_. As in beginStandUp(), the next walk starts on a reset MPC.
+  optiPessiStandStartHeight_ = params.comHeight;
+  optiPessiStandElapsed_ = optiPessiStandUpDuration_;
+  optiPessiStandingUp_ = true;
+  mpcRunning_ = false;
+  optiPessiMrtInterface_->reset();
+  optiPessiMpcResetRequested_ = true;
+  optiPessiPlan_ = AcceptedPlan();
 }
 
 std::string OptiPessiController::formatBenchmarks(const char* reason) const {
@@ -1202,13 +1222,19 @@ void OptiPessiController::standUp(const rclcpp::Duration& period) {
     fallHeightArmed_ = true;
     fallRecovery_->standUpCompleted();
   }
-  // Walking starts once there is a goal to walk to.
+  // Walking starts once there is a goal to walk to, farther than optiPessiGoalStandDistance_ from the held CoM (the
+  // reference, not the measured CoM, so that sensor noise cannot start a walk at the goal).
   {
     vector_t goal;
     size_t goalSequence = 0;
     if (!getOptiPessiGoal(goal, goalSequence)) {
       RCLCPP_INFO_THROTTLE(this->get_node()->get_logger(), *this->get_node()->get_clock(), 5000,
                            "[OptiPessi] standing, waiting for a goal on /opti_pessi/goal");
+      return;
+    }
+    if ((optiPessiComReference_.position.head<2>() - goal).norm() < optiPessiGoalStandDistance_) {
+      RCLCPP_INFO_THROTTLE(this->get_node()->get_logger(), *this->get_node()->get_clock(), 5000,
+                           "[OptiPessi] standing at the goal (%.3f, %.3f), waiting for it to move", goal(0), goal(1));
       return;
     }
   }
