@@ -94,15 +94,21 @@ int main(int argc, char** argv) {
 
   // Initialize ros node
   rclcpp::init(argc, argv);
-  auto node = rclcpp::Node::make_shared(robotName + "_target");
-  
-  // Get node parameters
-  std::string referenceFile;
-  std::string taskFile;
-  node->declare_parameter<std::string>("referenceFile", "");
-  node->declare_parameter<std::string>("taskFile", "");
-  referenceFile = node->get_parameter("referenceFile").as_string();
-  taskFile = node->get_parameter("taskFile").as_string();
+
+  rclcpp::NodeOptions node_options;
+  node_options.automatically_declare_parameters_from_overrides(true);
+  auto node = std::make_shared<rclcpp::Node>("legged_robot_target", node_options);
+
+  // Dichiarazione e lettura sicura dei parametri
+  if (!node->has_parameter("taskFile")) {
+    node->declare_parameter<std::string>("taskFile", "");
+  }
+  if (!node->has_parameter("referenceFile")) {
+    node->declare_parameter<std::string>("referenceFile", "");
+  }
+
+  std::string taskFile = node->get_parameter("taskFile").as_string();
+  std::string referenceFile = node->get_parameter("referenceFile").as_string();
 
   loadData::loadCppDataType(referenceFile, "comHeight", COM_HEIGHT);
   loadData::loadEigenMatrix(referenceFile, "defaultJointState", DEFAULT_JOINT_STATE);
@@ -114,6 +120,5 @@ int main(int argc, char** argv) {
 
   rclcpp::spin(node);
   rclcpp::shutdown();
-  // Successful exit
   return 0;
 }

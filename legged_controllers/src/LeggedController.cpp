@@ -27,6 +27,24 @@ using namespace std;
 
 namespace legged {
 
+
+void LeggedController::setupAcados() {
+  acadosCapsule_ = ocp_lipm_opti_pessi_d9524c89_acados_create_capsule();
+  int status = ocp_lipm_opti_pessi_d9524c89_acados_create(acadosCapsule_);
+
+  RCLCPP_INFO(this->get_node()->get_logger(), "[ACADOS] Solver initialized!");
+}
+
+void LeggedController::cleanUpAcados(){
+  if(acadosCapsule_){
+    ocp_lipm_opti_pessi_d9524c89_acados_free(acadosCapsule_);
+    ocp_lipm_opti_pessi_d9524c89_acados_free_capsule(acadosCapsule_);
+    acadosCapsule_ = nullptr;
+  }
+}
+
+
+
 controller_interface::CallbackReturn LeggedController::on_init() {
   auto node = this->get_node();
 
@@ -41,6 +59,7 @@ controller_interface::CallbackReturn LeggedController::on_init() {
     node->declare_parameter<std::string>("referenceFile", "");
   }
 
+  // Read params from the configuration files
   std::string urdfFile = node->get_parameter("urdfFile").as_string();
   std::string taskFile = node->get_parameter("taskFile").as_string();
   std::string referenceFile = node->get_parameter("referenceFile").as_string();
@@ -49,7 +68,10 @@ controller_interface::CallbackReturn LeggedController::on_init() {
   loadData::loadCppDataType(taskFile, "legged_robot_interface.verbose", verbose);
 
   // Helper node for OCS2 ROS 2 communication
-  ros2_node_ = std::make_shared<rclcpp::Node>("legged_controller_ros2_node");
+  rclcpp::NodeOptions node_options;
+  node_options.automatically_declare_parameters_from_overrides(true);
+  ros2_node_ = std::make_shared<rclcpp::Node>("legged_controller_ros2_node", node_options);
+
   executor_ = std::make_shared<rclcpp::executors::SingleThreadedExecutor>();
   executor_->add_node(ros2_node_);
   spin_thread_ = std::thread([this]() {
@@ -59,6 +81,7 @@ controller_interface::CallbackReturn LeggedController::on_init() {
   setupLeggedInterface(taskFile, urdfFile, referenceFile, verbose);
   setupMpc();
   setupMrt();
+
 
   // Visualization
   CentroidalModelPinocchioMapping pinocchioMapping(leggedInterface_->getCentroidalModelInfo());
@@ -251,19 +274,19 @@ controller_interface::CallbackReturn LeggedController::on_activate(const rclcpp_
   updateStateEstimation(node->get_clock()->now(), rclcpp::Duration::from_seconds(0.002));
   currentObservation_.input.setZero(leggedInterface_->getCentroidalModelInfo().inputDim);
   currentObservation_.mode = ModeNumber::STANCE;
+  currentObservation_.time = ros2_node_->get_clock()->now().seconds();
 
   TargetTrajectories target_trajectories({currentObservation_.time}, {currentObservation_.state}, {currentObservation_.input});
 
   mpcMrtInterface_->setCurrentObservation(currentObservation_);
   mpcMrtInterface_->getReferenceManager().setTargetTrajectories(target_trajectories);
-  RCLCPP_INFO(node->get_logger(), "Waiting for the initial policy ...");
-  while (!mpcMrtInterface_->initialPolicyReceived() && rclcpp::ok()) {
-    mpcMrtInterface_->advanceMpc();
-    rclcpp::Rate(leggedInterface_->mpcSettings().mrtDesiredFrequency_).sleep();
-  }
-  RCLCPP_INFO(node->get_logger(), "Initial policy has been received.");
 
+  setupAcados();
+
+  RCLCPP_INFO(node->get_logger(), "Waiting for the initial policy ...");
+  RCLCPP_INFO(node->get_logger(), "Avvio del thread MPC. Attesa della policy in background...");
   mpcRunning_ = true;
+  
 
   return controller_interface::CallbackReturn::SUCCESS;
 }
@@ -276,6 +299,51 @@ controller_interface::CallbackReturn LeggedController::on_deactivate(const rclcp
 controller_interface::return_type LeggedController::update(const rclcpp::Time& time, const rclcpp::Duration& period) {
   // State Estimate
   updateStateEstimation(time, period);
+
+  if (!mpcMrtInterface_->initialPolicyReceived()) {
+    RCLCPP_INFO_THROTTLE(this->get_node()->get_logger(), *this->get_node()->get_clock(), 1000,
+                         "[LeggedController] Attesa ricezione initial policy da OCS2...");
+    return controller_interface::return_type::OK;
+  }
+
+  // Acados solver
+  double x0[22];
+  double cx = currentObservation_.state(6);
+  double cy = currentObservation_.state(7);
+  double theta = currentObservation_.state(9);
+  double cdotx = currentObservation_.state(3);
+  double cdoty = currentObservation_.state(4);
+  double thetadot = currentObservation_.state(11);
+
+  
+  // Rotation matrix
+  Eigen::Matrix2d R_th;
+  R_th << std::cos(theta), -std::sin(theta), std::sin(theta), std::cos(theta);
+
+  Eigen::Vector2d p0_curr = Eigen::Vector2d(cx, cy) + R_th * Eigen::Vector2d(0.18, 0.13);
+  Eigen::Vector2d p1_curr = Eigen::Vector2d(cx, cy) + R_th * Eigen::Vector2d(-0.18, -0.13);
+  
+  double x_branch[11] = {cx, cy, theta, cdotx, cdoty, thetadot, p0_curr(0), p0_curr(1), p1_curr(0), p1_curr(1), 0.0};
+  for(int i = 0; i < 11; ++i){
+    x0[i] = x_branch[i];
+    x0[i+11] = x_branch[i];
+  }
+
+  
+  
+
+  // Initial state set in acados
+  ocp_nlp_constraints_model_set(acadosCapsule_->nlp_config, acadosCapsule_->nlp_dims, acadosCapsule_->nlp_in, acadosCapsule_->nlp_out, 0, "lbx", x0);
+  ocp_nlp_constraints_model_set(acadosCapsule_->nlp_config, acadosCapsule_->nlp_dims, acadosCapsule_->nlp_in, acadosCapsule_->nlp_out, 0, "ubx", x0);
+
+  
+  // Solve acados
+  int acados_status = ocp_lipm_opti_pessi_d9524c89_acados_solve(acadosCapsule_);
+
+  // Print status 1 time per second
+  RCLCPP_INFO_THROTTLE(this->get_node()->get_logger(), *this->get_node()->get_clock(), 1000,
+                    "[Acados] Solver status: %d", acados_status);
+
 
   // Update the current state of the system
   mpcMrtInterface_->setCurrentObservation(currentObservation_);
@@ -363,6 +431,8 @@ void LeggedController::updateStateEstimation(const rclcpp::Time& time, const rcl
 }
 
 LeggedController::~LeggedController() {
+  cleanUpAcados();
+
   controllerRunning_ = false;
   if (mpcThread_.joinable()) {
     mpcThread_.join();

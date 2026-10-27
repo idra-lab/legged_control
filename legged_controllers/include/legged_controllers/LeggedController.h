@@ -24,6 +24,11 @@
 #include "legged_controllers/SafetyChecker.h"
 #include "legged_controllers/visualization/LeggedSelfCollisionVisualization.h"
 
+extern "C" {
+  #include "acados_solver_ocp_lipm_opti_pessi_d9524c89.h"
+  #include "acados_c/ocp_nlp_interface.h"
+}
+
 namespace legged {
 using namespace ocs2;
 using namespace legged_robot;
@@ -157,6 +162,17 @@ class LeggedController : public controller_interface::ControllerInterface {
   std::atomic_bool controllerRunning_{}, mpcRunning_{};
   benchmark::RepeatedTimer mpcTimer_;
   benchmark::RepeatedTimer wbcTimer_;
+
+  ocp_lipm_opti_pessi_d9524c89_solver_capsule* acadosCapsule_{nullptr};
+
+  Eigen::Vector2d p0_next_target_{Eigen::Vector2d::Zero()};
+  Eigen::Vector2d p1_next_target_{Eigen::Vector2d::Zero()};
+
+  double dt_acados_{0.03};
+
+  void setupAcados();
+  void cleanUpAcados();
+
 };
 
 class LeggedCheaterController : public LeggedController {

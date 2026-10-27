@@ -28,6 +28,21 @@ find_package(std_msgs REQUIRED)
 find_package(pinocchio REQUIRED)
 find_package(Boost REQUIRED COMPONENTS system filesystem log log_setup)
 
+
+# acados Configuration
+set(ACADOS_SOURCE_DIR "$ENV{HOME}/acados")
+
+
+link_directories(
+        ${ACADOS_SOURCE_DIR}/lib
+)
+
+file(GLOB_RECURSE ACADOS_C_SOURCES
+        "${CMAKE_CURRENT_SOURCE_DIR}/c_generated_code/*.c"
+)
+
+
+
 # Generate custom interfaces/services in ROS 2 instead of add_service_files()
 rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/KillNode.srv"
@@ -38,21 +53,27 @@ rosidl_generate_interfaces(${PROJECT_NAME}
 ## Build ##
 ###########
 
-# Declare a shared controller plugin library target
+
+# 1. Definizione target libreria shared (C++ + sorgenti C Acados)
 add_library(${PROJECT_NAME}_lib SHARED
         src/LeggedController.cpp
+        ${ACADOS_C_SOURCES}
         )
 
-# Set the output name of the library to match the original package name
 set_target_properties(${PROJECT_NAME}_lib PROPERTIES OUTPUT_NAME ${PROJECT_NAME})
 
-# Configure include directory interfaces for the library target
+# Include directories
 target_include_directories(${PROJECT_NAME}_lib PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/c_generated_code>
+        $<BUILD_INTERFACE:${ACADOS_SOURCE_DIR}/include>
+        $<BUILD_INTERFACE:${ACADOS_SOURCE_DIR}/include/acados>
+        $<BUILD_INTERFACE:${ACADOS_SOURCE_DIR}/include/hpipm/include>
+        $<BUILD_INTERFACE:${ACADOS_SOURCE_DIR}/include/blasfeo/include>
         $<INSTALL_INTERFACE:include>
         )
 
-# Use ROS 2 recommended macro to link and include ament dependencies
+# 2. Dipendenze ROS 2 (Macro Plain)
 ament_target_dependencies(${PROJECT_NAME}_lib
         rclcpp
         legged_common
@@ -67,18 +88,22 @@ ament_target_dependencies(${PROJECT_NAME}_lib
         std_msgs
         )
 
-# Link standard non-ament external libraries using namespaced targets
+# 3. Linking Librerie Esterne usando i percorsi ASSOLUTI ai file .so di Acados (senza la parola PUBLIC!)
 target_link_libraries(${PROJECT_NAME}_lib
         pinocchio::pinocchio
+        "${ACADOS_SOURCE_DIR}/lib/libacados.so"
+        "${ACADOS_SOURCE_DIR}/lib/libhpipm.so"
+        "${ACADOS_SOURCE_DIR}/lib/libblasfeo.so"
+        m
         )
 
-# Link the generated interface typesupport to the library so it can use KillNode.srv internally
+# Link del servizio generato KillNode.srv
 rosidl_get_typesupport_target(typesupport_target "${PROJECT_NAME}" "rosidl_typesupport_cpp")
 target_link_libraries(${PROJECT_NAME}_lib ${typesupport_target})
 
 target_compile_options(${PROJECT_NAME}_lib PUBLIC ${OCS2_CXX_FLAGS})
 
-# Target trajectories publish node executable
+# 4. Eseguibile Target Trajectories Publisher
 add_executable(legged_target_trajectories_publisher
         src/TargetTrajectoriesPublisher.cpp
         )
@@ -88,28 +113,18 @@ ament_target_dependencies(legged_target_trajectories_publisher
         ocs2_legged_robot_ros
         )
 
+# Link esplicito anche per l'eseguibile publisher
 target_link_libraries(legged_target_trajectories_publisher
         ${PROJECT_NAME}_lib
+        "${ACADOS_SOURCE_DIR}/lib/libacados.so"
+        "${ACADOS_SOURCE_DIR}/lib/libhpipm.so"
+        "${ACADOS_SOURCE_DIR}/lib/libblasfeo.so"
         )
 
 target_compile_options(legged_target_trajectories_publisher PRIVATE ${OCS2_CXX_FLAGS})
 
-# Register the plugin configuration file for ros2_control/pluginlib loader
+# Register plugin
 pluginlib_export_plugin_description_file(controller_interface legged_controllers_plugins.xml)
-
-#########################
-###   CLANG TOOLING   ###
-#########################
-find_package(cmake_clang_tools QUIET)
-if (cmake_clang_tools_FOUND)
-    message(STATUS "Run clang tooling for target " ${PROJECT_NAME})
-    add_clang_tooling(
-            TARGETS ${PROJECT_NAME}_lib legged_target_trajectories_publisher
-            SOURCE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/include
-            CT_HEADER_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/include
-            CF_WERROR
-    )
-endif (cmake_clang_tools_FOUND)
 
 #############
 ## Install ##
