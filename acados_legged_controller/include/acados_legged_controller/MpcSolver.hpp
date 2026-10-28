@@ -40,6 +40,9 @@ public:
     // Get the computation time
     double getComputationTime() const;
 
+    // setFirstStepDuration to set lbu/ubu to stage 0
+    bool setFirstStepDuration(double T); // FIX: Fist -> First
+
 
 
 private:
@@ -48,6 +51,11 @@ private:
     int nx_;
     int nu_;
     int np_;
+
+    // FIX: default bounds on the controls at stage 0 (read from the generated solver in the constructor)
+    std::vector<double> default_lbu_;
+    std::vector<double> default_ubu_;
+
 
     ocp_lipm_opti_pessi_0e58481e_solver_capsule* capsule_;
     ocp_nlp_config* nlp_config_;

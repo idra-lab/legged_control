@@ -15,6 +15,27 @@ endif()
 # Find only ament_cmake to keep the structure of package ROS2
 find_package(ament_cmake REQUIRED)
 
+# FIX: dependencies needed by the controller plugin
+find_package(rclcpp REQUIRED)
+find_package(controller_interface REQUIRED)
+find_package(hardware_interface REQUIRED)
+find_package(pluginlib REQUIRED)
+# FIX: OCS2 / legged_* export Boost::system in their link interface, so Boost must be found before them
+find_package(Boost REQUIRED COMPONENTS system filesystem log log_setup)
+find_package(legged_controllers REQUIRED)
+# FIX: needed by the headers included by legged_controllers/LeggedController.h
+find_package(ocs2_legged_robot_ros REQUIRED)
+find_package(ocs2_self_collision_visualization REQUIRED)
+find_package(ocs2_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(legged_interface REQUIRED)
+find_package(legged_wbc REQUIRED)
+find_package(legged_estimation REQUIRED)
+find_package(ocs2_legged_robot REQUIRED)
+find_package(ocs2_centroidal_model REQUIRED)
+find_package(angles REQUIRED)
+find_package(pinocchio REQUIRED)
+
 
 # ACADOS configuration
 set(ACADOS_DIR $ENV{ACADOS_SOURCE_DIR})
@@ -60,6 +81,44 @@ target_link_libraries(mpc_solver
 )
 
 
+# FIX: the controller was never compiled. Controller plugin library
+add_library(${PROJECT_NAME} SHARED
+  src/AcadosLeggedController.cpp
+)
+
+target_link_libraries(${PROJECT_NAME}
+  mpc_solver
+  pinocchio::pinocchio
+)
+
+ament_target_dependencies(${PROJECT_NAME}
+  rclcpp
+  controller_interface
+  hardware_interface
+  pluginlib
+  legged_interface
+  legged_wbc
+  legged_estimation
+  ocs2_legged_robot
+  ocs2_legged_robot_ros
+  ocs2_self_collision_visualization
+  ocs2_msgs
+  ocs2_centroidal_model
+  std_msgs
+  angles
+)
+
+# FIX: legged_controllers exports also an executable target (legged_target_trajectories_publisher) that
+# ament_target_dependencies tries to link -> take only its headers (handles + SafetyChecker are header-only)
+target_include_directories(${PROJECT_NAME} PRIVATE ${legged_controllers_INCLUDE_DIRS})
+
+# Same flags used by OCS2 / legged_controllers
+target_compile_options(${PROJECT_NAME} PUBLIC ${OCS2_CXX_FLAGS})
+
+# FIX: register the plugin for ros2_control
+pluginlib_export_plugin_description_file(controller_interface acados_legged_controller_plugins.xml)
+
+
 # Export and installation
 # EXECUTABLE TESTS
 add_executable(test_solver src/test_solver.cpp)
@@ -69,7 +128,8 @@ target_link_libraries(test_solver mpc_solver)
 
 
 # Intall the wrapper lib
-install(TARGETS mpc_solver
+# FIX: install also the controller plugin
+install(TARGETS mpc_solver ${PROJECT_NAME}
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin

@@ -1,4 +1,7 @@
 #include "acados_legged_controller/MpcSolver.hpp"
+// FIX: std::runtime_error and std::max
+#include <stdexcept>
+#include <algorithm>
 
 
 
@@ -20,18 +23,27 @@ MpcSolver::MpcSolver(int n_obs_max, int n_horizon) : n_obs_max_(n_obs_max), n_ho
     std::cout << "[MpcSolver]: Initialization of the solver\n";
     int status = ocp_lipm_opti_pessi_0e58481e_acados_create(capsule_);
     std::cout << "[MpcSolver]: Status of the solver: " << status << "\n";
-    if(status != 0 || status != 2){
+    // FIX: '||' was always true; now stop if the solver cannot be created
+    if(status != 0 && status != 2){
         std::cerr << "[MpcSolver]: Sovler error: impossible to create the solver. Status: " << status << std::endl;
+        throw std::runtime_error("FATAL_ERROR: acados_create failed");
     }
 
     // Extraction of the pointers
-    std::cout << "[MpcSolver]: Extraction of the pointers to the acados config (nlp_config, nlp_dims, ...)";
+    std::cout << "[MpcSolver]: Extraction of the pointers to the acados config (nlp_config, nlp_dims, ...)\n"; // FIX: missing '\n'
     nlp_config_ = ocp_lipm_opti_pessi_0e58481e_acados_get_nlp_config(capsule_);
     nlp_dims_ = ocp_lipm_opti_pessi_0e58481e_acados_get_nlp_dims(capsule_);
     nlp_in_ = ocp_lipm_opti_pessi_0e58481e_acados_get_nlp_in(capsule_);
     nlp_out_ = ocp_lipm_opti_pessi_0e58481e_acados_get_nlp_out(capsule_);
     nlp_solver_ = ocp_lipm_opti_pessi_0e58481e_acados_get_nlp_solver(capsule_);
     nlp_opts_ = ocp_lipm_opti_pessi_0e58481e_acados_get_nlp_opts(capsule_);
+
+    // FIX: save the default bounds of stage 0 [alpha, beta, gamma, dt, (ax, ay, b)*N_obs] x 2 branches
+    const int nbu = 2 * (4 + 3 * n_obs_max_);
+    default_lbu_.resize(nbu);
+    default_ubu_.resize(nbu);
+    ocp_nlp_constraints_model_get(nlp_config_, nlp_dims_, nlp_in_, 0, "lbu", default_lbu_.data());
+    ocp_nlp_constraints_model_get(nlp_config_, nlp_dims_, nlp_in_, 0, "ubu", default_ubu_.data());
 
 }
 
@@ -108,4 +120,17 @@ double MpcSolver::getComputationTime() const {
     double time = 0.0;
     ocp_nlp_get(nlp_solver_, "time_tot", &time);
     return time;
+}
+
+
+
+bool MpcSolver::setFirstStepDuration(double T){ // FIX: Fist -> First
+    T = std::max(T, 1e-3);
+    std::vector<double> lbu = default_lbu_, ubu = default_ubu_;
+    const int nb_branch = 4 + 3 * n_obs_max_;
+    lbu[3] = ubu[3] = T;
+    lbu[3 + nb_branch] = ubu[3 + nb_branch] = T;
+    ocp_nlp_constraints_model_set(nlp_config_, nlp_dims_, nlp_in_, nlp_out_, 0, "lbu", lbu.data());
+    ocp_nlp_constraints_model_set(nlp_config_, nlp_dims_, nlp_in_, nlp_out_, 0, "ubu", ubu.data());
+    return true;
 }
