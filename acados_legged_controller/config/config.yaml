@@ -1,0 +1,50 @@
+robot:
+  h_com: 0.38                 # m
+  g: 9.81                     # m/s^2
+  m: 24.24                    # kg
+  Iz: 1.048                   # kg/m^2
+  off_x: 0.2407               # m
+  off_y: 0.134                # m
+  mu: 0.6                     #
+  max_ext_sq: 0.09          # 0.25 * 0.25
+  x_init: [-0.8, -0.5]        # m
+  theta_init: 0.0             # rad
+
+limits:
+  dt_min: 0.1                 # sec
+  dt_max: 0.25                # sec
+  theta_dot_max: 0.6          # rad/sec
+  v_max_x: 1.5                # m/s
+  v_max_y: 0.45               # m/s
+  alpha_min: 0.1              #
+  alpha_max: 0.9              #
+
+ocp_weights:
+  tracking_xy: 5.0      
+  vel_alignment: 10.0
+  vel_xy: 5.0
+  time_weight: 0.000001
+  yaw_rate: 1.0
+  anti_skating: 10.0
+  posture: 10000.0   # 1e4
+  alpha_weight: 1.0
+  dt_weight: 0.001   # 1e-3
+
+simulation:
+  N_horizon: 6
+  sim_steps: 300
+  step_per_phase: 1
+  c_target: [10.0, 2.2]        # m
+  max_iter: 4
+
+
+obstacles:
+  N_OBS_MAX: 1
+  obs_pos_init: [0.1, 1.0]    # m
+  r_obs: 0.2                  # m
+  speed: 0.5                  # m/s
+  y_dot_max: 1.0              # m/s
+  top_pos_dyn: [0.1, 1.0]     # m
+  bot_pos_dyn: [0.1, -1.0]    # m
+  obs_type: "random"         # static, dynamic, adversarial, circular, random
+  obs_center: [1.0, 0.2]      # m
