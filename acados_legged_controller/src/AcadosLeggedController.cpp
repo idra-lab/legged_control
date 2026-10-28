@@ -548,7 +548,7 @@ void AcadosLeggedController::updateStateEstimation(const rclcpp::Time& time, con
 
 
 
-    // TODO: GaitPlanner logic
+    // GaitPlanner logic
     GaitPlanner::Pair stance;
     {
         std::lock_guard<std::mutex> lock(mpc_mutex_);
