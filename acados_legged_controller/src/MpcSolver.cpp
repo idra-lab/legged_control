@@ -4,19 +4,28 @@
 
 MpcSolver::MpcSolver(int n_obs_max, int n_horizon) : n_obs_max_(n_obs_max), n_horizon_(n_horizon)
 {
+    std::cout << "[MpcSolver]: Constructor\n";
+
     nx_ = 22;
     nu_ = (8 + 3 * n_obs_max_) * 2;
     np_ = 4 + 4 * n_obs_max_;
 
     // Create the acados solver
+    std::cout << "[MpcSolver]: Creation of the acados capsule\n";
     capsule_ = ocp_lipm_opti_pessi_0e58481e_acados_create_capsule();
-    int status = ocp_lipm_opti_pessi_0e58481e_acados_create(capsule_);
+    if(capsule_ == nullptr){
+        throw std::runtime_error("FATAL_ERROR: acados_create_capsule return nullptr");
+    }
 
+    std::cout << "[MpcSolver]: Initialization of the solver\n";
+    int status = ocp_lipm_opti_pessi_0e58481e_acados_create(capsule_);
+    std::cout << "[MpcSolver]: Status of the solver: " << status << "\n";
     if(status != 0 || status != 2){
-        std::cerr << "[MpcSolver] Sovler error: impossible to create the solver. Status: " << status << std::endl;
+        std::cerr << "[MpcSolver]: Sovler error: impossible to create the solver. Status: " << status << std::endl;
     }
 
     // Extraction of the pointers
+    std::cout << "[MpcSolver]: Extraction of the pointers to the acados config (nlp_config, nlp_dims, ...)";
     nlp_config_ = ocp_lipm_opti_pessi_0e58481e_acados_get_nlp_config(capsule_);
     nlp_dims_ = ocp_lipm_opti_pessi_0e58481e_acados_get_nlp_dims(capsule_);
     nlp_in_ = ocp_lipm_opti_pessi_0e58481e_acados_get_nlp_in(capsule_);
