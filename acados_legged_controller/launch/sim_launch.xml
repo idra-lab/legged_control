@@ -1,0 +1,36 @@
+<?xml version="1.0" ?>
+<!-- Same as legged_unitree_description/empty_world_launch.xml, but:
+     1) generates /tmp/legged_control/<robot_type>.urdf (needed by the controller, urdfFile parameter)
+     2) passes our ros2_controllers.yaml to gz_ros2_control (declares acados_legged_controller) -->
+<launch>
+  <arg name="robot_type" default="aliengo" description="Robot type: [a1, aliengo, go1, laikago]"/>
+  <arg name="use_sim_time" default="true"/>
+  <arg name="controllers_yaml" default="$(find-pkg-share acados_legged_controller)/config/ros2_controllers.yaml"/>
+
+  <!-- URDF file for the controller (in ROS 1 it was done by generate_urdf.sh, the ROS 2 launch does not do it) -->
+  <executable cmd="$(find-pkg-prefix legged_common)/lib/legged_common/generate_urdf.sh $(find-pkg-share legged_unitree_description)/urdf/robot.xacro $(var robot_type)" output="screen"/>
+
+  <!-- URDF with our controllers yaml -->
+  <let name="legged_robot_description" value="$(command 'xacro $(find-pkg-share legged_unitree_description)/urdf/robot.xacro robot_type:=$(var robot_type) controllers_yaml:=$(var controllers_yaml)')"/>
+
+  <!-- Robot State Publisher for the TF tree -->
+  <node pkg="robot_state_publisher" exec="robot_state_publisher" name="robot_state_publisher" output="screen">
+    <param name="robot_description" value="$(var legged_robot_description)"/>
+    <param name="use_sim_time" value="$(var use_sim_time)"/>
+  </node>
+
+  <!-- Gazebo Sim (-r: start unpaused) -->
+  <include file="$(find-pkg-share ros_gz_sim)/launch/gz_sim.launch.py">
+    <arg name="gz_args" value="-r $(find-pkg-share legged_gazebo)/worlds/empty_world.world"/>
+  </include>
+
+  <!-- Spawn the robot from the robot_description topic -->
+  <node pkg="ros_gz_sim" exec="create" output="screen" name="spawn_urdf"
+    args="-z 0.5 -topic robot_description -name $(var robot_type)"/>
+
+  <!-- Clock bridge Gazebo -> ROS 2 (/clock) -->
+  <node pkg="ros_gz_bridge" exec="parameter_bridge" name="clock_bridge" output="screen"
+    args="/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock">
+    <param name="use_sim_time" value="$(var use_sim_time)"/>
+  </node>
+</launch>

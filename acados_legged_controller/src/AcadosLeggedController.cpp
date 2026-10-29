@@ -13,6 +13,9 @@
 #include <pinocchio/algorithm/kinematics.hpp>
 #include <pinocchio/algorithm/frames.hpp>
 
+// WARM START: std::cos/sin/hypot, std::min/max/copy
+#include <cmath>
+#include <algorithm>
 // CONFIG: default path of config.yaml (installed in share/acados_legged_controller/config)
 #include <ament_index_cpp/get_package_share_directory.hpp>
 
@@ -297,8 +300,110 @@ controller_interface::CallbackReturn AcadosLeggedController::on_deactivate(const
 
 
 
+// WARM START: previous solution = x0 repeated, controls at zero with dt = dt_max (as u_init in main.py)
+void AcadosLeggedController::resetWarmStart(const std::vector<double>& x0){
+    const int n_u_branch = 8 + 3 * n_obs_max_;
+    std::vector<double> u_init(2 * n_u_branch, 0.0);
+    u_init[7] = cfg_.dt_max / cfg_.step_per_phase;
+    u_init[n_u_branch + 7] = cfg_.dt_max / cfg_.step_per_phase;
+
+    x_prev_sol_.assign(n_horizon_ + 1, x0);
+    u_prev_sol_.assign(n_horizon_, u_init);
+}
+
+
+// WARM START: port of the warm start of main.py
+// The hyperplane (a, b) must start from a unit vector: with a = 0 the hard constraint 0.5 <= |a|^2 has zero
+// gradient and the linearized QP is infeasible (ACADOS_MINSTEP at the first SQP iteration)
+void AcadosLeggedController::setWarmStart(const std::vector<double>& x0, const GaitPlanner& gait){
+    const int n_u_branch = 8 + 3 * n_obs_max_;
+    const int n_x_branch = 11;
+
+    // Shift by one node only if a new step started since the last solve (in main.py every solve was one step)
+    const int shift = (gait.stepIndex() != last_step_index_) ? 1 : 0;
+    last_step_index_ = gait.stepIndex();
+
+    // Guess of the hyperplane between the closest robot point (CoM or hips) and the obstacle
+    auto hyperplaneGuess = [](const double c[2], const double hips[4], const double obs[2]) {
+        const double candidates[3][2] = {{c[0], c[1]}, {hips[0], hips[1]}, {hips[2], hips[3]}};
+        int best = 0;
+        double best_dist = 1e12;
+        for(int j = 0; j < 3; ++j){
+            const double d = std::hypot(obs[0] - candidates[j][0], obs[1] - candidates[j][1]);
+            if(d < best_dist){ best_dist = d; best = j; }
+        }
+        const double* pt = candidates[best];
+        const double norm = best_dist + 1e-5;
+        const double ax = (obs[0] - pt[0]) / norm;
+        const double ay = (obs[1] - pt[1]) / norm;
+        const double b = -(ax * (pt[0] + obs[0]) / 2.0 + ay * (pt[1] + obs[1]) / 2.0);
+        return std::array<double, 3>{ax, ay, b};
+    };
+
+    std::vector<double> x_guess = x0;
+    for(int k = 0; k < n_horizon_; ++k){
+        const int idx_x = std::min(k + shift, n_horizon_);
+        const int idx_u = std::min(k + shift, n_horizon_ - 1);
+        const std::vector<double>& x_prev = x_prev_sol_[idx_x];
+        const std::vector<double>& u_prev = u_prev_sol_[idx_u];
+
+        // Hip offsets of the pair placed at node k (same as the parameters)
+        const std::vector<double> off = gait.hipOffsetParams(k);
+
+        std::vector<double> u_guess(2 * n_u_branch, 0.0);
+        x_guess = x_prev;
+
+        // b = 0 optimistic, b = 1 pessimistic
+        for(int br = 0; br < 2; ++br){
+            const int ix = br * n_x_branch;
+            const int iu = br * n_u_branch;
+            const double c[2] = {x_prev[ix + 0], x_prev[ix + 1]};
+            const double th = x_prev[ix + 2];
+            const double ct = std::cos(th), st = std::sin(th);
+
+            // Hips of the pair at node k (compute_hip_positions of gait_planner.py)
+            const double hips[4] = {c[0] + ct * off[0] - st * off[1], c[1] + st * off[0] + ct * off[1],
+                                    c[0] + ct * off[2] - st * off[3], c[1] + st * off[2] + ct * off[3]};
+
+            // [p0_next, p1_next] under the hips, alpha = 0.5, beta = gamma = 0, dt from previous solution
+            u_guess[iu + 0] = hips[0]; u_guess[iu + 1] = hips[1];
+            u_guess[iu + 2] = hips[2]; u_guess[iu + 3] = hips[3];
+            u_guess[iu + 4] = 0.5;
+            u_guess[iu + 7] = (k == 0) ? std::max(gait.timeLeft(), 1e-3) : u_prev[iu + 7];  // node 0: dt fixed to the time left
+
+            for(int i = 0; i < n_obs_max_; ++i){
+                const double obs[2] = {kGhostObsPos + 2.0 * i, kGhostObsPos};
+                const auto ab = hyperplaneGuess(c, hips, obs);
+                u_guess[iu + 8 + 3 * i + 0] = ab[0];
+                u_guess[iu + 8 + 3 * i + 1] = ab[1];
+                u_guess[iu + 8 + 3 * i + 2] = ab[2];
+            }
+
+            // State guess: CoM/vel from the previous solution, feet from x_prev, time = dt
+            x_guess[ix + 10] = u_prev[iu + 7];
+        }
+
+        // Node 0: the 8 physical controls must be equal in the two branches -> use the pessimistic ones (as main.py)
+        if(k == 0){
+            std::copy(u_guess.begin() + n_u_branch, u_guess.begin() + n_u_branch + 8, u_guess.begin());
+        }
+
+        // Node 0 state is fixed by x0, only the controls are needed
+        mpc_solver_->setGuess(k, (k > 0) ? x_guess : std::vector<double>{}, u_guess);
+    }
+    mpc_solver_->setGuess(n_horizon_, x_guess, {});
+}
+
+
 // Thread of the MPC: async mpc
 void AcadosLeggedController::mpcThreadLoop(){
+    // WARM START: start from x0 repeated along the horizon
+    {
+        std::lock_guard<std::mutex> lock(mpc_mutex_);
+        resetWarmStart(current_state_x0_);
+        last_step_index_ = gait_planner_->stepIndex();
+    }
+
     while(controller_running_){
         // Actual state of the robot
         std::vector<double> x0_local;
@@ -315,19 +420,31 @@ void AcadosLeggedController::mpcThreadLoop(){
             std::vector<double> p = gait_local.hipOffsetParams(k);
             for(int i = 0; i < n_obs_max_; ++i){
                 // Ghost obstacle for now (same far-away placeholder used in main.py, not a physical parameter)
-                constexpr double kGhostObsPos = 15.0;
                 p.insert(p.end(), {kGhostObsPos + 2.0 * i, kGhostObsPos, 0.0, 0.0});
             }
             mpc_solver_->setParameters(k, p); // FIX: missing ';'
         }
         mpc_solver_->setFirstStepDuration(gait_local.timeLeft());
 
+        // WARM START: initial guess for x and u
+        setWarmStart(x0_local, gait_local);
+
         // Solve the ocp
         int status = mpc_solver_->solve();
 
         // publish the solution only if the solver succeeded (0) or reached max iter (2)
         if(status != 0 && status != 2){
+            // WARM START: a failed solution is not a good guess, restart from x0
+            resetWarmStart(x0_local);
+            RCLCPP_WARN_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 1000,
+                                 "[Acados MPC]: solver failed with status %d", status);
             continue;
+        }
+
+        // WARM START: store the whole solution for the next solve
+        for(int k = 0; k <= n_horizon_; ++k){
+            x_prev_sol_[k] = mpc_solver_->getStatePrediction(k);
+            if(k < n_horizon_) u_prev_sol_[k] = mpc_solver_->getControl(k);
         }
 
         std::vector<double> u_opt = mpc_solver_->getControlCommand();

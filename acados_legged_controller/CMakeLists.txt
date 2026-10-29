@@ -53,18 +53,22 @@ file(GLOB_RECURSE ACADOS_C_SOURCES
 # Exclude the files main_*.c of test to avoid conflicts with main C++
 list(FILTER ACADOS_C_SOURCES EXCLUDE REGEX ".*main_.*\\.c$")
 
+# STATIC ACADOS: OCS2 (hpipm_catkin, blasfeo_catkin) and acados both ship a library with SONAME libhpipm.so / libblasfeo.so,
+# but different versions. In the same process (Gazebo) only one is loaded -> libacados.so called OCS2's hpipm -> segfault.
+# Fix: link a static build of acados (+ its hpipm/blasfeo/qpOASES_e) inside libmpc_solver.so and hide its symbols.
+# The shared build in ${ACADOS_DIR} is left untouched (used by the python acados_template).
+set(ACADOS_STATIC_DIR "${ACADOS_DIR}/install_static")
+if(NOT EXISTS "${ACADOS_STATIC_DIR}/lib/libacados.a")
+  message(FATAL_ERROR "Static acados not found in ${ACADOS_STATIC_DIR}: build it first (see the instructions)")
+endif()
+
 include_directories(
   include
-  ${ACADOS_DIR}/include
-  ${ACADOS_DIR}/include/acados
-  ${ACADOS_DIR}/include/blasfeo/include
-  ${ACADOS_DIR}/include/hpipm/include
+  ${ACADOS_STATIC_DIR}/include
+  ${ACADOS_STATIC_DIR}/include/acados
+  ${ACADOS_STATIC_DIR}/include/blasfeo/include
+  ${ACADOS_STATIC_DIR}/include/hpipm/include
   c_generated_code
-)
-
-link_directories(
-  ${ACADOS_DIR}/lib
-  # ${CMAKE_CURRENT_COURCE_DIR}/c_generated_code
 )
 
 
@@ -77,13 +81,18 @@ add_library(mpc_solver SHARED
 )
 
 # Link to acados
+# STATIC ACADOS: static archives (order matters: acados -> hpipm -> blasfeo), no runtime dependency on libhpipm.so
 target_link_libraries(mpc_solver
-  acados
-  blasfeo
-  hpipm
+  ${ACADOS_STATIC_DIR}/lib/libacados.a
+  ${ACADOS_STATIC_DIR}/lib/libhpipm.a
+  ${ACADOS_STATIC_DIR}/lib/libblasfeo.a
+  ${ACADOS_STATIC_DIR}/lib/libqpOASES_e.a
+  m
   yaml-cpp::yaml-cpp  # CONFIG
-  # ${CMAKE_CURRENT_SOURCE_DIR}/c_generated_code/libacados_ocp_solver_ocp_lipm_opti_pessi_0e58481e.so
 )
+# STATIC ACADOS: symbols coming from the static archives become local to libmpc_solver.so,
+# so they are not mixed with the hpipm/blasfeo of OCS2 loaded in the same process
+target_link_options(mpc_solver PRIVATE "LINKER:--exclude-libs,ALL")
 
 
 # the controller was never compiled. Controller plugin library
@@ -154,6 +163,11 @@ install(DIRECTORY include/
 
 # CONFIG: install config.yaml in share/acados_legged_controller/config (default path used by the controller)
 install(DIRECTORY config
+  DESTINATION share/${PROJECT_NAME}
+)
+
+# SIM: install the launch files (sim_launch.xml)
+install(DIRECTORY launch
   DESTINATION share/${PROJECT_NAME}
 )
 

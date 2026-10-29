@@ -41,6 +41,10 @@
 
 namespace legged {
 
+// Phase of the controller
+// enum class Phase { STAND_UP, STANCE, WALK };
+
+
 class AcadosLeggedController : public controller_interface::ControllerInterface{
 public: 
     AcadosLeggedController() = default;
@@ -61,6 +65,9 @@ public:
 private:
     void mpcThreadLoop(); // To play the async thread
     void updateStateEstimation(const rclcpp::Time& time, const rclcpp::Duration& period);
+    // WARM START: initial guess for x and u along the horizon (port of the warm start of main.py)
+    void setWarmStart(const std::vector<double>& x0, const GaitPlanner& gait);
+    void resetWarmStart(const std::vector<double>& x0);
 
 
     // Hardware and state
@@ -90,6 +97,13 @@ private:
     int n_horizon_ = 0;
     size_t mpc_step_counter_ = 0;
 
+    // WARM START: previous solution (X_sol_t_prec / U_sol_t_prec of main.py), used only by the MPC thread
+    std::vector<std::vector<double>> x_prev_sol_;  // N+1 x nx
+    std::vector<std::vector<double>> u_prev_sol_;  // N x nu
+    size_t last_step_index_ = 0;                   // gait step of the last solve (shift only when it changes)
+    // Far-away placeholder obstacle (same as main.py), used when there are no real obstacles
+    static constexpr double kGhostObsPos = 15.0;
+
     // Multi threading
     std::thread mpc_thread_;
     std::mutex mpc_mutex_;
@@ -104,6 +118,9 @@ private:
     // Gait planner
     std::shared_ptr<GaitPlanner> gait_planner_; // protected by mpc_mutex_
     std::array<double, 4> stance_feet_xy_{};
+
+
+    // 
 
 
 };

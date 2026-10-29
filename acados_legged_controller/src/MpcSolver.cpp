@@ -116,6 +116,15 @@ std::vector<double> MpcSolver::getControlCommand(){
     return u_opt;
 }
 
+// WARM START: control at node k
+std::vector<double> MpcSolver::getControl(int stage){
+    std::vector<double> u(nu_);
+    if(stage >= 0 && stage < n_horizon_){
+        ocp_nlp_out_get(nlp_config_, nlp_dims_, nlp_out_, stage, "u", u.data());
+    }
+    return u;
+}
+
 std::vector<double> MpcSolver::getStatePrediction(int stage){
     std::vector<double> x_opt(nx_);
     if(stage >= 0 && stage <= n_horizon_){

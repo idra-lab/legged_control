@@ -34,6 +34,9 @@ public:
     // Retrieve the optimal control at node 0
     std::vector<double> getControlCommand();
 
+    // WARM START: optimal control at node k (0 <= k < N), used to shift the previous solution
+    std::vector<double> getControl(int stage);
+
     // Get the prediction at node k (for debugging or logging)
     std::vector<double> getStatePrediction(int stage);
 

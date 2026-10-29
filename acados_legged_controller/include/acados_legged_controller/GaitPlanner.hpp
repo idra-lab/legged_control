@@ -49,6 +49,8 @@ public:
     }
 
     void setStepDuration(double T){ step_duration_ = T; }
+    // WARM START: number of support switches so far (the MPC shifts the previous solution only when it changes)
+    size_t stepIndex() const { return step_index_; }
     double timeLeft() const { return std::max(step_duration_ - t_phase_, 0.0); }
 
 
