@@ -42,7 +42,7 @@
 namespace legged {
 
 // Phase of the controller
-// enum class Phase { STAND_UP, STANCE, WALK };
+enum class Phase { STAND_UP, STANCE, WALK };
 
 
 class AcadosLeggedController : public controller_interface::ControllerInterface{
@@ -120,7 +120,14 @@ private:
     std::array<double, 4> stance_feet_xy_{};
 
 
-    // 
+    // Stand up
+    std::atomic<Phase> phase_{Phase::STAND_UP}; // atomic because even threadMPC reads it
+    vector_t q_start_;          // joint angles at activation
+    vector_t q_stand_;          // target posture (from reference.info)
+    double phase_time_ = 0.0;   // time spent in the current phase [s]
+    double standup_duration_ = 2.0;
+    double kp_stand_ = 150.0;
+    double kd_stand_ = 4.0;
 
 
 };

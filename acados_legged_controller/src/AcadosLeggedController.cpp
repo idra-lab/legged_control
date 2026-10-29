@@ -16,6 +16,7 @@
 // WARM START: std::cos/sin/hypot, std::min/max/copy
 #include <cmath>
 #include <algorithm>
+#include <chrono>
 // CONFIG: default path of config.yaml (installed in share/acados_legged_controller/config)
 #include <ament_index_cpp/get_package_share_directory.hpp>
 
@@ -24,6 +25,22 @@ namespace legged {
 
 controller_interface::CallbackReturn AcadosLeggedController::on_init(){
     auto node = this->get_node();
+
+    // Standup default parameters
+    if (!node->has_parameter("standup_duration")){
+        node->declare_parameter<double>("standup_duration", 2.0);
+    }
+    if (!node->has_parameter("kp_stand")){
+        node->declare_parameter<double>("kp_stand", 150.0);
+    }
+    if (!node->has_parameter("kd_stand")){
+        node->declare_parameter<double>("kd_stand", 4.0);
+    }
+
+    standup_duration_ = node->get_parameter("standup_duration").as_double();
+    kp_stand_ = node->get_parameter("kp_stand").as_double();
+    kd_stand_ = node->get_parameter("kd_stand").as_double();
+
 
     // Load parameters from launch file
     if (!node->has_parameter("urdfFile")){
@@ -39,6 +56,8 @@ controller_interface::CallbackReturn AcadosLeggedController::on_init(){
     if (!node->has_parameter("lipmConfigFile")){
         node->declare_parameter<std::string>("lipmConfigFile", "");
     }
+
+    
 
     std::string urdfFile = node->get_parameter("urdfFile").as_string();
     std::string taskFile = node->get_parameter("taskFile").as_string();
@@ -61,6 +80,18 @@ controller_interface::CallbackReturn AcadosLeggedController::on_init(){
     // Initialize the ocs2 interface only for reading the phisics of the robot
     leggedInterface_ = std::make_shared<LeggedInterface>(taskFile, urdfFile, referenceFile);
     leggedInterface_->setupOptimalControlProblem(taskFile, urdfFile, referenceFile, verbose);
+
+    // Extract the stand posture of the joints 
+    if (!node->has_parameter("q_stand")) node->declare_parameter<std::vector<double>>("q_stand", std::vector<double>{});
+    const auto q_stand_param = node->get_parameter("q_stand").as_double_array();
+    if (q_stand_param.size() == 12) {
+        q_stand_ = Eigen::Map<const vector_t>(q_stand_param.data(), 12);
+    } else {
+        // fallback: initialState of task.info
+        q_stand_ = centroidal_model::getJointAngles(leggedInterface_->getInitialState(),
+                                                leggedInterface_->getCentroidalModelInfo());
+    }
+    RCLCPP_INFO_STREAM(node->get_logger(), "[Acados MPC]: q_stand is: " << q_stand_.transpose());
 
     // The Kalman filter needs an rclcpp::Node, before it was never created
     ros2_node_ = std::make_shared<rclcpp::Node>("acados_legged_controller_node");
@@ -251,6 +282,12 @@ controller_interface::CallbackReturn AcadosLeggedController::on_activate(const r
         contactHandles_.push_back(contact_handle);
     }
 
+    // At each activation, even after a deactivate, restart from the current pose of the robot
+    q_start_.resize(hybridJointHandles_.size());
+    for(size_t j = 0; j < hybridJointHandles_.size(); ++j) q_start_(j) = hybridJointHandles_[j].getPosition();
+    phase_time_ = 0.0;
+    phase_ = Phase::STAND_UP;
+
 
     // Initialization of the shared data
     current_state_x0_.assign(22, 0.0);
@@ -405,6 +442,14 @@ void AcadosLeggedController::mpcThreadLoop(){
     }
 
     while(controller_running_){
+
+        // Manage the phase
+        if (phase_ != Phase::WALK) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            continue;
+        }
+
+
         // Actual state of the robot
         std::vector<double> x0_local;
         GaitPlanner gait_local(0, 0, 0);
@@ -473,6 +518,25 @@ void AcadosLeggedController::mpcThreadLoop(){
 controller_interface::return_type AcadosLeggedController::update(const rclcpp::Time& time, const rclcpp::Duration& period){ // FIX: preiod -> period
     // update the estimate of the actual state starting from sensors
     updateStateEstimation(time, period);
+
+    
+    // Manage the phase
+    phase_time_ += period.seconds();
+
+    if (phase_ == Phase::STAND_UP || phase_ == Phase::STANCE){
+        double s = 1.0;
+        if(phase_ == Phase::STAND_UP) {
+            const double x = std::min(phase_time_ / standup_duration_, 1.0);
+            s = x * x * (3.0 - 2.0 * x);    // smoothstep: zero velocity at start and end
+            if (x >= 1.0) { phase_ = Phase::STANCE; phase_time_ = 0.0; }
+        }
+        for (size_t j = 0; j < hybridJointHandles_.size(); ++j) {
+            const double q_des = (1.0 - s) * q_start_(j) + s * q_stand_(j);
+            hybridJointHandles_[j].setCommand(q_des, 0.0, kp_stand_, kd_stand_, 0.0);
+        }
+        return controller_interface::return_type::OK;
+    }
+    // From here on: WALK
 
 
     // Take the last available solution from the MPC

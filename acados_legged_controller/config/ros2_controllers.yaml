@@ -3,6 +3,7 @@
 controller_manager:
   ros__parameters:
     update_rate: 500  # Hz (Alejandro's file uses 100 Hz, too low for WBC + trot?)
+    
 
     joint_state_broadcaster:
       type: joint_state_broadcaster/JointStateBroadcaster
@@ -25,3 +26,12 @@ acados_legged_controller:
     taskFile: /home/elia/colcon_ws/install/legged_controllers/share/legged_controllers/config/aliengo/task.info
     referenceFile: /home/elia/colcon_ws/install/legged_controllers/share/legged_controllers/config/aliengo/reference.info
     lipmConfigFile: /home/elia/colcon_ws/src/legged_control/acados_legged_controller/config/config.yaml
+    # Standup
+    standup_duration: 2.0
+    kp_stand: 150.0
+    kd_stand: 4.0
+    # standup target posture, joint order: LF, LH, RF, RH, (HAA, HFE, KFE)
+    q_stand: [0.0, 0.62, -1.24,
+              0.0, 0.62, -1.24,
+              0.0, 0.62, -1.24,
+              0.0, 0.62, -1.24]
