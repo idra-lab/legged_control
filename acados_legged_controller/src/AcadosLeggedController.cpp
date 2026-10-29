@@ -7,11 +7,14 @@
 // ocs2 helper to load the kinematic for WBC from pinocchio
 #include <ocs2_centroidal_model/CentroidalModelPinocchioMapping.h>
 
-// FIX: missing includes (angles::shortest_angular_distance, getJointAngles/getGeneralizedCoordinates, forward kinematics)
+// (angles::shortest_angular_distance, getJointAngles/getGeneralizedCoordinates, forward kinematics)
 #include <angles/angles.h>
 #include <ocs2_centroidal_model/AccessHelperFunctions.h>
 #include <pinocchio/algorithm/kinematics.hpp>
 #include <pinocchio/algorithm/frames.hpp>
+
+// CONFIG: default path of config.yaml (installed in share/acados_legged_controller/config)
+#include <ament_index_cpp/get_package_share_directory.hpp>
 
 
 namespace legged {
@@ -29,28 +32,51 @@ controller_interface::CallbackReturn AcadosLeggedController::on_init(){
     if (!node->has_parameter("referenceFile")){
         node->declare_parameter<std::string>("referenceFile", "");
     }
+    // CONFIG: path of config.yaml (if empty use the installed one)
+    if (!node->has_parameter("lipmConfigFile")){
+        node->declare_parameter<std::string>("lipmConfigFile", "");
+    }
 
     std::string urdfFile = node->get_parameter("urdfFile").as_string();
     std::string taskFile = node->get_parameter("taskFile").as_string();
     std::string referenceFile = node->get_parameter("referenceFile").as_string();
+    std::string lipmConfigFile = node->get_parameter("lipmConfigFile").as_string();
     bool verbose = true;
+
+    // CONFIG: load config.yaml
+    if (lipmConfigFile.empty()){
+        lipmConfigFile = ament_index_cpp::get_package_share_directory("acados_legged_controller") + "/config/config.yaml";
+    }
+    try{
+        cfg_ = LipmConfig::fromYaml(lipmConfigFile);
+    }catch(const std::exception& e){
+        RCLCPP_ERROR(node->get_logger(), "%s", e.what());
+        return controller_interface::CallbackReturn::ERROR;
+    }
+    RCLCPP_INFO(node->get_logger(), "[Acados MPC]: Loaded config from %s", lipmConfigFile.c_str());
 
     // Initialize the ocs2 interface only for reading the phisics of the robot
     leggedInterface_ = std::make_shared<LeggedInterface>(taskFile, urdfFile, referenceFile);
     leggedInterface_->setupOptimalControlProblem(taskFile, urdfFile, referenceFile, verbose);
 
-    // FIX: helper node (the Kalman filter needs an rclcpp::Node, before it was never created)
+    // The Kalman filter needs an rclcpp::Node, before it was never created
     ros2_node_ = std::make_shared<rclcpp::Node>("acados_legged_controller_node");
 
     // Initialize acados MPC solver
     // FIX: store the dimensions in the members (used by mpcThreadLoop)
-    n_obs_max_ = 1;
-    n_horizon_ = 6;
-    mpc_solver_ = std::make_shared<MpcSolver>(n_obs_max_, n_horizon_);
+    // CONFIG: dimensions from config.yaml (MpcSolver checks them against c_generated_code)
+    n_obs_max_ = cfg_.N_OBS_MAX;
+    n_horizon_ = cfg_.N_horizon;
+    try{
+        mpc_solver_ = std::make_shared<MpcSolver>(n_obs_max_, n_horizon_);
+    }catch(const std::exception& e){
+        RCLCPP_ERROR(node->get_logger(), "%s", e.what());
+        return controller_interface::CallbackReturn::ERROR;
+    }
     RCLCPP_INFO(node->get_logger(), "[Acados MPC]: Solver initialized with success!!");
 
-    // FIX: gait planner was never created (off_x, off_y, nominal step duration from config.yaml)
-    gait_planner_ = std::make_shared<GaitPlanner>(0.2407, 0.134, (0.1 + 0.25) / 2.0);
+    // CONFIG: off_x, off_y and nominal step duration from config.yaml
+    gait_planner_ = std::make_shared<GaitPlanner>(cfg_.off_x, cfg_.off_y, cfg_.nominalStepDuration());
 
 
     // Setup of the kinematic, state estimate and Whole Body Control
@@ -58,10 +84,10 @@ controller_interface::CallbackReturn AcadosLeggedController::on_init(){
     eeKinematicsPtr_ = std::make_shared<PinocchioEndEffectorKinematics>(
         leggedInterface_->getPinocchioInterface(), pinocchioMapping,
         leggedInterface_->modelSettings().contactNames3DoF);
-    // FIX: without this getPosition() throws "pinocchioInterfacePtr_ is not set"
+    // without this getPosition() throws "pinocchioInterfacePtr_ is not set"
     eeKinematicsPtr_->setPinocchioInterface(leggedInterface_->getPinocchioInterface());
 
-    // FIX: created once here instead of at every cycle
+    // created once here instead of at every cycle
     rbdConversions_ = std::make_shared<CentroidalModelRbdConversions>(
         leggedInterface_->getPinocchioInterface(), leggedInterface_->getCentroidalModelInfo());
     safetyChecker_ = std::make_shared<SafetyChecker>(leggedInterface_->getCentroidalModelInfo());
@@ -228,7 +254,7 @@ controller_interface::CallbackReturn AcadosLeggedController::on_activate(const r
     latest_x_opt_.assign(22, 0.0);
     // latest_u_opt_ will be resized in the first solve()
 
-    // FIX: initialize the observation (state(9) is read in updateStateEstimation) and do a first
+    // initialize the observation (state(9) is read in updateStateEstimation) and do a first
     // estimation, so the MPC thread does not start from x0 = 0
     currentObservation_.state.setZero(leggedInterface_->getCentroidalModelInfo().stateDim);
     currentObservation_.input.setZero(leggedInterface_->getCentroidalModelInfo().inputDim);
@@ -248,7 +274,7 @@ controller_interface::CallbackReturn AcadosLeggedController::on_activate(const r
 
 
 
-// FIX: destructor was declared but never defined (linker error)
+// Destructor 
 AcadosLeggedController::~AcadosLeggedController(){
     controller_running_ = false;
     if(mpc_thread_.joinable()){
@@ -288,8 +314,9 @@ void AcadosLeggedController::mpcThreadLoop(){
         for(int k = 0; k <= n_horizon_; ++k){
             std::vector<double> p = gait_local.hipOffsetParams(k);
             for(int i = 0; i < n_obs_max_; ++i){
-                // Ghost obstacle for now
-                p.insert(p.end(), {15.0 + 2.0 * i, 15.0, 0.0, 0.0});
+                // Ghost obstacle for now (same far-away placeholder used in main.py, not a physical parameter)
+                constexpr double kGhostObsPos = 15.0;
+                p.insert(p.end(), {kGhostObsPos + 2.0 * i, kGhostObsPos, 0.0, 0.0});
             }
             mpc_solver_->setParameters(k, p); // FIX: missing ';'
         }
@@ -298,7 +325,7 @@ void AcadosLeggedController::mpcThreadLoop(){
         // Solve the ocp
         int status = mpc_solver_->solve();
 
-        // FIX: publish the solution only if the solver succeeded (0) or reached max iter (2)
+        // publish the solution only if the solver succeeded (0) or reached max iter (2)
         if(status != 0 && status != 2){
             continue;
         }
@@ -332,7 +359,6 @@ controller_interface::return_type AcadosLeggedController::update(const rclcpp::T
 
 
     // Take the last available solution from the MPC
-    // FIX: std:. -> std::, mpc_mnutex_ -> mpc_mutex_, merged with the GaitPlanner block (current_planned_mode_ did not exist)
     std::vector<double> u_opt;
     std::vector<double> x_next;
     size_t current_mode;
@@ -365,7 +391,7 @@ controller_interface::return_type AcadosLeggedController::update(const rclcpp::T
     // Taret CoM from latest_x_opt
     optimizedState(6) = x_next[0];  // CoM X
     optimizedState(7) = x_next[1];  // CoM Y
-    optimizedState(8) = 0.38;       // Desired height CoM: FROM config.yaml
+    optimizedState(8) = cfg_.h_com; // Desired height CoM (CONFIG: from config.yaml)
 
     // Target Velocity CoM
     optimizedState(0) = x_next[3];  // Vel X
@@ -377,7 +403,7 @@ controller_interface::return_type AcadosLeggedController::update(const rclcpp::T
 
     // Joint posture (keep the actual ones as reference for the WBC)
     // Just a reference, because the whole body control has higher priority on tracking the CoM and forces and the kinematic of the swing
-    // FIX: measureRbdState_ -> measuredRbdState_; rbd state = [base(6), joints(12), base vel(6), joint vel(12)] -> joints start at 6
+    // measureRbdState_ -> measuredRbdState_; rbd state = [base(6), joints(12), base vel(6), joint vel(12)] -> joints start at 6
     optimizedState.segment<12>(12) = measuredRbdState_.segment<12>(6);
 
 
@@ -388,19 +414,18 @@ controller_interface::return_type AcadosLeggedController::update(const rclcpp::T
     vector_t optimizedInput(24);
     optimizedInput.setZero();
 
-    // FIX: GaitPlanner block moved at the beginning of update() (it was a duplicate of the first lock)
 
     // Extract the alpha, beta, gamma inputs
     double alpha = u_opt[4];
     double beta = u_opt[5];
     double gamma = u_opt[6];
 
-    // FIX: removed p0_next/p1_next (unused, the CoP uses the current stance feet)
 
     // Compute the dynamic
-    double mass = 24.24;
-    double g = 9.81;
-    double h_com = 0.38;
+    // CONFIG: from config.yaml
+    const double mass = cfg_.m;
+    const double g = cfg_.g;
+    const double h_com = cfg_.h_com;
 
     double u_cop_x = feet[0] + alpha * (feet[2] - feet[0]);
     double u_cop_y = feet[1] + alpha * (feet[3] - feet[1]);
@@ -434,7 +459,6 @@ controller_interface::return_type AcadosLeggedController::update(const rclcpp::T
 
 
     // Safety checker for real motors (or Gazebo)
-    // FIX: writeHardwareCommand does not exist -> same logic of LeggedController::update, safetyChecker_ is a member
     if(!safetyChecker_->check(currentObservation_, optimizedState, optimizedInput)){
         RCLCPP_ERROR(this->get_node()->get_logger(), "[Acados MPC]: Safety check failed!!");
         return controller_interface::return_type::ERROR;
@@ -497,13 +521,11 @@ void AcadosLeggedController::updateStateEstimation(const rclcpp::Time& time, con
 
 
     // Update the observation (centroidal estimate state)
-    // FIX: use the member rbdConversions_ (created in on_init, not at every cycle)
+    // Use the member rbdConversions_ (created in on_init, not at every cycle)
     scalar_t yawLast = currentObservation_.state(9);
     currentObservation_.state = rbdConversions_->computeCentroidalStateFromRbdModel(measuredRbdState_);
     currentObservation_.state(9) = yawLast + angles::shortest_angular_distance(yawLast, currentObservation_.state(9)); // FIX: shortes_ -> shortest_
     currentObservation_.mode = stateEstimate_->getMode(); // FIX: currentObservation_mode -> currentObservation_.mode
-
-
 
 
 
@@ -526,8 +548,8 @@ void AcadosLeggedController::updateStateEstimation(const rclcpp::Time& time, con
     x0_lipm[2] = state(9); // Yaw
     x0_lipm[3] = state(0); // Vel CoM X
     x0_lipm[4] = state(1); // Vel CoM Y
-    // FIX: state(5) is the normalized angular momentum L_z/m -> omega_z = L_z / Iz = state(5) * m / Iz (m, Iz from config.yaml)
-    x0_lipm[5] = state(5) * 24.24 / 1.048; // Vel Yaw (omega_z)
+    // state(5) is the normalized angular momentum L_z/m -> omega_z = L_z / Iz = state(5) * m / Iz (m, Iz from config.yaml)
+    x0_lipm[5] = state(5) * cfg_.m / cfg_.Iz; // Vel Yaw (omega_z) (CONFIG: m, Iz from config.yaml)
 
     // CoM data (pessimistic) (the same initially)
     x0_lipm[11] = x0_lipm[0];
@@ -539,7 +561,7 @@ void AcadosLeggedController::updateStateEstimation(const rclcpp::Time& time, con
 
 
     // Compute the actual position of the feet with forward kinematic
-    // FIX: getPosition() reads pinocchio data, so the forward kinematics must be computed first
+    // getPosition() reads pinocchio data, so the forward kinematics must be computed first
     auto& pinocchioInterface = leggedInterface_->getPinocchioInterface();
     const vector_t q = centroidal_model::getGeneralizedCoordinates(state, leggedInterface_->getCentroidalModelInfo());
     pinocchio::forwardKinematics(pinocchioInterface.getModel(), pinocchioInterface.getData(), q);
@@ -562,10 +584,9 @@ void AcadosLeggedController::updateStateEstimation(const rclcpp::Time& time, con
     x0_lipm[7] = feet_positions[stance[0]].y();
     x0_lipm[8] = feet_positions[stance[1]].x();
     x0_lipm[9] = feet_positions[stance[1]].y();
-    // FIX: only the horizon time (10, 21) is reset; 11..20 were overwritten with zeros, deleting the pessimistic CoM
+    // only the horizon time (10, 21) is reset; 11..20 were overwritten with zeros, deleting the pessimistic CoM
     x0_lipm[10] = 0.0;
     x0_lipm[21] = 0.0;
-
 
 
     // Copy for the pessimistic
@@ -575,7 +596,6 @@ void AcadosLeggedController::updateStateEstimation(const rclcpp::Time& time, con
     x0_lipm[20] = x0_lipm[9];
 
     // Upgrading shared variable
-    // FIX: removed old t_phase comments (timing is managed by the GaitPlanner), stance_feet_xy_ was never written
     {
         std::lock_guard<std::mutex> lock(mpc_mutex_);
         current_state_x0_ = x0_lipm;
@@ -591,8 +611,5 @@ void AcadosLeggedController::updateStateEstimation(const rclcpp::Time& time, con
 
 
 
-
-
-
-// FIX: register the controller as a ros2_control plugin
+// register the controller as a ros2_control plugin
 PLUGINLIB_EXPORT_CLASS(legged::AcadosLeggedController, controller_interface::ControllerInterface)

@@ -41,7 +41,7 @@ public:
     double getComputationTime() const;
 
     // setFirstStepDuration to set lbu/ubu to stage 0
-    bool setFirstStepDuration(double T); // FIX: Fist -> First
+    bool setFirstStepDuration(double T); 
 
 
 
@@ -52,7 +52,7 @@ private:
     int nu_;
     int np_;
 
-    // FIX: default bounds on the controls at stage 0 (read from the generated solver in the constructor)
+    
     std::vector<double> default_lbu_;
     std::vector<double> default_ubu_;
 

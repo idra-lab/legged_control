@@ -20,13 +20,16 @@
   <depend>ocs2_self_collision_visualization</depend>
   <depend>angles</depend>
   <depend>std_msgs</depend>
-  <!-- FIX: dependencies used by AcadosLeggedController -->
+  <!-- Dependencies used by AcadosLeggedController -->
   <depend>legged_controllers</depend>
   <depend>hardware_interface</depend>
   <depend>ocs2_legged_robot</depend>
   <depend>ocs2_centroidal_model</depend>
   <depend>pinocchio</depend>
   <depend>ocs2_msgs</depend>
+  <!-- CONFIG: parsing of config.yaml -->
+  <depend>yaml-cpp</depend>
+  <depend>ament_index_cpp</depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

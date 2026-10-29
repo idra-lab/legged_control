@@ -1,12 +1,15 @@
 #include "acados_legged_controller/MpcSolver.hpp"
+#include "acados_legged_controller/LipmConfig.hpp"
 #include <iostream>
 #include <vector>
 
 
-int main(){
-    // They must be the same of config.yaml
-    int n_obs_max = 1;
-    int n_horizon = 6;
+int main(int argc, char** argv){
+    // CONFIG: dimensions from config.yaml (path as first argument, default: config.yaml of the source package)
+    const std::string config_path = (argc > 1) ? argv[1] : LIPM_CONFIG_FILE;
+    LipmConfig cfg = LipmConfig::fromYaml(config_path);
+    int n_obs_max = cfg.N_OBS_MAX;
+    int n_horizon = cfg.N_horizon;
 
 
     std::cout << "---Starting MpcSolver ---" << std::endl;

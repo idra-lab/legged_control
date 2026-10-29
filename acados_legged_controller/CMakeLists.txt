@@ -15,15 +15,15 @@ endif()
 # Find only ament_cmake to keep the structure of package ROS2
 find_package(ament_cmake REQUIRED)
 
-# FIX: dependencies needed by the controller plugin
+# Dependencies needed by the controller plugin
 find_package(rclcpp REQUIRED)
 find_package(controller_interface REQUIRED)
 find_package(hardware_interface REQUIRED)
 find_package(pluginlib REQUIRED)
-# FIX: OCS2 / legged_* export Boost::system in their link interface, so Boost must be found before them
+# OCS2 / legged_* export Boost::system in their link interface, so Boost must be found before them
 find_package(Boost REQUIRED COMPONENTS system filesystem log log_setup)
 find_package(legged_controllers REQUIRED)
-# FIX: needed by the headers included by legged_controllers/LeggedController.h
+# needed by the headers included by legged_controllers/LeggedController.h
 find_package(ocs2_legged_robot_ros REQUIRED)
 find_package(ocs2_self_collision_visualization REQUIRED)
 find_package(ocs2_msgs REQUIRED)
@@ -35,6 +35,9 @@ find_package(ocs2_legged_robot REQUIRED)
 find_package(ocs2_centroidal_model REQUIRED)
 find_package(angles REQUIRED)
 find_package(pinocchio REQUIRED)
+# CONFIG: parsing of config.yaml and default path from the share directory
+find_package(yaml-cpp REQUIRED)
+find_package(ament_index_cpp REQUIRED)
 
 
 # ACADOS configuration
@@ -69,6 +72,7 @@ link_directories(
 # Creation of the wrapper lib
 add_library(mpc_solver SHARED
   src/MpcSolver.cpp
+  src/LipmConfig.cpp  # CONFIG: loader of config.yaml (used by the controller and test_solver)
   ${ACADOS_C_SOURCES}
 )
 
@@ -77,11 +81,12 @@ target_link_libraries(mpc_solver
   acados
   blasfeo
   hpipm
+  yaml-cpp::yaml-cpp  # CONFIG
   # ${CMAKE_CURRENT_SOURCE_DIR}/c_generated_code/libacados_ocp_solver_ocp_lipm_opti_pessi_0e58481e.so
 )
 
 
-# FIX: the controller was never compiled. Controller plugin library
+# the controller was never compiled. Controller plugin library
 add_library(${PROJECT_NAME} SHARED
   src/AcadosLeggedController.cpp
 )
@@ -106,16 +111,17 @@ ament_target_dependencies(${PROJECT_NAME}
   ocs2_centroidal_model
   std_msgs
   angles
+  ament_index_cpp  # CONFIG
 )
 
-# FIX: legged_controllers exports also an executable target (legged_target_trajectories_publisher) that
+# legged_controllers exports also an executable target (legged_target_trajectories_publisher) that
 # ament_target_dependencies tries to link -> take only its headers (handles + SafetyChecker are header-only)
 target_include_directories(${PROJECT_NAME} PRIVATE ${legged_controllers_INCLUDE_DIRS})
 
 # Same flags used by OCS2 / legged_controllers
 target_compile_options(${PROJECT_NAME} PUBLIC ${OCS2_CXX_FLAGS})
 
-# FIX: register the plugin for ros2_control
+# Register the plugin for ros2_control
 pluginlib_export_plugin_description_file(controller_interface acados_legged_controller_plugins.xml)
 
 
@@ -125,10 +131,12 @@ add_executable(test_solver src/test_solver.cpp)
 
 # Link the executable to wrapper library
 target_link_libraries(test_solver mpc_solver)
+# CONFIG: default config.yaml for test_solver (the source one, so it can be run without arguments)
+target_compile_definitions(test_solver PRIVATE LIPM_CONFIG_FILE="${CMAKE_CURRENT_SOURCE_DIR}/config/config.yaml")
 
 
 # Intall the wrapper lib
-# FIX: install also the controller plugin
+# Install also the controller plugin
 install(TARGETS mpc_solver ${PROJECT_NAME}
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
@@ -142,6 +150,11 @@ install(TARGETS test_solver
 
 install(DIRECTORY include/
   DESTINATION include
+)
+
+# CONFIG: install config.yaml in share/acados_legged_controller/config (default path used by the controller)
+install(DIRECTORY config
+  DESTINATION share/${PROJECT_NAME}
 )
 
 

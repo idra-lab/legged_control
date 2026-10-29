@@ -2,6 +2,7 @@
 // FIX: std::runtime_error and std::max
 #include <stdexcept>
 #include <algorithm>
+#include <string>
 
 
 
@@ -13,6 +14,14 @@ MpcSolver::MpcSolver(int n_obs_max, int n_horizon) : n_obs_max_(n_obs_max), n_ho
     nu_ = (8 + 3 * n_obs_max_) * 2;
     np_ = 4 + 4 * n_obs_max_;
 
+    // CONFIG CHECK: config.yaml must match the dimensions of c_generated_code (otherwise regenerate with model_gen.py)
+    if(n_horizon_ != OCP_LIPM_OPTI_PESSI_0E58481E_N || nx_ != OCP_LIPM_OPTI_PESSI_0E58481E_NX ||
+       nu_ != OCP_LIPM_OPTI_PESSI_0E58481E_NU || np_ != OCP_LIPM_OPTI_PESSI_0E58481E_NP){
+        throw std::runtime_error("[MpcSolver]: config.yaml (N_horizon=" + std::to_string(n_horizon_) +
+                                 ", N_OBS_MAX=" + std::to_string(n_obs_max_) +
+                                 ") does not match c_generated_code: run scripts/model_gen.py and rebuild");
+    }
+
     // Create the acados solver
     std::cout << "[MpcSolver]: Creation of the acados capsule\n";
     capsule_ = ocp_lipm_opti_pessi_0e58481e_acados_create_capsule();
@@ -23,9 +32,9 @@ MpcSolver::MpcSolver(int n_obs_max, int n_horizon) : n_obs_max_(n_obs_max), n_ho
     std::cout << "[MpcSolver]: Initialization of the solver\n";
     int status = ocp_lipm_opti_pessi_0e58481e_acados_create(capsule_);
     std::cout << "[MpcSolver]: Status of the solver: " << status << "\n";
-    // FIX: '||' was always true; now stop if the solver cannot be created
+    // 0 SUCCESS, 2 SUCCESS REACHING MAXIMUM ITERATION
     if(status != 0 && status != 2){
-        std::cerr << "[MpcSolver]: Sovler error: impossible to create the solver. Status: " << status << std::endl;
+        std::cerr << "[MpcSolver]: Solver error: impossible to create the solver. Status: " << status << std::endl;
         throw std::runtime_error("FATAL_ERROR: acados_create failed");
     }
 
@@ -38,7 +47,7 @@ MpcSolver::MpcSolver(int n_obs_max, int n_horizon) : n_obs_max_(n_obs_max), n_ho
     nlp_solver_ = ocp_lipm_opti_pessi_0e58481e_acados_get_nlp_solver(capsule_);
     nlp_opts_ = ocp_lipm_opti_pessi_0e58481e_acados_get_nlp_opts(capsule_);
 
-    // FIX: save the default bounds of stage 0 [alpha, beta, gamma, dt, (ax, ay, b)*N_obs] x 2 branches
+    // save the default bounds of stage 0 [alpha, beta, gamma, dt, (ax, ay, b)*N_obs] x 2 branches
     const int nbu = 2 * (4 + 3 * n_obs_max_);
     default_lbu_.resize(nbu);
     default_ubu_.resize(nbu);

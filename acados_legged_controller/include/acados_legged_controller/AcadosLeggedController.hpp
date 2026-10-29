@@ -6,7 +6,7 @@
 #include <thread>
 // synchronization primitive that can be used to protect shared data from being simultaneously accessed by multiple threads
 #include <mutex>
-// FIX: needed for std::atomic and std::array
+// needed for std::atomic and std::array
 #include <atomic>
 #include <array>
 
@@ -33,7 +33,10 @@
 #include "acados_legged_controller/MpcSolver.hpp"
 
 // Gait planner
-#include "acados_legged_controller/GaitPlanner.hpp" 
+#include "acados_legged_controller/GaitPlanner.hpp"
+
+// CONFIG: parameters read from config.yaml
+#include "acados_legged_controller/LipmConfig.hpp"
 
 
 namespace legged {
@@ -72,7 +75,6 @@ private:
 
     std::shared_ptr<LeggedInterface> leggedInterface_;
 
-    // FIX: members used in the .cpp but never declared
     SystemObservation currentObservation_;
     vector_t measuredRbdState_;
     rclcpp::Node::SharedPtr ros2_node_;
@@ -81,9 +83,11 @@ private:
 
     // acados MPC
     std::shared_ptr<MpcSolver> mpc_solver_; // FIX: std__ -> std::
-    // FIX: dimensions of the OCP (must match config.yaml)
-    int n_obs_max_ = 1;
-    int n_horizon_ = 6;
+    // CONFIG: all the numerical parameters (robot, limits, OCP dimensions) come from config.yaml
+    LipmConfig cfg_;
+    // dimensions of the OCP (copied from cfg_ in on_init)
+    int n_obs_max_ = 0;
+    int n_horizon_ = 0;
     size_t mpc_step_counter_ = 0;
 
     // Multi threading
@@ -94,7 +98,7 @@ private:
     // Shared data between real time loop (update) and thread MPC
     std::vector<double> current_state_x0_; 
     std::vector<double> latest_u_opt_;
-    std::vector<double> latest_x_opt_; // FIX: ':' -> ';'
+    std::vector<double> latest_x_opt_;
 
 
     // Gait planner
@@ -102,6 +106,6 @@ private:
     std::array<double, 4> stance_feet_xy_{};
 
 
-}; // FIX: '}:' -> '};'
+};
 
 } // namespace legged
