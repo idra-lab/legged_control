@@ -1,0 +1,64 @@
+# FAST-LIO (src/FAST_LIO_SLAM_ROS2/FAST_LIO_ROS2) on the real RoboSense Airy (rslidar_sdk, config/config.yaml), level:
+# lidar z up, no mount pitch. fast_lio_slam_launch.xml use_sim_time:=false config:=<this file>.
+#
+# Unlike the simulated one (fast_lio_airy.yaml), the IMU of the real Airy is not the lidar frame: it is turned about
+# 180 deg about (1, -1, 0)/sqrt2 (x_lidar = -y_imu, y_lidar = -x_imu, z_lidar = -z_imu; at rest it reads z = -1 g).
+# imu_R is that rotation, R(q) of the quaternion the Airy sends in its DIFOP (SN 3009BEA00377:
+# qx 0.70749 qy -0.70669 qz 0.00428 qw 0.00459), so the body frame of FAST-LIO is the lidar frame.
+# Its offset to the lidar (4.25, 4.18, -4.46) mm is left out of extrinsic_T.
+# Mounted pitched by p on the robot: imu_R = Ry(p) * R(q) and extrinsic_R = Ry(p), as in fast_lio_airy.yaml.
+/**:
+    ros__parameters:
+        feature_extract_enable: false
+        point_filter_num: 4              # every 4th of the 900 columns (ros_send_by_rows: true in rslidar_sdk)
+        max_iteration: 3
+        filter_size_surf: 0.3
+        filter_size_map: 0.3
+        cube_side_length: 1000.0
+        runtime_pos_log_enable: false
+        map_file_path: ""
+
+        common:
+            lid_topic: "/rslidar_points"
+            imu_topic: "/rslidar_imu_data"
+            lid_reliable: true           # the 900 x 96 clouds are over 2 MB: best effort loses a third of them
+            body_frame: "rslidar_lio"
+            time_sync_en: false
+            time_offset_lidar_to_imu: 0.0
+
+        preprocess:
+            # Default handler: plain x y z intensity, no per-point motion compensation. The real scans take 100 ms
+            # (per-point timestamp in the cloud), so they smear while the lidar turns or walks
+            lidar_type: 5
+            scan_line: 96
+            blind: 0.1
+            timestamp_unit: 3
+            scan_rate: 10
+
+        mapping:
+            acc_cov: 0.1
+            gyr_cov: 0.1
+            b_acc_cov: 0.0001
+            b_gyr_cov: 0.0001
+            fov_degree: 360.0
+            det_range: 60.0
+            extrinsic_est_en: false
+            extrinsic_T: [0.0, 0.0, 0.0]
+            extrinsic_R: [1.0, 0.0, 0.0,
+                          0.0, 1.0, 0.0,
+                          0.0, 0.0, 1.0]
+            imu_R: [0.001130, -0.999999, -0.000422,
+                    -0.999921, -0.001124, -0.012544,
+                    0.012543, 0.000436, -0.999921]
+
+        publish:
+            path_en: true
+            effect_map_en: false
+            map_en: true
+            scan_publish_en: true
+            dense_publish_en: true
+            scan_bodyframe_pub_en: true
+
+        pcd_save:
+            pcd_save_en: false
+            interval: -1
