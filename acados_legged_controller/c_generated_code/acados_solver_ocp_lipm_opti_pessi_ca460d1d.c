@@ -26,47 +26,47 @@
 
 
 
-#include "acados_solver_ocp_lipm_opti_pessi_0e58481e.h"
+#include "acados_solver_ocp_lipm_opti_pessi_ca460d1d.h"
 
-#define NX     OCP_LIPM_OPTI_PESSI_0E58481E_NX
-#define NZ     OCP_LIPM_OPTI_PESSI_0E58481E_NZ
-#define NU     OCP_LIPM_OPTI_PESSI_0E58481E_NU
-#define NP     OCP_LIPM_OPTI_PESSI_0E58481E_NP
-#define NP_GLOBAL     OCP_LIPM_OPTI_PESSI_0E58481E_NP_GLOBAL
-#define NY0    OCP_LIPM_OPTI_PESSI_0E58481E_NY0
-#define NY     OCP_LIPM_OPTI_PESSI_0E58481E_NY
-#define NYN    OCP_LIPM_OPTI_PESSI_0E58481E_NYN
+#define NX     OCP_LIPM_OPTI_PESSI_CA460D1D_NX
+#define NZ     OCP_LIPM_OPTI_PESSI_CA460D1D_NZ
+#define NU     OCP_LIPM_OPTI_PESSI_CA460D1D_NU
+#define NP     OCP_LIPM_OPTI_PESSI_CA460D1D_NP
+#define NP_GLOBAL     OCP_LIPM_OPTI_PESSI_CA460D1D_NP_GLOBAL
+#define NY0    OCP_LIPM_OPTI_PESSI_CA460D1D_NY0
+#define NY     OCP_LIPM_OPTI_PESSI_CA460D1D_NY
+#define NYN    OCP_LIPM_OPTI_PESSI_CA460D1D_NYN
 
-#define NBX    OCP_LIPM_OPTI_PESSI_0E58481E_NBX
-#define NBX0   OCP_LIPM_OPTI_PESSI_0E58481E_NBX0
-#define NBU    OCP_LIPM_OPTI_PESSI_0E58481E_NBU
-#define NG     OCP_LIPM_OPTI_PESSI_0E58481E_NG
-#define NBXN   OCP_LIPM_OPTI_PESSI_0E58481E_NBXN
-#define NGN    OCP_LIPM_OPTI_PESSI_0E58481E_NGN
+#define NBX    OCP_LIPM_OPTI_PESSI_CA460D1D_NBX
+#define NBX0   OCP_LIPM_OPTI_PESSI_CA460D1D_NBX0
+#define NBU    OCP_LIPM_OPTI_PESSI_CA460D1D_NBU
+#define NG     OCP_LIPM_OPTI_PESSI_CA460D1D_NG
+#define NBXN   OCP_LIPM_OPTI_PESSI_CA460D1D_NBXN
+#define NGN    OCP_LIPM_OPTI_PESSI_CA460D1D_NGN
 
-#define NH     OCP_LIPM_OPTI_PESSI_0E58481E_NH
-#define NHN    OCP_LIPM_OPTI_PESSI_0E58481E_NHN
-#define NH0    OCP_LIPM_OPTI_PESSI_0E58481E_NH0
-#define NPHI   OCP_LIPM_OPTI_PESSI_0E58481E_NPHI
-#define NPHIN  OCP_LIPM_OPTI_PESSI_0E58481E_NPHIN
-#define NPHI0  OCP_LIPM_OPTI_PESSI_0E58481E_NPHI0
-#define NR     OCP_LIPM_OPTI_PESSI_0E58481E_NR
+#define NH     OCP_LIPM_OPTI_PESSI_CA460D1D_NH
+#define NHN    OCP_LIPM_OPTI_PESSI_CA460D1D_NHN
+#define NH0    OCP_LIPM_OPTI_PESSI_CA460D1D_NH0
+#define NPHI   OCP_LIPM_OPTI_PESSI_CA460D1D_NPHI
+#define NPHIN  OCP_LIPM_OPTI_PESSI_CA460D1D_NPHIN
+#define NPHI0  OCP_LIPM_OPTI_PESSI_CA460D1D_NPHI0
+#define NR     OCP_LIPM_OPTI_PESSI_CA460D1D_NR
 
-#define NS     OCP_LIPM_OPTI_PESSI_0E58481E_NS
-#define NS0    OCP_LIPM_OPTI_PESSI_0E58481E_NS0
-#define NSN    OCP_LIPM_OPTI_PESSI_0E58481E_NSN
+#define NS     OCP_LIPM_OPTI_PESSI_CA460D1D_NS
+#define NS0    OCP_LIPM_OPTI_PESSI_CA460D1D_NS0
+#define NSN    OCP_LIPM_OPTI_PESSI_CA460D1D_NSN
 
-#define NSBX   OCP_LIPM_OPTI_PESSI_0E58481E_NSBX
-#define NSBU   OCP_LIPM_OPTI_PESSI_0E58481E_NSBU
-#define NSH0   OCP_LIPM_OPTI_PESSI_0E58481E_NSH0
-#define NSH    OCP_LIPM_OPTI_PESSI_0E58481E_NSH
-#define NSHN   OCP_LIPM_OPTI_PESSI_0E58481E_NSHN
-#define NSG    OCP_LIPM_OPTI_PESSI_0E58481E_NSG
-#define NSPHI0 OCP_LIPM_OPTI_PESSI_0E58481E_NSPHI0
-#define NSPHI  OCP_LIPM_OPTI_PESSI_0E58481E_NSPHI
-#define NSPHIN OCP_LIPM_OPTI_PESSI_0E58481E_NSPHIN
-#define NSGN   OCP_LIPM_OPTI_PESSI_0E58481E_NSGN
-#define NSBXN  OCP_LIPM_OPTI_PESSI_0E58481E_NSBXN
+#define NSBX   OCP_LIPM_OPTI_PESSI_CA460D1D_NSBX
+#define NSBU   OCP_LIPM_OPTI_PESSI_CA460D1D_NSBU
+#define NSH0   OCP_LIPM_OPTI_PESSI_CA460D1D_NSH0
+#define NSH    OCP_LIPM_OPTI_PESSI_CA460D1D_NSH
+#define NSHN   OCP_LIPM_OPTI_PESSI_CA460D1D_NSHN
+#define NSG    OCP_LIPM_OPTI_PESSI_CA460D1D_NSG
+#define NSPHI0 OCP_LIPM_OPTI_PESSI_CA460D1D_NSPHI0
+#define NSPHI  OCP_LIPM_OPTI_PESSI_CA460D1D_NSPHI
+#define NSPHIN OCP_LIPM_OPTI_PESSI_CA460D1D_NSPHIN
+#define NSGN   OCP_LIPM_OPTI_PESSI_CA460D1D_NSGN
+#define NSBXN  OCP_LIPM_OPTI_PESSI_CA460D1D_NSBXN
 
 
 
@@ -74,35 +74,35 @@
 
 // ** solver data **
 
-ocp_lipm_opti_pessi_0e58481e_solver_capsule * ocp_lipm_opti_pessi_0e58481e_acados_create_capsule(void)
+ocp_lipm_opti_pessi_ca460d1d_solver_capsule * ocp_lipm_opti_pessi_ca460d1d_acados_create_capsule(void)
 {
-    void* capsule_mem = malloc(sizeof(ocp_lipm_opti_pessi_0e58481e_solver_capsule));
-    ocp_lipm_opti_pessi_0e58481e_solver_capsule *capsule = (ocp_lipm_opti_pessi_0e58481e_solver_capsule *) capsule_mem;
+    void* capsule_mem = malloc(sizeof(ocp_lipm_opti_pessi_ca460d1d_solver_capsule));
+    ocp_lipm_opti_pessi_ca460d1d_solver_capsule *capsule = (ocp_lipm_opti_pessi_ca460d1d_solver_capsule *) capsule_mem;
 
     return capsule;
 }
 
 
-int ocp_lipm_opti_pessi_0e58481e_acados_free_capsule(ocp_lipm_opti_pessi_0e58481e_solver_capsule *capsule)
+int ocp_lipm_opti_pessi_ca460d1d_acados_free_capsule(ocp_lipm_opti_pessi_ca460d1d_solver_capsule *capsule)
 {
     free(capsule);
     return 0;
 }
 
 
-int ocp_lipm_opti_pessi_0e58481e_acados_create(ocp_lipm_opti_pessi_0e58481e_solver_capsule* capsule)
+int ocp_lipm_opti_pessi_ca460d1d_acados_create(ocp_lipm_opti_pessi_ca460d1d_solver_capsule* capsule)
 {
-    int N_shooting_intervals = OCP_LIPM_OPTI_PESSI_0E58481E_N;
+    int N_shooting_intervals = OCP_LIPM_OPTI_PESSI_CA460D1D_N;
     double* new_time_steps = NULL; // NULL -> don't alter the code generated time-steps
-    return ocp_lipm_opti_pessi_0e58481e_acados_create_with_discretization(capsule, N_shooting_intervals, new_time_steps);
+    return ocp_lipm_opti_pessi_ca460d1d_acados_create_with_discretization(capsule, N_shooting_intervals, new_time_steps);
 }
 
 
-int ocp_lipm_opti_pessi_0e58481e_acados_update_time_steps(ocp_lipm_opti_pessi_0e58481e_solver_capsule* capsule, int N, double* new_time_steps)
+int ocp_lipm_opti_pessi_ca460d1d_acados_update_time_steps(ocp_lipm_opti_pessi_ca460d1d_solver_capsule* capsule, int N, double* new_time_steps)
 {
 
     if (N != capsule->nlp_solver_plan->N) {
-        fprintf(stderr, "ocp_lipm_opti_pessi_0e58481e_acados_update_time_steps: given number of time steps (= %d) " \
+        fprintf(stderr, "ocp_lipm_opti_pessi_ca460d1d_acados_update_time_steps: given number of time steps (= %d) " \
             "differs from the currently allocated number of " \
             "time steps (= %d)!\n" \
             "Please recreate with new discretization and provide a new vector of time_stamps!\n",
@@ -124,9 +124,9 @@ int ocp_lipm_opti_pessi_0e58481e_acados_update_time_steps(ocp_lipm_opti_pessi_0e
 }
 
 /**
- * Internal function for ocp_lipm_opti_pessi_0e58481e_acados_create: step 1
+ * Internal function for ocp_lipm_opti_pessi_ca460d1d_acados_create: step 1
  */
-void ocp_lipm_opti_pessi_0e58481e_acados_create_set_plan(ocp_nlp_plan_t* nlp_solver_plan, const int N)
+void ocp_lipm_opti_pessi_ca460d1d_acados_create_set_plan(ocp_nlp_plan_t* nlp_solver_plan, const int N)
 {
     assert(N == nlp_solver_plan->N);
 
@@ -165,7 +165,7 @@ void ocp_lipm_opti_pessi_0e58481e_acados_create_set_plan(ocp_nlp_plan_t* nlp_sol
 }
 
 
-static ocp_nlp_dims* ocp_lipm_opti_pessi_0e58481e_acados_create_setup_dimensions(ocp_lipm_opti_pessi_0e58481e_solver_capsule* capsule)
+static ocp_nlp_dims* ocp_lipm_opti_pessi_ca460d1d_acados_create_setup_dimensions(ocp_lipm_opti_pessi_ca460d1d_solver_capsule* capsule)
 {
     ocp_nlp_plan_t* nlp_solver_plan = capsule->nlp_solver_plan;
     const int N = nlp_solver_plan->N;
@@ -298,9 +298,9 @@ static ocp_nlp_dims* ocp_lipm_opti_pessi_0e58481e_acados_create_setup_dimensions
 
 
 /**
- * Internal function for ocp_lipm_opti_pessi_0e58481e_acados_create: step 3
+ * Internal function for ocp_lipm_opti_pessi_ca460d1d_acados_create: step 3
  */
-void ocp_lipm_opti_pessi_0e58481e_acados_create_setup_functions(ocp_lipm_opti_pessi_0e58481e_solver_capsule* capsule)
+void ocp_lipm_opti_pessi_ca460d1d_acados_create_setup_functions(ocp_lipm_opti_pessi_ca460d1d_solver_capsule* capsule)
 {
     const int N = capsule->nlp_solver_plan->N;
 
@@ -384,9 +384,9 @@ void ocp_lipm_opti_pessi_0e58481e_acados_create_setup_functions(ocp_lipm_opti_pe
 
 
 /**
- * Internal function for ocp_lipm_opti_pessi_0e58481e_acados_create: step 5
+ * Internal function for ocp_lipm_opti_pessi_ca460d1d_acados_create: step 5
  */
-void ocp_lipm_opti_pessi_0e58481e_acados_create_set_default_parameters(ocp_lipm_opti_pessi_0e58481e_solver_capsule* capsule)
+void ocp_lipm_opti_pessi_ca460d1d_acados_create_set_default_parameters(ocp_lipm_opti_pessi_ca460d1d_solver_capsule* capsule)
 {
 
     const int N = capsule->nlp_solver_plan->N;
@@ -396,7 +396,7 @@ void ocp_lipm_opti_pessi_0e58481e_acados_create_set_default_parameters(ocp_lipm_
     double* p = calloc(NP, sizeof(double));
 
     for (int i = 0; i <= N; i++) {
-        ocp_lipm_opti_pessi_0e58481e_acados_update_params(capsule, i, p, NP);
+        ocp_lipm_opti_pessi_ca460d1d_acados_update_params(capsule, i, p, NP);
     }
     free(p);
 
@@ -406,9 +406,9 @@ void ocp_lipm_opti_pessi_0e58481e_acados_create_set_default_parameters(ocp_lipm_
 
 
 /**
- * Internal function for ocp_lipm_opti_pessi_0e58481e_acados_create: step 5
+ * Internal function for ocp_lipm_opti_pessi_ca460d1d_acados_create: step 5
  */
-void ocp_lipm_opti_pessi_0e58481e_acados_create_setup_nlp_in_numerical_values(ocp_lipm_opti_pessi_0e58481e_solver_capsule* capsule, const int N, double* new_time_steps)
+void ocp_lipm_opti_pessi_ca460d1d_acados_create_setup_nlp_in_numerical_values(ocp_lipm_opti_pessi_ca460d1d_solver_capsule* capsule, const int N, double* new_time_steps)
 {
     assert(N == capsule->nlp_solver_plan->N);
     ocp_nlp_config* nlp_config = capsule->nlp_config;
@@ -430,7 +430,7 @@ void ocp_lipm_opti_pessi_0e58481e_acados_create_setup_nlp_in_numerical_values(oc
     if (new_time_steps)
     {
         // NOTE: this sets scaling and time_steps
-        ocp_lipm_opti_pessi_0e58481e_acados_update_time_steps(capsule, N, new_time_steps);
+        ocp_lipm_opti_pessi_ca460d1d_acados_update_time_steps(capsule, N, new_time_steps);
     }
     else
     {
@@ -1153,8 +1153,8 @@ void ocp_lipm_opti_pessi_0e58481e_acados_create_setup_nlp_in_numerical_values(oc
 
 }
 
-// this function only sets external functions, numerical values are set in ocp_lipm_opti_pessi_0e58481e_acados_create_setup_nlp_in_numerical_values
-void ocp_lipm_opti_pessi_0e58481e_acados_create_setup_nlp_in(ocp_lipm_opti_pessi_0e58481e_solver_capsule* capsule, const int N)
+// this function only sets external functions, numerical values are set in ocp_lipm_opti_pessi_ca460d1d_acados_create_setup_nlp_in_numerical_values
+void ocp_lipm_opti_pessi_ca460d1d_acados_create_setup_nlp_in(ocp_lipm_opti_pessi_ca460d1d_solver_capsule* capsule, const int N)
 {
     assert(N == capsule->nlp_solver_plan->N);
     ocp_nlp_config* nlp_config = capsule->nlp_config;
@@ -1224,7 +1224,7 @@ void ocp_lipm_opti_pessi_0e58481e_acados_create_setup_nlp_in(ocp_lipm_opti_pessi
 }
 
 
-static void ocp_lipm_opti_pessi_0e58481e_acados_create_set_opts(ocp_lipm_opti_pessi_0e58481e_solver_capsule* capsule)
+static void ocp_lipm_opti_pessi_ca460d1d_acados_create_set_opts(ocp_lipm_opti_pessi_ca460d1d_solver_capsule* capsule)
 {
     const int N = capsule->nlp_solver_plan->N;
     ocp_nlp_config* nlp_config = capsule->nlp_config;
@@ -1397,9 +1397,9 @@ static void ocp_lipm_opti_pessi_0e58481e_acados_create_set_opts(ocp_lipm_opti_pe
 
 
 /**
- * Internal function for ocp_lipm_opti_pessi_0e58481e_acados_create: step 7
+ * Internal function for ocp_lipm_opti_pessi_ca460d1d_acados_create: step 7
  */
-void ocp_lipm_opti_pessi_0e58481e_acados_set_nlp_out(ocp_lipm_opti_pessi_0e58481e_solver_capsule* capsule)
+void ocp_lipm_opti_pessi_ca460d1d_acados_set_nlp_out(ocp_lipm_opti_pessi_ca460d1d_solver_capsule* capsule)
 {
     const int N = capsule->nlp_solver_plan->N;
     ocp_nlp_config* nlp_config = capsule->nlp_config;
@@ -1441,9 +1441,9 @@ void ocp_lipm_opti_pessi_0e58481e_acados_set_nlp_out(ocp_lipm_opti_pessi_0e58481
 
 
 /**
- * Internal function for ocp_lipm_opti_pessi_0e58481e_acados_create: step 9
+ * Internal function for ocp_lipm_opti_pessi_ca460d1d_acados_create: step 9
  */
-int ocp_lipm_opti_pessi_0e58481e_acados_create_precompute(ocp_lipm_opti_pessi_0e58481e_solver_capsule* capsule) {
+int ocp_lipm_opti_pessi_ca460d1d_acados_create_precompute(ocp_lipm_opti_pessi_ca460d1d_solver_capsule* capsule) {
     int status = ocp_nlp_precompute(capsule->nlp_solver, capsule->nlp_in, capsule->nlp_out);
 
     if (status != ACADOS_SUCCESS) {
@@ -1455,14 +1455,14 @@ int ocp_lipm_opti_pessi_0e58481e_acados_create_precompute(ocp_lipm_opti_pessi_0e
 }
 
 
-int ocp_lipm_opti_pessi_0e58481e_acados_create_with_discretization(ocp_lipm_opti_pessi_0e58481e_solver_capsule* capsule, int N, double* new_time_steps)
+int ocp_lipm_opti_pessi_ca460d1d_acados_create_with_discretization(ocp_lipm_opti_pessi_ca460d1d_solver_capsule* capsule, int N, double* new_time_steps)
 {
     // If N does not match the number of shooting intervals used for code generation, new_time_steps must be given.
-    if (N != OCP_LIPM_OPTI_PESSI_0E58481E_N && !new_time_steps) {
-        fprintf(stderr, "ocp_lipm_opti_pessi_0e58481e_acados_create_with_discretization: new_time_steps is NULL " \
+    if (N != OCP_LIPM_OPTI_PESSI_CA460D1D_N && !new_time_steps) {
+        fprintf(stderr, "ocp_lipm_opti_pessi_ca460d1d_acados_create_with_discretization: new_time_steps is NULL " \
             "but the number of shooting intervals (= %d) differs from the number of " \
             "shooting intervals (= %d) during code generation! Please provide a new vector of time_stamps!\n", \
-             N, OCP_LIPM_OPTI_PESSI_0E58481E_N);
+             N, OCP_LIPM_OPTI_PESSI_CA460D1D_N);
         return 1;
     }
 
@@ -1471,38 +1471,38 @@ int ocp_lipm_opti_pessi_0e58481e_acados_create_with_discretization(ocp_lipm_opti
 
     // 1) create and set nlp_solver_plan; create nlp_config
     capsule->nlp_solver_plan = ocp_nlp_plan_create(N);
-    ocp_lipm_opti_pessi_0e58481e_acados_create_set_plan(capsule->nlp_solver_plan, N);
+    ocp_lipm_opti_pessi_ca460d1d_acados_create_set_plan(capsule->nlp_solver_plan, N);
     capsule->nlp_config = ocp_nlp_config_create(*capsule->nlp_solver_plan);
 
     // 2) create and set dimensions
-    capsule->nlp_dims = ocp_lipm_opti_pessi_0e58481e_acados_create_setup_dimensions(capsule);
+    capsule->nlp_dims = ocp_lipm_opti_pessi_ca460d1d_acados_create_setup_dimensions(capsule);
 
     // 3) create and set nlp_opts
     capsule->nlp_opts = ocp_nlp_solver_opts_create(capsule->nlp_config, capsule->nlp_dims);
-    ocp_lipm_opti_pessi_0e58481e_acados_create_set_opts(capsule);
+    ocp_lipm_opti_pessi_ca460d1d_acados_create_set_opts(capsule);
 
     // 4) create and set nlp_out
     // 4.1) nlp_out
     capsule->nlp_out = ocp_nlp_out_create(capsule->nlp_config, capsule->nlp_dims);
     // 4.2) sens_out
     capsule->sens_out = ocp_nlp_out_create(capsule->nlp_config, capsule->nlp_dims);
-    ocp_lipm_opti_pessi_0e58481e_acados_set_nlp_out(capsule);
+    ocp_lipm_opti_pessi_ca460d1d_acados_set_nlp_out(capsule);
 
     // 5) create nlp_in
     capsule->nlp_in = ocp_nlp_in_create(capsule->nlp_config, capsule->nlp_dims);
 
     // 6) setup functions, nlp_in and default parameters
-    ocp_lipm_opti_pessi_0e58481e_acados_create_setup_functions(capsule);
-    ocp_lipm_opti_pessi_0e58481e_acados_create_setup_nlp_in(capsule, N);
-    ocp_lipm_opti_pessi_0e58481e_acados_create_setup_nlp_in_numerical_values(capsule, N, new_time_steps);
-    ocp_lipm_opti_pessi_0e58481e_acados_create_set_default_parameters(capsule);
+    ocp_lipm_opti_pessi_ca460d1d_acados_create_setup_functions(capsule);
+    ocp_lipm_opti_pessi_ca460d1d_acados_create_setup_nlp_in(capsule, N);
+    ocp_lipm_opti_pessi_ca460d1d_acados_create_setup_nlp_in_numerical_values(capsule, N, new_time_steps);
+    ocp_lipm_opti_pessi_ca460d1d_acados_create_set_default_parameters(capsule);
 
     // 7) create solver
     capsule->nlp_solver = ocp_nlp_solver_create(capsule->nlp_config, capsule->nlp_dims, capsule->nlp_opts, capsule->nlp_in);
 
 
     // 8) do precomputations
-    int status = ocp_lipm_opti_pessi_0e58481e_acados_create_precompute(capsule);
+    int status = ocp_lipm_opti_pessi_ca460d1d_acados_create_precompute(capsule);
 
     return status;
 }
@@ -1510,7 +1510,7 @@ int ocp_lipm_opti_pessi_0e58481e_acados_create_with_discretization(ocp_lipm_opti
 /**
  * This function is for updating an already initialized solver with a different number of qp_cond_N. It is useful for code reuse after code export.
  */
-int ocp_lipm_opti_pessi_0e58481e_acados_update_qp_solver_cond_N(ocp_lipm_opti_pessi_0e58481e_solver_capsule* capsule, int qp_solver_cond_N)
+int ocp_lipm_opti_pessi_ca460d1d_acados_update_qp_solver_cond_N(ocp_lipm_opti_pessi_ca460d1d_solver_capsule* capsule, int qp_solver_cond_N)
 {
     // 1) destroy solver
     ocp_nlp_solver_destroy(capsule->nlp_solver);
@@ -1521,17 +1521,17 @@ int ocp_lipm_opti_pessi_0e58481e_acados_update_qp_solver_cond_N(ocp_lipm_opti_pe
         printf("Warning: qp_solver_cond_N = %d > N = %d\n", qp_solver_cond_N, N);
     ocp_nlp_solver_opts_set(capsule->nlp_config, capsule->nlp_opts, "qp_cond_N", &qp_solver_cond_N);
 
-    // 3) continue with the remaining steps from ocp_lipm_opti_pessi_0e58481e_acados_create_with_discretization(...):
+    // 3) continue with the remaining steps from ocp_lipm_opti_pessi_ca460d1d_acados_create_with_discretization(...):
     // -> 8) create solver
     capsule->nlp_solver = ocp_nlp_solver_create(capsule->nlp_config, capsule->nlp_dims, capsule->nlp_opts, capsule->nlp_in);
 
     // -> 9) do precomputations
-    int status = ocp_lipm_opti_pessi_0e58481e_acados_create_precompute(capsule);
+    int status = ocp_lipm_opti_pessi_ca460d1d_acados_create_precompute(capsule);
     return status;
 }
 
 
-int ocp_lipm_opti_pessi_0e58481e_acados_reset(ocp_lipm_opti_pessi_0e58481e_solver_capsule* capsule, int reset_qp_solver_mem, int reset_numerical_values, int reset_solver_options, int reset_x_to_x0_bar)
+int ocp_lipm_opti_pessi_ca460d1d_acados_reset(ocp_lipm_opti_pessi_ca460d1d_solver_capsule* capsule, int reset_qp_solver_mem, int reset_numerical_values, int reset_solver_options, int reset_x_to_x0_bar)
 {
     // set initialization to all zeros
     const int N = capsule->nlp_solver_plan->N;
@@ -1558,16 +1558,16 @@ int ocp_lipm_opti_pessi_0e58481e_acados_reset(ocp_lipm_opti_pessi_0e58481e_solve
     if (reset_numerical_values)
     {
         // reset parameters to initial values
-        ocp_lipm_opti_pessi_0e58481e_acados_create_set_default_parameters(capsule);
+        ocp_lipm_opti_pessi_ca460d1d_acados_create_set_default_parameters(capsule);
 
         // reset numerical values in nlp_in
-        ocp_lipm_opti_pessi_0e58481e_acados_create_setup_nlp_in_numerical_values(capsule, N, NULL);
+        ocp_lipm_opti_pessi_ca460d1d_acados_create_setup_nlp_in_numerical_values(capsule, N, NULL);
     }
 
     if (reset_solver_options)
     {
         // reset solver options to initial values
-        ocp_lipm_opti_pessi_0e58481e_acados_create_set_opts(capsule);
+        ocp_lipm_opti_pessi_ca460d1d_acados_create_set_opts(capsule);
     }
 
     if (reset_x_to_x0_bar)
@@ -1585,7 +1585,7 @@ int ocp_lipm_opti_pessi_0e58481e_acados_reset(ocp_lipm_opti_pessi_0e58481e_solve
 
 
 
-int ocp_lipm_opti_pessi_0e58481e_acados_update_params(ocp_lipm_opti_pessi_0e58481e_solver_capsule* capsule, int stage, double *p, int np)
+int ocp_lipm_opti_pessi_ca460d1d_acados_update_params(ocp_lipm_opti_pessi_ca460d1d_solver_capsule* capsule, int stage, double *p, int np)
 {
     int solver_status = 0;
 
@@ -1601,7 +1601,7 @@ int ocp_lipm_opti_pessi_0e58481e_acados_update_params(ocp_lipm_opti_pessi_0e5848
 }
 
 
-int ocp_lipm_opti_pessi_0e58481e_acados_update_params_sparse(ocp_lipm_opti_pessi_0e58481e_solver_capsule * capsule, int stage, int *idx, double *p, int n_update)
+int ocp_lipm_opti_pessi_ca460d1d_acados_update_params_sparse(ocp_lipm_opti_pessi_ca460d1d_solver_capsule * capsule, int stage, int *idx, double *p, int n_update)
 {
     ocp_nlp_in_set_params_sparse(capsule->nlp_config, capsule->nlp_dims, capsule->nlp_in, stage, idx, p, n_update);
 
@@ -1609,17 +1609,17 @@ int ocp_lipm_opti_pessi_0e58481e_acados_update_params_sparse(ocp_lipm_opti_pessi
 }
 
 
-int ocp_lipm_opti_pessi_0e58481e_acados_set_p_global_and_precompute_dependencies(ocp_lipm_opti_pessi_0e58481e_solver_capsule* capsule, double* data, int data_len)
+int ocp_lipm_opti_pessi_ca460d1d_acados_set_p_global_and_precompute_dependencies(ocp_lipm_opti_pessi_ca460d1d_solver_capsule* capsule, double* data, int data_len)
 {
 
-    // printf("No global_data, ocp_lipm_opti_pessi_0e58481e_acados_set_p_global_and_precompute_dependencies does nothing.\n");
+    // printf("No global_data, ocp_lipm_opti_pessi_ca460d1d_acados_set_p_global_and_precompute_dependencies does nothing.\n");
     return 0;
 }
 
 
 
 
-int ocp_lipm_opti_pessi_0e58481e_acados_solve(ocp_lipm_opti_pessi_0e58481e_solver_capsule* capsule)
+int ocp_lipm_opti_pessi_ca460d1d_acados_solve(ocp_lipm_opti_pessi_ca460d1d_solver_capsule* capsule)
 {
     // solve NLP
     int solver_status = ocp_nlp_solve(capsule->nlp_solver, capsule->nlp_in, capsule->nlp_out);
@@ -1629,7 +1629,7 @@ int ocp_lipm_opti_pessi_0e58481e_acados_solve(ocp_lipm_opti_pessi_0e58481e_solve
 
 
 
-int ocp_lipm_opti_pessi_0e58481e_acados_setup_qp_matrices_and_factorize(ocp_lipm_opti_pessi_0e58481e_solver_capsule* capsule)
+int ocp_lipm_opti_pessi_ca460d1d_acados_setup_qp_matrices_and_factorize(ocp_lipm_opti_pessi_ca460d1d_solver_capsule* capsule)
 {
     int solver_status = ocp_nlp_setup_qp_matrices_and_factorize(capsule->nlp_solver, capsule->nlp_in, capsule->nlp_out);
 
@@ -1641,7 +1641,7 @@ int ocp_lipm_opti_pessi_0e58481e_acados_setup_qp_matrices_and_factorize(ocp_lipm
 
 
 
-int ocp_lipm_opti_pessi_0e58481e_acados_free(ocp_lipm_opti_pessi_0e58481e_solver_capsule* capsule)
+int ocp_lipm_opti_pessi_ca460d1d_acados_free(ocp_lipm_opti_pessi_ca460d1d_solver_capsule* capsule)
 {
     // before destroying, keep some info
     const int N = capsule->nlp_solver_plan->N;
@@ -1702,7 +1702,7 @@ int ocp_lipm_opti_pessi_0e58481e_acados_free(ocp_lipm_opti_pessi_0e58481e_solver
 }
 
 
-void ocp_lipm_opti_pessi_0e58481e_acados_print_stats(ocp_lipm_opti_pessi_0e58481e_solver_capsule* capsule)
+void ocp_lipm_opti_pessi_ca460d1d_acados_print_stats(ocp_lipm_opti_pessi_ca460d1d_solver_capsule* capsule)
 {
     int nlp_iter, stat_m, stat_n, tmp_int;
     ocp_nlp_get(capsule->nlp_solver, "nlp_iter", &nlp_iter);
@@ -1744,7 +1744,7 @@ void ocp_lipm_opti_pessi_0e58481e_acados_print_stats(ocp_lipm_opti_pessi_0e58481
     }
 }
 
-int ocp_lipm_opti_pessi_0e58481e_acados_custom_update(ocp_lipm_opti_pessi_0e58481e_solver_capsule* capsule, double* data, int data_len)
+int ocp_lipm_opti_pessi_ca460d1d_acados_custom_update(ocp_lipm_opti_pessi_ca460d1d_solver_capsule* capsule, double* data, int data_len)
 {
     (void)capsule;
     (void)data;
@@ -1757,11 +1757,11 @@ int ocp_lipm_opti_pessi_0e58481e_acados_custom_update(ocp_lipm_opti_pessi_0e5848
 
 
 
-ocp_nlp_in *ocp_lipm_opti_pessi_0e58481e_acados_get_nlp_in(ocp_lipm_opti_pessi_0e58481e_solver_capsule* capsule) { return capsule->nlp_in; }
-ocp_nlp_out *ocp_lipm_opti_pessi_0e58481e_acados_get_nlp_out(ocp_lipm_opti_pessi_0e58481e_solver_capsule* capsule) { return capsule->nlp_out; }
-ocp_nlp_out *ocp_lipm_opti_pessi_0e58481e_acados_get_sens_out(ocp_lipm_opti_pessi_0e58481e_solver_capsule* capsule) { return capsule->sens_out; }
-ocp_nlp_solver *ocp_lipm_opti_pessi_0e58481e_acados_get_nlp_solver(ocp_lipm_opti_pessi_0e58481e_solver_capsule* capsule) { return capsule->nlp_solver; }
-ocp_nlp_config *ocp_lipm_opti_pessi_0e58481e_acados_get_nlp_config(ocp_lipm_opti_pessi_0e58481e_solver_capsule* capsule) { return capsule->nlp_config; }
-void *ocp_lipm_opti_pessi_0e58481e_acados_get_nlp_opts(ocp_lipm_opti_pessi_0e58481e_solver_capsule* capsule) { return capsule->nlp_opts; }
-ocp_nlp_dims *ocp_lipm_opti_pessi_0e58481e_acados_get_nlp_dims(ocp_lipm_opti_pessi_0e58481e_solver_capsule* capsule) { return capsule->nlp_dims; }
-ocp_nlp_plan_t *ocp_lipm_opti_pessi_0e58481e_acados_get_nlp_plan(ocp_lipm_opti_pessi_0e58481e_solver_capsule* capsule) { return capsule->nlp_solver_plan; }
+ocp_nlp_in *ocp_lipm_opti_pessi_ca460d1d_acados_get_nlp_in(ocp_lipm_opti_pessi_ca460d1d_solver_capsule* capsule) { return capsule->nlp_in; }
+ocp_nlp_out *ocp_lipm_opti_pessi_ca460d1d_acados_get_nlp_out(ocp_lipm_opti_pessi_ca460d1d_solver_capsule* capsule) { return capsule->nlp_out; }
+ocp_nlp_out *ocp_lipm_opti_pessi_ca460d1d_acados_get_sens_out(ocp_lipm_opti_pessi_ca460d1d_solver_capsule* capsule) { return capsule->sens_out; }
+ocp_nlp_solver *ocp_lipm_opti_pessi_ca460d1d_acados_get_nlp_solver(ocp_lipm_opti_pessi_ca460d1d_solver_capsule* capsule) { return capsule->nlp_solver; }
+ocp_nlp_config *ocp_lipm_opti_pessi_ca460d1d_acados_get_nlp_config(ocp_lipm_opti_pessi_ca460d1d_solver_capsule* capsule) { return capsule->nlp_config; }
+void *ocp_lipm_opti_pessi_ca460d1d_acados_get_nlp_opts(ocp_lipm_opti_pessi_ca460d1d_solver_capsule* capsule) { return capsule->nlp_opts; }
+ocp_nlp_dims *ocp_lipm_opti_pessi_ca460d1d_acados_get_nlp_dims(ocp_lipm_opti_pessi_ca460d1d_solver_capsule* capsule) { return capsule->nlp_dims; }
+ocp_nlp_plan_t *ocp_lipm_opti_pessi_ca460d1d_acados_get_nlp_plan(ocp_lipm_opti_pessi_ca460d1d_solver_capsule* capsule) { return capsule->nlp_solver_plan; }

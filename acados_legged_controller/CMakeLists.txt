@@ -28,6 +28,7 @@ find_package(ocs2_legged_robot_ros REQUIRED)
 find_package(ocs2_self_collision_visualization REQUIRED)
 find_package(ocs2_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(std_srvs REQUIRED)
 find_package(legged_interface REQUIRED)
 find_package(legged_wbc REQUIRED)
 find_package(legged_estimation REQUIRED)
@@ -119,6 +120,7 @@ ament_target_dependencies(${PROJECT_NAME}
   ocs2_msgs
   ocs2_centroidal_model
   std_msgs
+  std_srvs
   angles
   ament_index_cpp  # CONFIG
 )

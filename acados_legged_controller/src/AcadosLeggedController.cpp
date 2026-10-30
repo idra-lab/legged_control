@@ -26,20 +26,7 @@ namespace legged {
 controller_interface::CallbackReturn AcadosLeggedController::on_init(){
     auto node = this->get_node();
 
-    // Standup default parameters
-    if (!node->has_parameter("standup_duration")){
-        node->declare_parameter<double>("standup_duration", 2.0);
-    }
-    if (!node->has_parameter("kp_stand")){
-        node->declare_parameter<double>("kp_stand", 150.0);
-    }
-    if (!node->has_parameter("kd_stand")){
-        node->declare_parameter<double>("kd_stand", 4.0);
-    }
 
-    standup_duration_ = node->get_parameter("standup_duration").as_double();
-    kp_stand_ = node->get_parameter("kp_stand").as_double();
-    kd_stand_ = node->get_parameter("kd_stand").as_double();
 
 
     // Load parameters from launch file
@@ -82,16 +69,16 @@ controller_interface::CallbackReturn AcadosLeggedController::on_init(){
     leggedInterface_->setupOptimalControlProblem(taskFile, urdfFile, referenceFile, verbose);
 
     // Extract the stand posture of the joints 
-    if (!node->has_parameter("q_stand")) node->declare_parameter<std::vector<double>>("q_stand", std::vector<double>{});
-    const auto q_stand_param = node->get_parameter("q_stand").as_double_array();
-    if (q_stand_param.size() == 12) {
-        q_stand_ = Eigen::Map<const vector_t>(q_stand_param.data(), 12);
-    } else {
-        // fallback: initialState of task.info
-        q_stand_ = centroidal_model::getJointAngles(leggedInterface_->getInitialState(),
-                                                leggedInterface_->getCentroidalModelInfo());
-    }
+    // Stand posture from h_com: foot under the hip, HAA = 0 -> feet at y = off_y
+    const double hfe = std::acos((cfg_.h_com - cfg_.foot_radius) / (2.0 * cfg_.leg_length));
+    q_stand_.resize(12);
+    for (int leg = 0; leg < 4; ++leg) q_stand_.segment<3>(3 * leg) << 0.0, hfe, -2.0 * hfe;
     RCLCPP_INFO_STREAM(node->get_logger(), "[Acados MPC]: q_stand is: " << q_stand_.transpose());
+
+    // Guard: LIPM mass unit match URDF
+    const double urdf_mass = leggedInterface_->getCentroidalModelInfo().robotMass;
+    RCLCPP_INFO(node->get_logger(), "[Acados MPC]: mass of config.yaml %.3f, URDF %.3f", cfg_.m, urdf_mass);
+
 
     // The Kalman filter needs an rclcpp::Node, before it was never created
     ros2_node_ = std::make_shared<rclcpp::Node>("acados_legged_controller_node");
@@ -209,6 +196,22 @@ controller_interface::InterfaceConfiguration AcadosLeggedController::state_inter
 
 
 controller_interface::CallbackReturn AcadosLeggedController::on_configure(const rclcpp_lifecycle::State& /*previous_state*/) {
+    using Trigger = std_srvs::srv::Trigger;
+
+    // get_node() is spun (eseguito) by the controller_manager, ros2_node_ is not
+    start_walking_srv_ = get_node()->create_service<Trigger>("~/start_walking",
+        [this](const std::shared_ptr<Trigger::Request> /*req*/, std::shared_ptr<Trigger::Response> res) {
+            if (phase_ != Phase::STANCE){
+                res->success = false;
+                res->message = "The robot is not in STANCE";
+                return;
+            }
+            walk_requested_ = true;
+            res->success = true;
+            res->message = "MPC started";
+        }   
+    );
+
     return controller_interface::CallbackReturn::SUCCESS;
 }
 
@@ -300,6 +303,12 @@ controller_interface::CallbackReturn AcadosLeggedController::on_activate(const r
     currentObservation_.input.setZero(leggedInterface_->getCentroidalModelInfo().inputDim);
     currentObservation_.mode = ModeNumber::STANCE;
     updateStateEstimation(node->get_clock()->now(), rclcpp::Duration::from_seconds(0.002));
+
+
+    // Initialize the step duration
+    next_step_duration_ = cfg_.nominalStepDuration();
+    walk_requested_ = false;
+    mpc_ready_ = false;
 
 
     // Start the mpc thread
@@ -434,19 +443,22 @@ void AcadosLeggedController::setWarmStart(const std::vector<double>& x0, const G
 
 // Thread of the MPC: async mpc
 void AcadosLeggedController::mpcThreadLoop(){
-    // WARM START: start from x0 repeated along the horizon
-    {
-        std::lock_guard<std::mutex> lock(mpc_mutex_);
-        resetWarmStart(current_state_x0_);
-        last_step_index_ = gait_planner_->stepIndex();
-    }
+    bool mpc_active = false; // warm start is rebuilt each time MPC starts
 
     while(controller_running_){
 
         // Manage the phase
-        if (phase_ != Phase::WALK) {
+        if (phase_ != Phase::WALK && !walk_requested_) {
+            mpc_active = false;
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
             continue;
+        }
+
+        if (!mpc_active){
+            std::lock_guard<std::mutex> lock(mpc_mutex_);
+            resetWarmStart(current_state_x0_);
+            last_step_index_ = gait_planner_->stepIndex();
+            mpc_active = true;
         }
 
 
@@ -471,6 +483,30 @@ void AcadosLeggedController::mpcThreadLoop(){
         }
         mpc_solver_->setFirstStepDuration(gait_local.timeLeft());
 
+
+        // LOCAL TARGET: at most max_lookahead from robot
+        const double dir_x = cfg_.c_target_x - x0_local[0];
+        const double dir_y = cfg_.c_target_y - x0_local[1];
+        const double dist = std::hypot(dir_x, dir_y);
+        double local_x = cfg_.c_target_x;
+        double local_y = cfg_.c_target_y;
+        if (dist > cfg_.max_lookahead) {
+            local_x = x0_local[0] + dir_x / dist * cfg_.max_lookahead;
+            local_y = x0_local[1] + dir_y / dist * cfg_.max_lookahead;
+        }
+
+        // yref: index 0-1 optimistic CoM, 17-18 pessimistic CoM, yref_e: 0-1 and 6-7
+        std::vector<double> yref(34, 0.0);
+        yref[0] = local_x; yref[1] = local_y;
+        yref[17] = local_x; yref[18] = local_y;
+        std::vector<double> yref_e(12, 0.0);
+        yref_e[0] = local_x; yref_e[1] = local_y;
+        yref_e[6] = local_x; yref_e[7] = local_y;
+        for (int k = 0; k < n_horizon_; ++k) mpc_solver_->setReference(k, yref);
+        mpc_solver_->setReference(n_horizon_, yref_e);
+
+
+
         // WARM START: initial guess for x and u
         setWarmStart(x0_local, gait_local);
 
@@ -492,6 +528,8 @@ void AcadosLeggedController::mpcThreadLoop(){
             if(k < n_horizon_) u_prev_sol_[k] = mpc_solver_->getControl(k);
         }
 
+        
+
         std::vector<double> u_opt = mpc_solver_->getControlCommand();
         std::vector<double> x_next = mpc_solver_->getStatePrediction(1);
 
@@ -499,7 +537,14 @@ void AcadosLeggedController::mpcThreadLoop(){
             std::lock_guard<std::mutex> lock(mpc_mutex_);
             latest_u_opt_ = u_opt;
             latest_x_opt_ = x_next;
+            // Save the duration of the next step
+            next_step_duration_ = std::clamp(u_prev_sol_[1][7], cfg_.dt_min, cfg_.dt_max);
         }
+
+        mpc_ready_ = true;
+        RCLCPP_INFO_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 1000,
+            "[Acados MPC]: status=%d, solve=%.1f ms, T_next=%.3f, cop=%.2f", 
+            status, mpc_solver_->getComputationTime() * 1000.0, next_step_duration_, u_opt[4]);
 
         mpc_step_counter_++;
     }
@@ -523,20 +568,79 @@ controller_interface::return_type AcadosLeggedController::update(const rclcpp::T
     // Manage the phase
     phase_time_ += period.seconds();
 
-    if (phase_ == Phase::STAND_UP || phase_ == Phase::STANCE){
-        double s = 1.0;
-        if(phase_ == Phase::STAND_UP) {
-            const double x = std::min(phase_time_ / standup_duration_, 1.0);
-            s = x * x * (3.0 - 2.0 * x);    // smoothstep: zero velocity at start and end
-            if (x >= 1.0) { phase_ = Phase::STANCE; phase_time_ = 0.0; }
+    if (phase_ == Phase::STAND_UP){
+        const double x = std::min(phase_time_ / cfg_.standup_duration, 1.0);
+        const double s = x * x * (3.0 - 2.0 * x);    // smoothstep: zero velocity at start and end
+        if (x >= 1.0) {
+            phase_ = Phase::STANCE;
+            phase_time_ = 0.0;
+            base_target_ = currentObservation_.state.segment<6>(6); // x, y, z, yaw measured
+            base_target_(4) = 0.0; // pitch
+            base_target_(5) = 0.0; // roll
+            z_start_ = base_target_(2);
+            RCLCPP_INFO_STREAM(get_node()->get_logger(), "[Acados MPC]: STANCE, base target: " << base_target_.transpose());
         }
         for (size_t j = 0; j < hybridJointHandles_.size(); ++j) {
             const double q_des = (1.0 - s) * q_start_(j) + s * q_stand_(j);
-            hybridJointHandles_[j].setCommand(q_des, 0.0, kp_stand_, kd_stand_, 0.0);
+            hybridJointHandles_[j].setCommand(q_des, 0.0, cfg_.kp_stand, cfg_.kd_stand, 0.0);
         }
         return controller_interface::return_type::OK;
     }
-    // From here on: WALK
+    if (phase_ == Phase::STANCE){
+        const double r = std::min(phase_time_ / cfg_.stance_blend, 1.0);
+        const double r_s = r * r * (3.0 - 2.0 * r);
+        const double z_des = (1.0 - r_s) * z_start_ + r_s * cfg_.h_com; 
+
+        const auto& info = leggedInterface_->getCentroidalModelInfo();
+        const vector_t& s = currentObservation_.state;  // centroidal: [vcom(3), L/m(3), pos(3), zyx(3), q(12)]
+
+        // 1) desired state: target_pose, zero momentum, joint at q_stand
+        vector_t optimizedState = vector_t::Zero(info.stateDim);
+        optimizedState.segment<6>(6) = base_target_;
+        optimizedState(8) = z_des;
+        optimizedState.segment<12>(12) = q_stand_;
+
+        // 2) Base PD -> total force, split equally on 4 feet
+        const double m = info.robotMass;
+        const double g = cfg_.g;
+        vector3_t acc;
+        acc.x() = cfg_.kp_base_xy * (base_target_(0) - s(6)) - cfg_.kd_base_xy * s(0);
+        acc.y() = cfg_.kp_base_xy * (base_target_(1) - s(7)) - cfg_.kd_base_xy * s(1);
+        acc.z() = cfg_.kp_base_z  * (z_des - s(8)) - cfg_.kd_base_z * s(2);
+        vector3_t f_foot = m * (acc + vector3_t(0, 0, g)) / 4.0;
+
+        vector_t optimizedInput = vector_t::Zero(info.inputDim);
+        for (size_t i = 0; i < 4; ++i) optimizedInput.segment<3>(3 * i) = f_foot; // joint velocities stay 0
+        currentObservation_.input = optimizedInput;
+
+    
+
+        // 3) WBC with 4 feet in contact
+        vector_t wbc_output = wbc_->update(optimizedState, optimizedInput, measuredRbdState_, ModeNumber::STANCE, period.seconds());
+        vector_t torque = wbc_output.tail(12);
+        
+        // 4) Safety checker active from here on
+        if (!safetyChecker_->check(currentObservation_, optimizedState, optimizedInput)) {
+            RCLCPP_ERROR(get_node()->get_logger(), "[Acados MPC]: Safety check failed!!");
+            return controller_interface::return_type::ERROR;
+        }
+    
+        // 5) Joint PD (gain ramp from stand_up to stance) + WBC torque
+        const double kp = (1.0 - r) * cfg_.kp_stand + r * cfg_.kp_stance;
+        const double kd = (1.0 - r) * cfg_.kd_stand + r * cfg_.kd_stance;
+        for (size_t j = 0; j < info.actuatedDofNum; ++j) {
+            hybridJointHandles_[j].setCommand(q_stand_(j), 0.0, kp, kd, torque(j));
+        }
+
+        // RCLCPP_INFO_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 1000,
+        // "z=%.3f/%.3f  xy_err=%.3f %.3f  pitch=%.3f roll=%.3f  fz=%.1f  tau_max=%.1f",
+        // s(8), z_des, base_target_(0) - s(6), base_target_(1) - s(7), s(10), s(11),
+        // f_foot.z(), torque.cwiseAbs().maxCoeff());
+
+        return controller_interface::return_type::OK;
+    }
+    // Uncomment at step 6
+    // if (phase_ == Phase::STANCE && walk_requested_ && mpc_ready_) phase_ = Phase::WALK;
 
 
     // Take the last available solution from the MPC
@@ -586,8 +690,6 @@ controller_interface::return_type AcadosLeggedController::update(const rclcpp::T
     // Just a reference, because the whole body control has higher priority on tracking the CoM and forces and the kinematic of the swing
     // measureRbdState_ -> measuredRbdState_; rbd state = [base(6), joints(12), base vel(6), joint vel(12)] -> joints start at 6
     optimizedState.segment<12>(12) = measuredRbdState_.segment<12>(6);
-
-
 
 
 
@@ -652,6 +754,9 @@ controller_interface::return_type AcadosLeggedController::update(const rclcpp::T
     for(size_t j = 0; j < info.actuatedDofNum; ++j){
         hybridJointHandles_[j].setCommand(posDes(j), velDes(j), 0, 3, torque(j));
     }
+
+
+
 
     return controller_interface::return_type::OK;
 }
@@ -755,8 +860,8 @@ void AcadosLeggedController::updateStateEstimation(const rclcpp::Time& time, con
     GaitPlanner::Pair stance;
     {
         std::lock_guard<std::mutex> lock(mpc_mutex_);
-        if(gait_planner_->advance(period.seconds()) && !latest_u_opt_.empty()){
-            gait_planner_->setStepDuration(latest_u_opt_[7]); // Duration of the step proposed by the MPC
+        if(phase_ == Phase::WALK && gait_planner_->advance(period.seconds())){
+            gait_planner_->setStepDuration(next_step_duration_); // Duration of the step proposed by the MPC
         }
         stance = gait_planner_->stancePair();
     }

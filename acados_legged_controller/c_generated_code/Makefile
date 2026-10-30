@@ -33,11 +33,11 @@ OCP_SRC+= lipm_opti_pessi_cost/lipm_opti_pessi_cost_y_fun_jac_ut_xt.c
 OCP_SRC+= lipm_opti_pessi_cost/lipm_opti_pessi_cost_y_e_fun.c
 OCP_SRC+= lipm_opti_pessi_cost/lipm_opti_pessi_cost_y_e_fun_jac_ut_xt.c
 
-OCP_SRC+= acados_solver_ocp_lipm_opti_pessi_0e58481e.c
+OCP_SRC+= acados_solver_ocp_lipm_opti_pessi_ca460d1d.c
 
 OCP_OBJ := $(OCP_SRC:.c=.o)
 # for target example
-EX_SRC= main_ocp_lipm_opti_pessi_0e58481e.c
+EX_SRC= main_ocp_lipm_opti_pessi_ca460d1d.c
 EX_OBJ := $(EX_SRC:.c=.o)
 EX_EXE := $(EX_SRC:.c=)
 
@@ -78,8 +78,8 @@ LDLIBS+= -lm
 LDLIBS+= 
 
 # libraries
-LIBACADOS_SOLVER=libacados_solver_ocp_lipm_opti_pessi_0e58481e.so
-LIBACADOS_OCP_SOLVER=libacados_ocp_solver_ocp_lipm_opti_pessi_0e58481e.so
+LIBACADOS_SOLVER=libacados_solver_ocp_lipm_opti_pessi_ca460d1d.so
+LIBACADOS_OCP_SOLVER=libacados_ocp_solver_ocp_lipm_opti_pessi_ca460d1d.so
 
 # virtual targets
 .PHONY : all clean
@@ -124,7 +124,7 @@ ocp_cython: ocp_cython_o
 	-o acados_ocp_solver_pyx.so \
 	-Wl,-rpath=$(LIB_PATH) \
 	acados_ocp_solver_pyx.o \
-	$(abspath .)/libacados_ocp_solver_ocp_lipm_opti_pessi_0e58481e.so \
+	$(abspath .)/libacados_ocp_solver_ocp_lipm_opti_pessi_ca460d1d.so \
 	$(LDFLAGS) $(LDLIBS)
 
 
@@ -139,8 +139,8 @@ clean_ocp_shared_lib:
 	$(RM) $(OCP_OBJ)
 
 clean_ocp_cython:
-	$(RM) libacados_ocp_solver_ocp_lipm_opti_pessi_0e58481e.so
-	$(RM) acados_solver_ocp_lipm_opti_pessi_0e58481e.o
+	$(RM) libacados_ocp_solver_ocp_lipm_opti_pessi_ca460d1d.so
+	$(RM) acados_solver_ocp_lipm_opti_pessi_ca460d1d.o
 	$(RM) acados_ocp_solver_pyx.so
 	$(RM) acados_ocp_solver_pyx.o
 

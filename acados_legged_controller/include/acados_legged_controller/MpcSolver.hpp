@@ -3,7 +3,7 @@
 #include <vector>
 #include <iostream>
 
-#include "acados_solver_ocp_lipm_opti_pessi_0e58481e.h"
+#include "acados_solver_ocp_lipm_opti_pessi_ca460d1d.h"
 #include "acados_c/ocp_nlp_interface.h"
 #include "acados_c/external_function_interface.h"
 
@@ -60,7 +60,7 @@ private:
     std::vector<double> default_ubu_;
 
 
-    ocp_lipm_opti_pessi_0e58481e_solver_capsule* capsule_;
+    ocp_lipm_opti_pessi_ca460d1d_solver_capsule* capsule_;
     ocp_nlp_config* nlp_config_;
     ocp_nlp_dims* nlp_dims_;
     ocp_nlp_in* nlp_in_;

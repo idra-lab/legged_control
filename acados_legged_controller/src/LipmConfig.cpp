@@ -35,6 +35,8 @@ LipmConfig LipmConfig::fromYaml(const std::string& path){
     cfg.Iz = readKey<double>(root, "robot", "Iz");
     cfg.off_x = readKey<double>(root, "robot", "off_x");
     cfg.off_y = readKey<double>(root, "robot", "off_y");
+    cfg.leg_length = readKey<double>(root, "robot", "leg_length");
+    cfg.foot_radius = readKey<double>(root, "robot", "foot_radius");
 
     cfg.dt_min = readKey<double>(root, "limits", "dt_min");
     cfg.dt_max = readKey<double>(root, "limits", "dt_max");
@@ -42,7 +44,28 @@ LipmConfig LipmConfig::fromYaml(const std::string& path){
     cfg.N_horizon = readKey<int>(root, "simulation", "N_horizon");
     cfg.step_per_phase = readKey<int>(root, "simulation", "step_per_phase");
 
+    const auto c_target = readKey<std::vector<double>>(root, "simulation", "c_target");
+    if (c_target.size() != 2){
+        throw std::runtime_error("[LipmConfig]: simulation.c_target must have 2 elements!!");
+    }
+    cfg.c_target_x = c_target[0];
+    cfg.c_target_y = c_target[1];
+    cfg.max_lookahead = readKey<double>(root, "simulation", "max_lookahead");
+
+
     cfg.N_OBS_MAX = readKey<int>(root, "obstacles", "N_OBS_MAX");
+
+    cfg.standup_duration = readKey<double>(root, "controller", "standup_duration");
+    cfg.kp_stand = readKey<double>(root, "controller", "kp_stand");
+    cfg.kd_stand = readKey<double>(root, "controller", "kd_stand");
+    cfg.kp_stance = readKey<double>(root, "controller", "kp_stance");
+    cfg.kd_stance = readKey<double>(root, "controller", "kd_stance");
+    cfg.kp_base_xy = readKey<double>(root, "controller", "kp_base_xy");
+    cfg.kd_base_xy = readKey<double>(root, "controller", "kd_base_xy");
+    cfg.kp_base_z = readKey<double>(root, "controller", "kp_base_z");
+    cfg.kd_base_z = readKey<double>(root, "controller", "kd_base_z");
+    cfg.stance_blend = readKey<double>(root, "controller", "stance_blend");
+    
 
     return cfg;
 }

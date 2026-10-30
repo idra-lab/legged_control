@@ -11,6 +11,7 @@
 
         <!-- Required systems for gz_ros2_control -->
         <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+        <plugin filename="gz-sim-apply-link-wrench-system" name="gz::sim::systems::ApplyLinkWrench"/>
         <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
         <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
         <plugin filename="gz-sim-contact-system" name="gz::sim::systems::Contact"/>

@@ -15,8 +15,8 @@ MpcSolver::MpcSolver(int n_obs_max, int n_horizon) : n_obs_max_(n_obs_max), n_ho
     np_ = 4 + 4 * n_obs_max_;
 
     // CONFIG CHECK: config.yaml must match the dimensions of c_generated_code (otherwise regenerate with model_gen.py)
-    if(n_horizon_ != OCP_LIPM_OPTI_PESSI_0E58481E_N || nx_ != OCP_LIPM_OPTI_PESSI_0E58481E_NX ||
-       nu_ != OCP_LIPM_OPTI_PESSI_0E58481E_NU || np_ != OCP_LIPM_OPTI_PESSI_0E58481E_NP){
+    if(n_horizon_ != OCP_LIPM_OPTI_PESSI_CA460D1D_N || nx_ != OCP_LIPM_OPTI_PESSI_CA460D1D_NX ||
+       nu_ != OCP_LIPM_OPTI_PESSI_CA460D1D_NU || np_ != OCP_LIPM_OPTI_PESSI_CA460D1D_NP){
         throw std::runtime_error("[MpcSolver]: config.yaml (N_horizon=" + std::to_string(n_horizon_) +
                                  ", N_OBS_MAX=" + std::to_string(n_obs_max_) +
                                  ") does not match c_generated_code: run scripts/model_gen.py and rebuild");
@@ -24,13 +24,13 @@ MpcSolver::MpcSolver(int n_obs_max, int n_horizon) : n_obs_max_(n_obs_max), n_ho
 
     // Create the acados solver
     std::cout << "[MpcSolver]: Creation of the acados capsule\n";
-    capsule_ = ocp_lipm_opti_pessi_0e58481e_acados_create_capsule();
+    capsule_ = ocp_lipm_opti_pessi_ca460d1d_acados_create_capsule();
     if(capsule_ == nullptr){
         throw std::runtime_error("FATAL_ERROR: acados_create_capsule return nullptr");
     }
 
     std::cout << "[MpcSolver]: Initialization of the solver\n";
-    int status = ocp_lipm_opti_pessi_0e58481e_acados_create(capsule_);
+    int status = ocp_lipm_opti_pessi_ca460d1d_acados_create(capsule_);
     std::cout << "[MpcSolver]: Status of the solver: " << status << "\n";
     // 0 SUCCESS, 2 SUCCESS REACHING MAXIMUM ITERATION
     if(status != 0 && status != 2){
@@ -40,12 +40,12 @@ MpcSolver::MpcSolver(int n_obs_max, int n_horizon) : n_obs_max_(n_obs_max), n_ho
 
     // Extraction of the pointers
     std::cout << "[MpcSolver]: Extraction of the pointers to the acados config (nlp_config, nlp_dims, ...)\n"; // FIX: missing '\n'
-    nlp_config_ = ocp_lipm_opti_pessi_0e58481e_acados_get_nlp_config(capsule_);
-    nlp_dims_ = ocp_lipm_opti_pessi_0e58481e_acados_get_nlp_dims(capsule_);
-    nlp_in_ = ocp_lipm_opti_pessi_0e58481e_acados_get_nlp_in(capsule_);
-    nlp_out_ = ocp_lipm_opti_pessi_0e58481e_acados_get_nlp_out(capsule_);
-    nlp_solver_ = ocp_lipm_opti_pessi_0e58481e_acados_get_nlp_solver(capsule_);
-    nlp_opts_ = ocp_lipm_opti_pessi_0e58481e_acados_get_nlp_opts(capsule_);
+    nlp_config_ = ocp_lipm_opti_pessi_ca460d1d_acados_get_nlp_config(capsule_);
+    nlp_dims_ = ocp_lipm_opti_pessi_ca460d1d_acados_get_nlp_dims(capsule_);
+    nlp_in_ = ocp_lipm_opti_pessi_ca460d1d_acados_get_nlp_in(capsule_);
+    nlp_out_ = ocp_lipm_opti_pessi_ca460d1d_acados_get_nlp_out(capsule_);
+    nlp_solver_ = ocp_lipm_opti_pessi_ca460d1d_acados_get_nlp_solver(capsule_);
+    nlp_opts_ = ocp_lipm_opti_pessi_ca460d1d_acados_get_nlp_opts(capsule_);
 
     // save the default bounds of stage 0 [alpha, beta, gamma, dt, (ax, ay, b)*N_obs] x 2 branches
     const int nbu = 2 * (4 + 3 * n_obs_max_);
@@ -58,8 +58,8 @@ MpcSolver::MpcSolver(int n_obs_max, int n_horizon) : n_obs_max_(n_obs_max), n_ho
 
 
 MpcSolver::~MpcSolver(){
-    ocp_lipm_opti_pessi_0e58481e_acados_free(capsule_);
-    ocp_lipm_opti_pessi_0e58481e_acados_free_capsule(capsule_);
+    ocp_lipm_opti_pessi_ca460d1d_acados_free(capsule_);
+    ocp_lipm_opti_pessi_ca460d1d_acados_free_capsule(capsule_);
 }
 
 
@@ -85,7 +85,7 @@ bool MpcSolver::setReference(int stage, const std::vector<double>& yref){
 
 bool MpcSolver::setParameters(int stage, const std::vector<double>& p){
     if(stage < 0 || stage > n_horizon_ || static_cast<int>(p.size()) != np_) return false;
-    ocp_lipm_opti_pessi_0e58481e_acados_update_params(capsule_, stage, const_cast<double*>(p.data()), p.size());
+    ocp_lipm_opti_pessi_ca460d1d_acados_update_params(capsule_, stage, const_cast<double*>(p.data()), p.size());
 
     return true;
 }
@@ -105,7 +105,7 @@ bool MpcSolver::setGuess(int stage, const std::vector<double>& x_guess, const st
 
 
 int MpcSolver::solve(){
-    int status = ocp_lipm_opti_pessi_0e58481e_acados_solve(capsule_);
+    int status = ocp_lipm_opti_pessi_ca460d1d_acados_solve(capsule_);
     return status;
 }
 

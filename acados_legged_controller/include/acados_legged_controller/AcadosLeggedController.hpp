@@ -38,6 +38,9 @@
 // CONFIG: parameters read from config.yaml
 #include "acados_legged_controller/LipmConfig.hpp"
 
+// Service per WALK
+#include <std_srvs/srv/trigger.hpp>
+
 
 namespace legged {
 
@@ -97,6 +100,7 @@ private:
     int n_horizon_ = 0;
     size_t mpc_step_counter_ = 0;
 
+    
     // WARM START: previous solution (X_sol_t_prec / U_sol_t_prec of main.py), used only by the MPC thread
     std::vector<std::vector<double>> x_prev_sol_;  // N+1 x nx
     std::vector<std::vector<double>> u_prev_sol_;  // N x nu
@@ -113,6 +117,7 @@ private:
     std::vector<double> current_state_x0_; 
     std::vector<double> latest_u_opt_;
     std::vector<double> latest_x_opt_;
+    double next_step_duration_ = 0.0; // duration of next step, protected by mpc_mutex_
 
 
     // Gait planner
@@ -123,12 +128,18 @@ private:
     // Stand up
     std::atomic<Phase> phase_{Phase::STAND_UP}; // atomic because even threadMPC reads it
     vector_t q_start_;          // joint angles at activation
-    vector_t q_stand_;          // target posture (from reference.info)
+    vector_t q_stand_;          // target posture
     double phase_time_ = 0.0;   // time spent in the current phase [s]
-    double standup_duration_ = 2.0;
-    double kp_stand_ = 150.0;
-    double kd_stand_ = 4.0;
+    
+    // Stance
+    vector_t base_target_;      // [x, y, z, yaw, pitch, roll] captured when entering STANCE
+    double z_start_ = 0.0;
 
+    // Walk
+    rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr start_walking_srv_;
+    std::atomic<bool> walk_requested_{false};   // set by the service, starts MPC thread
+    std::atomic<bool> mpc_ready_{false};        // true after first successful solve !!
+  
 
 };
 
