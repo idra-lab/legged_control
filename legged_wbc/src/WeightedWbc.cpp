@@ -47,11 +47,18 @@ vector_t WeightedWbc::update(const vector_t &stateDesired,
   qpProblem.setOptions(options);
   int nWsr = 200;  // raised from 20: prevents "Max working-set recalcs" at startup
 
-  qpProblem.init(H.data(), g.data(), A.data(), nullptr, nullptr, lbA.data(),
-                 ubA.data(), nWsr);
-  vector_t qpSol(getNumDecisionVars());
+  const qpOASES::returnValue qpStatus =
+      qpProblem.init(H.data(), g.data(), A.data(), nullptr, nullptr, lbA.data(),
+                     ubA.data(), nWsr);
+  // If the QP fails getPrimalSolution writes nothing: never return uninitialized torques
+  if (qpStatus != qpOASES::SUCCESSFUL_RETURN) {
+    if (qpSolLast_.size() > 0) return qpSolLast_;
+    return vector_t::Zero(getNumDecisionVars());
+  }
 
+  vector_t qpSol(getNumDecisionVars());
   qpProblem.getPrimalSolution(qpSol.data());
+  qpSolLast_ = qpSol;
   return qpSol;
 }
 

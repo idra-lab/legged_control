@@ -41,6 +41,10 @@
 // Service per WALK
 #include <std_srvs/srv/trigger.hpp>
 
+// Inverse Kinematics
+#include "acados_legged_controller/LegIk.hpp"
+
+
 
 namespace legged {
 
@@ -139,6 +143,15 @@ private:
     rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr start_walking_srv_;
     std::atomic<bool> walk_requested_{false};   // set by the service, starts MPC thread
     std::atomic<bool> mpc_ready_{false};        // true after first successful solve !!
+    // Swing legs
+    std::array<vector3_t, 4> feet_pos_;         // measured feet {LF, RF, LH, RH}
+    std::array<vector3_t, 4> swing_start_;      // feet at lift_off
+    size_t walk_step_ = SIZE_MAX;               // gait step seen by update
+    vector_t q_des_prev_, dq_des_f_;            // previous IK joints and filtered velocity (12)
+    // index of the first joint of each foot: feet {LF, RF, LH, RH}, joints {LF, LH, RF, RG}
+    static constexpr std::array<size_t, 4> kFootJoint{0, 6, 3, 9};
+    
+    contact_flag_t contact_sensor_{};           // raw contact sensors for debug
   
 
 };

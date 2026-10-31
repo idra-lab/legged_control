@@ -52,7 +52,7 @@ public:
     // WARM START: number of support switches so far (the MPC shifts the previous solution only when it changes)
     size_t stepIndex() const { return step_index_; }
     double timeLeft() const { return std::max(step_duration_ - t_phase_, 0.0); }
-
+    double stepDuration() const { return step_duration_; }
 
 
     // Mode number for the WBC

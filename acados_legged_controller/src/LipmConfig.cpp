@@ -37,6 +37,9 @@ LipmConfig LipmConfig::fromYaml(const std::string& path){
     cfg.off_y = readKey<double>(root, "robot", "off_y");
     cfg.leg_length = readKey<double>(root, "robot", "leg_length");
     cfg.foot_radius = readKey<double>(root, "robot", "foot_radius");
+    cfg.hip_y = readKey<double>(root, "robot", "hip_y");
+    cfg.thigh_offset = readKey<double>(root, "robot", "thigh_offset");
+
 
     cfg.dt_min = readKey<double>(root, "limits", "dt_min");
     cfg.dt_max = readKey<double>(root, "limits", "dt_max");
@@ -65,7 +68,12 @@ LipmConfig LipmConfig::fromYaml(const std::string& path){
     cfg.kp_base_z = readKey<double>(root, "controller", "kp_base_z");
     cfg.kd_base_z = readKey<double>(root, "controller", "kd_base_z");
     cfg.stance_blend = readKey<double>(root, "controller", "stance_blend");
+    cfg.kp_base_ang = readKey<double>(root, "controller", "kp_base_ang");
+    cfg.kd_base_ang = readKey<double>(root, "controller", "kd_base_ang");
+    cfg.kp_swing = readKey<double>(root, "controller", "kp_swing");
+    cfg.swing_height = readKey<double>(root, "controller", "swing_height");
     
+
 
     return cfg;
 }

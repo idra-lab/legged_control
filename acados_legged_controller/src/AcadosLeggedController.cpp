@@ -308,6 +308,9 @@ controller_interface::CallbackReturn AcadosLeggedController::on_activate(const r
     // Initialize the step duration
     next_step_duration_ = cfg_.nominalStepDuration();
     walk_requested_ = false;
+    walk_step_ = SIZE_MAX;
+    q_des_prev_ = vector_t::Zero(12);
+    dq_des_f_ = vector_t::Zero(12);
     mpc_ready_ = false;
 
 
@@ -538,7 +541,8 @@ void AcadosLeggedController::mpcThreadLoop(){
             latest_u_opt_ = u_opt;
             latest_x_opt_ = x_next;
             // Save the duration of the next step
-            next_step_duration_ = std::clamp(u_prev_sol_[1][7], cfg_.dt_min, cfg_.dt_max);
+            // next_step_duration_ = std::clamp(u_prev_sol_[1][7], cfg_.dt_min, cfg_.dt_max);
+            next_step_duration_ = cfg_.dt_max;   // TEMP: first test with constant step
         }
 
         mpc_ready_ = true;
@@ -586,6 +590,7 @@ controller_interface::return_type AcadosLeggedController::update(const rclcpp::T
         }
         return controller_interface::return_type::OK;
     }
+    if (phase_ == Phase::STANCE && walk_requested_ && mpc_ready_) phase_ = Phase::WALK;
     if (phase_ == Phase::STANCE){
         const double r = std::min(phase_time_ / cfg_.stance_blend, 1.0);
         const double r_s = r * r * (3.0 - 2.0 * r);
@@ -639,124 +644,161 @@ controller_interface::return_type AcadosLeggedController::update(const rclcpp::T
 
         return controller_interface::return_type::OK;
     }
-    // Uncomment at step 6
-    // if (phase_ == Phase::STANCE && walk_requested_ && mpc_ready_) phase_ = Phase::WALK;
+    
 
+    // From here on: WALK
+    const auto& info = leggedInterface_->getCentroidalModelInfo();
+    const vector_t& s = currentObservation_.state;
+    const double m = info.robotMass;
+    const double g = cfg_.g;
+    const double h = cfg_.h_com;
 
-    // Take the last available solution from the MPC
-    std::vector<double> u_opt;
-    std::vector<double> x_next;
-    size_t current_mode;
-    GaitPlanner::Pair stance;
-    std::array<double, 4> feet;
+    // Last MPC Solution and gait state
+    std::vector<double> u_opt, x_next;
+    size_t current_mode = 0, step_index = 0;
+    GaitPlanner::Pair stance, swing;
+    double time_left = 0.0, step_duration = 1.0;
+
     {
         std::lock_guard<std::mutex> lock(mpc_mutex_);
         u_opt = latest_u_opt_;
         x_next = latest_x_opt_;
         stance = gait_planner_->stancePair();
+        swing = gait_planner_->swingPair();
         current_mode = gait_planner_->mode();
-        feet = stance_feet_xy_;
+        step_index = gait_planner_->stepIndex();
+        time_left = gait_planner_->timeLeft();
+        step_duration = gait_planner_->stepDuration();
+    }
+    if (u_opt.empty()) return controller_interface::return_type::OK;
+    const bool test_fixed_step = false;   // TEMP: feet step in place, MPC ignored
+
+
+    // 1) Desired wrench: LIPM on xy, PD on height and orientation
+    const vector3_t& p0 = feet_pos_[stance[0]];
+    const vector3_t& p1 = feet_pos_[stance[1]];
+    const double alpha = u_opt[4];
+    const double cop_x = p0.x() + alpha * (p1.x() - p0.x());
+    const double cop_y = p0.y() + alpha * (p1.y() - p0.y());
+
+    Eigen::Matrix<scalar_t, 6, 1> W;
+    W(0) = m * (g / h) * (s(6) - cop_x);
+    W(1) = m * (g / h) * (s(7) - cop_y);
+    W(2) = m * (g + cfg_.kp_base_z * (h - s(8)) - cfg_.kd_base_z * s(2));
+    if (test_fixed_step) {   // TEMP: PD on the base instead of the LIPM
+        W(0) = m * (cfg_.kp_base_xy * (base_target_(0) - s(6)) - cfg_.kd_base_xy * s(0));
+        W(1) = m * (cfg_.kp_base_xy * (base_target_(1) - s(7)) - cfg_.kd_base_xy * s(1));
     }
 
-    // Safety: if MPC has not started yet, stay put
-    if(u_opt.empty()){
-        return controller_interface::return_type::OK;
+    const vector3_t omega = measuredRbdState_.segment<3>(18);
+    W(3) = cfg_.kp_base_ang * (-s(11)) - cfg_.kd_base_ang * omega.x();              // roll
+    W(4) = cfg_.kp_base_ang * (-s(10)) - cfg_.kd_base_ang * omega.y();              // pitch
+    W(5) = cfg_.kp_base_ang * (x_next[2] - s(9)) - cfg_.kd_base_ang * omega.z();    // yaw
+
+    // 2) Split the wrench on the two stance feet (W = G * f)
+    Eigen::Matrix<scalar_t, 6, 6> G;
+    for (size_t i = 0; i < 2; ++i) {
+        const vector3_t r = feet_pos_[stance[i]] - s.segment<3>(6);
+        G.block<3, 3>(0, 3 * i).setIdentity();
+        G.block<3, 3>(3, 3 * i) << 0.0, -r.z(), r.y(),
+                                r.z(), 0.0, -r.x(),
+                                -r.y(), r.x(), 0.0; 
+    }
+    const Eigen::Matrix<scalar_t, 6, 1> f = G.completeOrthogonalDecomposition().solve(W);
+
+
+    vector_t optimizedState = s;        // measured state, WBC needs real geometry
+    vector_t optimizedInput = vector_t::Zero(info.inputDim);
+    optimizedInput.segment<3>(3 * stance[0]) = f.head<3>();
+    optimizedInput.segment<3>(3 * stance[1]) = f.tail<3>();
+
+
+    // 3) Swing legs
+    if (step_index != walk_step_) { // new step: store lift-off position
+        walk_step_ = step_index;
+        for(size_t foot : swing){
+            swing_start_[foot] = feet_pos_[foot];
+            const size_t j = kFootJoint[foot];
+            q_des_prev_.segment<3>(j) = s.segment<3>(12 + j);
+            dq_des_f_.segment<3>(j).setZero();
+        }
+    }
+
+    const double phi = std::clamp(1.0 - time_left / step_duration, 0.0, 1.0);
+    const double phi_s = phi * phi * (3.0 - 2.0 * phi);
+
+    const Eigen::Matrix3d R = (Eigen::AngleAxisd(s(9), Eigen::Vector3d::UnitZ()) *
+                           Eigen::AngleAxisd(s(10), Eigen::Vector3d::UnitY()) *
+                           Eigen::AngleAxisd(s(11), Eigen::Vector3d::UnitX())).toRotationMatrix();
+
+
+    std::array<bool, 4> is_swing{false, false, false, false};
+    for (size_t i = 0; i < 2; ++i) {
+        const size_t foot = swing[i];
+        is_swing[foot] = true;
+
+        // World target: u_opt[0...1] first swing foot, u_opt[2..3] second one
+        vector3_t p_w;
+        const double tgt_x = test_fixed_step ? swing_start_[foot].x() : u_opt[2 * i];
+        const double tgt_y = test_fixed_step ? swing_start_[foot].y() : u_opt[2 * i + 1];
+        p_w.x() = swing_start_[foot].x() + phi_s * (tgt_x - swing_start_[foot].x());
+        p_w.y() = swing_start_[foot].y() + phi_s * (tgt_y - swing_start_[foot].y());
+        const double sin_phi = std::sin(M_PI * phi);
+        p_w.z() = cfg_.foot_radius + cfg_.swing_height * sin_phi * sin_phi;   // zero velocity at lift-off and touchdown
+
+
+        const vector3_t p_b = R.transpose() * (p_w - s.segment<3>(6));
+        const double sx = foot < 2 ? 1.0 : -1.0;        // LF, RF front
+        const double sy = foot % 2 == 0 ? 1.0 : -1.0;   // LF, LH left
+        const vector3_t q_ik = legIk(p_b, sx, sy, cfg_.off_x, cfg_.hip_y, cfg_.thigh_offset, cfg_.leg_length);
+
+
+        const size_t j = kFootJoint[foot];
+        if (foot == 2) {   // TEMP: debug of LH
+            RCLCPP_INFO_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 50,
+                "SW phi=%.2f des=[%.3f %.3f %.3f] foot=[%.3f %.3f %.3f] q_ik=[%.2f %.2f %.2f] q=[%.2f %.2f %.2f] roll=%.3f pitch=%.3f",
+                phi, p_w.x(), p_w.y(), p_w.z(), feet_pos_[2].x(), feet_pos_[2].y(), feet_pos_[2].z(),
+                q_ik(0), q_ik(1), q_ik(2), s(12 + j), s(13 + j), s(14 + j), s(11), s(10));
+        }
+
+        const vector3_t dq_raw = (q_ik - q_des_prev_.segment<3>(j)) / period.seconds();
+        dq_des_f_.segment<3>(j) = 0.9 * dq_des_f_.segment<3>(j) + 0.1 * dq_raw;     // WBC differentiate this
+        q_des_prev_.segment<3>(j) = q_ik;
+
+        optimizedState.segment<3>(12 + j) = q_ik;
+        optimizedInput.segment<3>(12 + j) = dq_des_f_.segment<3>(j);
     }
 
 
-    // Translate the output of the LIPM in the input of the WBC
-    // WBC expect 'optimizedState' (dim = 24) e 'optimizedInput' (dim = 24)
-    // optimizedState = [h_com (3), L_com (3), q_base (6), q_joints (12)]
-    // optimizedInput = [f_feet (12), v_joints (12)]
-
-    // CONSTRUCT THE STATE
-    vector_t optimizedState(24);
-    optimizedState.setZero();
-
-    // Taret CoM from latest_x_opt
-    optimizedState(6) = x_next[0];  // CoM X
-    optimizedState(7) = x_next[1];  // CoM Y
-    optimizedState(8) = cfg_.h_com; // Desired height CoM (CONFIG: from config.yaml)
-
-    // Target Velocity CoM
-    optimizedState(0) = x_next[3];  // Vel X
-    optimizedState(1) = x_next[4];  // Vel Y
-    optimizedState(2) = 0.0;        // Vel Z
-
-    // Target Yaw
-    optimizedState(9) = x_next[2];  // Yaw
-
-    // Joint posture (keep the actual ones as reference for the WBC)
-    // Just a reference, because the whole body control has higher priority on tracking the CoM and forces and the kinematic of the swing
-    // measureRbdState_ -> measuredRbdState_; rbd state = [base(6), joints(12), base vel(6), joint vel(12)] -> joints start at 6
-    optimizedState.segment<12>(12) = measuredRbdState_.segment<12>(6);
-
-
-
-    // CONSTRUCT THE INPUT
-    vector_t optimizedInput(24);
-    optimizedInput.setZero();
-
-
-    // Extract the alpha, beta, gamma inputs
-    double alpha = u_opt[4];
-    double beta = u_opt[5];
-    double gamma = u_opt[6];
-
-
-    // Compute the dynamic
-    // CONFIG: from config.yaml
-    const double mass = cfg_.m;
-    const double g = cfg_.g;
-    const double h_com = cfg_.h_com;
-
-    double u_cop_x = feet[0] + alpha * (feet[2] - feet[0]);
-    double u_cop_y = feet[1] + alpha * (feet[3] - feet[1]);
-
-    double c_x = x_next[0];
-    double c_y = x_next[1];
-
-    double c_ddot_x = (g / h_com) * (c_x - u_cop_x);
-    double c_ddot_y = (g / h_com) * (c_y - u_cop_y);
-
-    // Compute the forces on the support feet
-    double f0x = beta * mass * c_ddot_x;
-    double f0y = gamma * mass * c_ddot_y;
-    double f0z = (1.0 - alpha) * mass * g;
-
-    double f1x = (1.0 - beta) * mass * c_ddot_x;
-    double f1y = (1.0 - gamma) * mass * c_ddot_y;
-    double f1z = alpha * mass * g;
-
-
-    // Mapping the actual force on the real support feet
-    optimizedInput.segment<3>(3 * stance[0]) << f0x, f0y, f0z;
-    optimizedInput.segment<3>(3 * stance[1]) << f1x, f1y, f1z;
-
-
-    // Execute the WBC: compute the torques of the motors
-    currentObservation_.input = optimizedInput; // For visualization and checks
-
-    // wbc_->update compute the torques and target position of the 12 motors
+    // 4) WBC
+    currentObservation_.input = optimizedInput;
     vector_t wbc_output = wbc_->update(optimizedState, optimizedInput, measuredRbdState_, current_mode, period.seconds());
+    vector_t torque = wbc_output.tail(12);
 
-
-    // Safety checker for real motors (or Gazebo)
-    if(!safetyChecker_->check(currentObservation_, optimizedState, optimizedInput)){
-        RCLCPP_ERROR(this->get_node()->get_logger(), "[Acados MPC]: Safety check failed!!");
+    if (!safetyChecker_->check(currentObservation_, optimizedState, optimizedInput)) {
+        RCLCPP_ERROR(get_node()->get_logger(), "[Acados MPC]: Safety cheker failed!!");
         return controller_interface::return_type::ERROR;
     }
 
-    const auto& info = leggedInterface_->getCentroidalModelInfo();
-    vector_t torque = wbc_output.tail(12);
-    vector_t posDes = centroidal_model::getJointAngles(optimizedState, info);
-    vector_t velDes = centroidal_model::getJointVelocities(optimizedInput, info);
-    for(size_t j = 0; j < info.actuatedDofNum; ++j){
-        hybridJointHandles_[j].setCommand(posDes(j), velDes(j), 0, 3, torque(j));
+
+    // 5) Commands: WBC torques, joint position loop only on swing legs
+    for (size_t foot = 0; foot < 4; ++foot) {
+        const size_t j0 = kFootJoint[foot];
+        const double kp = is_swing[foot] ? cfg_.kp_swing : 0.0;
+        for (size_t j = j0; j < j0 + 3; ++j) {
+            hybridJointHandles_[j].setCommand(optimizedState(12 + j), optimizedInput(12 + j), kp, cfg_.kd_stance, torque(j));
+        } 
     }
 
+    // RCLCPP_INFO_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 500,
+    //                     "WALK step=%zu phi=%.2f z=%.3f pitch=%.3f roll=%.3f x=%.3f y=%.3f tau_max=%.1f",
+    //                     step_index, phi, s(8), s(10), s(11), s(6), s(7), torque.cwiseAbs().maxCoeff());
 
-
+    RCLCPP_INFO_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 100,
+    "DBG sens=%d%d%d%d stance=%zu,%zu alpha=%.2f cop=[%.3f %.3f] com=[%.3f %.3f] v=[%.2f %.2f] tgt0=[%.3f %.3f] tgt1=[%.3f %.3f]",
+    contact_sensor_[0], contact_sensor_[1], contact_sensor_[2], contact_sensor_[3],
+    stance[0], stance[1], alpha, cop_x, cop_y, s(6), s(7), s(0), s(1),
+    u_opt[0], u_opt[1], u_opt[2], u_opt[3]);
 
     return controller_interface::return_type::OK;
 }
@@ -784,6 +826,7 @@ void AcadosLeggedController::updateStateEstimation(const rclcpp::Time& time, con
             contactFlag[i] = false;
         }
     }
+    contact_sensor_ = contactFlag;
     const double* ori = imuSensorHandle_.getOrientation();
     quat.coeffs() << ori[0], ori[1], ori[2], ori[3];
 
@@ -853,6 +896,7 @@ void AcadosLeggedController::updateStateEstimation(const rclcpp::Time& time, con
     pinocchio::forwardKinematics(pinocchioInterface.getModel(), pinocchioInterface.getData(), q);
     pinocchio::updateFramePlacements(pinocchioInterface.getModel(), pinocchioInterface.getData());
     auto feet_positions = eeKinematicsPtr_->getPosition(state);
+    for (size_t i = 0; i < 4; ++i) feet_pos_[i] = feet_positions[i];
 
 
 

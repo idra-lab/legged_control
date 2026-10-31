@@ -21,6 +21,7 @@ class WeightedWbc : public WbcBase {
 
  private:
   scalar_t weightSwingLeg_, weightBaseAccel_, weightContactForce_;
+  vector_t qpSolLast_;  // last valid solution, reused if the QP fails
 };
 
 }  // namespace legged
