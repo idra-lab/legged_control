@@ -541,11 +541,10 @@ void AcadosLeggedController::mpcThreadLoop(){
             latest_u_opt_ = u_opt;
             latest_x_opt_ = x_next;
             // Save the duration of the next step
-            // next_step_duration_ = std::clamp(u_prev_sol_[1][7], cfg_.dt_min, cfg_.dt_max);
-            next_step_duration_ = cfg_.dt_max;   // TEMP: first test with constant step
+            next_step_duration_ = std::clamp(u_prev_sol_[1][7], cfg_.dt_min, cfg_.dt_max);
         }
 
-        mpc_ready_ = true;
+        if (walk_requested_) mpc_ready_ = true;   // not after the goal, a solve can end after the stop
         RCLCPP_INFO_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 1000,
             "[Acados MPC]: status=%d, solve=%.1f ms, T_next=%.3f, cop=%.2f", 
             status, mpc_solver_->getComputationTime() * 1000.0, next_step_duration_, u_opt[4]);
@@ -587,6 +586,7 @@ controller_interface::return_type AcadosLeggedController::update(const rclcpp::T
             base_target_(4) = 0.0; // pitch
             base_target_(5) = 0.0; // roll
             z_start_ = base_target_(2);
+            q_stance_ = q_stand_;
             RCLCPP_INFO_STREAM(get_node()->get_logger(), "[Acados MPC]: STANCE, base target: " << base_target_.transpose());
         }
         for (size_t j = 0; j < hybridJointHandles_.size(); ++j) {
@@ -604,11 +604,11 @@ controller_interface::return_type AcadosLeggedController::update(const rclcpp::T
         const auto& info = leggedInterface_->getCentroidalModelInfo();
         const vector_t& s = currentObservation_.state;  // centroidal: [vcom(3), L/m(3), pos(3), zyx(3), q(12)]
 
-        // 1) desired state: target_pose, zero momentum, joint at q_stand
+        // 1) desired state: target_pose, zero momentum, joint at q_stance
         vector_t optimizedState = vector_t::Zero(info.stateDim);
         optimizedState.segment<6>(6) = base_target_;
         optimizedState(8) = z_des;
-        optimizedState.segment<12>(12) = q_stand_;
+        optimizedState.segment<12>(12) = q_stance_;
 
         // 2) Base PD -> total force, split equally on 4 feet
         const double m = info.robotMass;
@@ -639,7 +639,7 @@ controller_interface::return_type AcadosLeggedController::update(const rclcpp::T
         const double kp = (1.0 - r) * cfg_.kp_stand + r * cfg_.kp_stance;
         const double kd = (1.0 - r) * cfg_.kd_stand + r * cfg_.kd_stance;
         for (size_t j = 0; j < info.actuatedDofNum; ++j) {
-            hybridJointHandles_[j].setCommand(q_stand_(j), 0.0, kp, kd, torque(j));
+            hybridJointHandles_[j].setCommand(q_stance_(j), 0.0, kp, kd, torque(j));
         }
 
         // RCLCPP_INFO_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 1000,
@@ -676,7 +676,31 @@ controller_interface::return_type AcadosLeggedController::update(const rclcpp::T
         step_duration = gait_planner_->stepDuration();
     }
     if (u_opt.empty()) return controller_interface::return_type::OK;
-    const bool test_fixed_step = false;   // TEMP: feet step in place, MPC ignored
+
+    // Goal reached: stop at a foot switch, when the swing feet have just landed
+    if (step_index != walk_step_ && walk_step_ != SIZE_MAX &&
+        std::hypot(cfg_.c_target_x - s(6), cfg_.c_target_y - s(7)) < cfg_.goal_tolerance) {
+        walk_requested_ = false;
+        mpc_ready_ = false;
+        walk_step_ = SIZE_MAX;
+        base_target_ << s(6), s(7), h, s(9), 0.0, 0.0;
+        z_start_ = s(8);
+
+        // Joint target: current feet with the body level at h_com (not q_stand: the feet are not under the hips)
+        const Eigen::Matrix3d Rz = Eigen::AngleAxisd(s(9), Eigen::Vector3d::UnitZ()).toRotationMatrix();
+        const vector3_t base(s(6), s(7), h);
+        for (size_t foot = 0; foot < 4; ++foot) {
+            const double sx = foot < 2 ? 1.0 : -1.0;
+            const double sy = foot % 2 == 0 ? 1.0 : -1.0;
+            q_stance_.segment<3>(kFootJoint[foot]) = legIk(Rz.transpose() * (feet_pos_[foot] - base), sx, sy,
+                                                           cfg_.off_x, cfg_.hip_y, cfg_.thigh_offset, cfg_.leg_length);
+        }
+
+        phase_time_ = cfg_.stance_blend;   // already at h_com: no height and gain ramp
+        phase_ = Phase::STANCE;
+        RCLCPP_INFO_STREAM(get_node()->get_logger(), "[Acados MPC]: Goal reached, STANCE, base target: " << base_target_.transpose());
+        return controller_interface::return_type::OK;
+    }
 
 
     // 1) Desired wrench: LIPM on xy, PD on height and orientation
@@ -690,10 +714,6 @@ controller_interface::return_type AcadosLeggedController::update(const rclcpp::T
     W(0) = m * (g / h) * (s(6) - cop_x);
     W(1) = m * (g / h) * (s(7) - cop_y);
     W(2) = m * (g + cfg_.kp_base_z * (h - s(8)) - cfg_.kd_base_z * s(2));
-    if (test_fixed_step) {   // TEMP: PD on the base instead of the LIPM
-        W(0) = m * (cfg_.kp_base_xy * (base_target_(0) - s(6)) - cfg_.kd_base_xy * s(0));
-        W(1) = m * (cfg_.kp_base_xy * (base_target_(1) - s(7)) - cfg_.kd_base_xy * s(1));
-    }
 
     // Orientation PD in the yaw-aligned frame, W is in the world frame
     const vector3_t omega = measuredRbdState_.segment<3>(18);
@@ -749,10 +769,8 @@ controller_interface::return_type AcadosLeggedController::update(const rclcpp::T
 
         // World target: u_opt[0...1] first swing foot, u_opt[2..3] second one
         vector3_t p_w;
-        const double tgt_x = test_fixed_step ? swing_start_[foot].x() : u_opt[2 * i];
-        const double tgt_y = test_fixed_step ? swing_start_[foot].y() : u_opt[2 * i + 1];
-        p_w.x() = swing_start_[foot].x() + phi_s * (tgt_x - swing_start_[foot].x());
-        p_w.y() = swing_start_[foot].y() + phi_s * (tgt_y - swing_start_[foot].y());
+        p_w.x() = swing_start_[foot].x() + phi_s * (u_opt[2 * i] - swing_start_[foot].x());
+        p_w.y() = swing_start_[foot].y() + phi_s * (u_opt[2 * i + 1] - swing_start_[foot].y());
         const double sin_phi = std::sin(M_PI * phi);
         p_w.z() = cfg_.foot_radius + cfg_.swing_height * sin_phi * sin_phi;   // zero velocity at lift-off and touchdown
 
@@ -764,13 +782,6 @@ controller_interface::return_type AcadosLeggedController::update(const rclcpp::T
 
 
         const size_t j = kFootJoint[foot];
-        if (foot == 2) {   // TEMP: debug of LH
-            RCLCPP_INFO_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 50,
-                "SW phi=%.2f des=[%.3f %.3f %.3f] foot=[%.3f %.3f %.3f] q_ik=[%.2f %.2f %.2f] q=[%.2f %.2f %.2f] roll=%.3f pitch=%.3f yaw=%.3f",
-                phi, p_w.x(), p_w.y(), p_w.z(), feet_pos_[2].x(), feet_pos_[2].y(), feet_pos_[2].z(),
-                q_ik(0), q_ik(1), q_ik(2), s(12 + j), s(13 + j), s(14 + j), s(11), s(10), s(9));
-        }
-
         const vector3_t dq_raw = (q_ik - q_des_prev_.segment<3>(j)) / period.seconds();
         dq_des_f_.segment<3>(j) = 0.9 * dq_des_f_.segment<3>(j) + 0.1 * dq_raw;     // WBC differentiate this
         q_des_prev_.segment<3>(j) = q_ik;
@@ -801,37 +812,6 @@ controller_interface::return_type AcadosLeggedController::update(const rclcpp::T
         }       
     }
 
-    // RCLCPP_INFO_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 500,
-    //                     "WALK step=%zu phi=%.2f z=%.3f pitch=%.3f roll=%.3f x=%.3f y=%.3f tau_max=%.1f",
-    //                     step_index, phi, s(8), s(10), s(11), s(6), s(7), torque.cwiseAbs().maxCoeff());
-
-    // RCLCPP_INFO_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 100,
-    // "DBG sens=%d%d%d%d stance=%zu,%zu alpha=%.2f cop=[%.3f %.3f] com=[%.3f %.3f] v=[%.2f %.2f] tgt0=[%.3f %.3f] tgt1=[%.3f %.3f]",
-    // contact_sensor_[0], contact_sensor_[1], contact_sensor_[2], contact_sensor_[3],
-    // stance[0], stance[1], alpha, cop_x, cop_y, s(6), s(7), s(0), s(1),
-    // u_opt[0], u_opt[1], u_opt[2], u_opt[3]);
-
-    RCLCPP_INFO_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 100,   // TEMP: debug of yaw
-    "YAW wz_des=%.2f wz=%.2f yaw_err=%.3f tau_z=%.1f f0=[%.1f %.1f] f1=[%.1f %.1f] tau_max=%.1f",
-    x_next[5], omega_h.z(), x_next[2] - s(9), W(5), f(0), f(1), f(3), f(4), torque.cwiseAbs().maxCoeff());
-
-
-    // TEMP: compare the requested moment with the one the WBC really applies
-    const vector_t f_wbc = wbc_output.segment(info.generalizedCoordinatesNum, 12);
-    vector3_t tau_wbc = vector3_t::Zero();
-    double fz_wbc[2];
-    for (size_t i = 0; i < 2; ++i) {
-        const vector3_t r = feet_pos_[stance[i]] - s.segment<3>(6);
-        const vector3_t f_i = f_wbc.segment<3>(3 * stance[i]);
-        tau_wbc += r.cross(f_i);
-        fz_wbc[i] = f_i.z();
-    }
-    RCLCPP_INFO_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 100,
-        "TILT stance=%zu,%zu z=%.3f roll=%.3f pitch=%.3f W=[%.1f %.1f] wbc=[%.1f %.1f] fz_des=[%.0f %.0f] fz_wbc=[%.0f %.0f]",
-        stance[0], stance[1], s(8), s(11), s(10), W(3), W(4), tau_wbc.x(), tau_wbc.y(), f(2), f(5), fz_wbc[0], fz_wbc[1]);
-
-
-
     return controller_interface::return_type::OK;
 }
 
@@ -858,7 +838,6 @@ void AcadosLeggedController::updateStateEstimation(const rclcpp::Time& time, con
             contactFlag[i] = false;
         }
     }
-    contact_sensor_ = contactFlag;
     const double* ori = imuSensorHandle_.getOrientation();
     quat.coeffs() << ori[0], ori[1], ori[2], ori[3];
 

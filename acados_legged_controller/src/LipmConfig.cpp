@@ -54,6 +54,7 @@ LipmConfig LipmConfig::fromYaml(const std::string& path){
     cfg.c_target_x = c_target[0];
     cfg.c_target_y = c_target[1];
     cfg.max_lookahead = readKey<double>(root, "simulation", "max_lookahead");
+    cfg.goal_tolerance = readKey<double>(root, "simulation", "goal_tolerance");
 
 
     cfg.N_OBS_MAX = readKey<int>(root, "obstacles", "N_OBS_MAX");

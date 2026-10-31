@@ -26,6 +26,7 @@ struct LipmConfig {
     double c_target_x;
     double c_target_y;
     double max_lookahead;
+    double goal_tolerance;  // m
 
     // obstacles
     int N_OBS_MAX;

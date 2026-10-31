@@ -138,6 +138,7 @@ private:
     // Stance
     vector_t base_target_;      // [x, y, z, yaw, pitch, roll] captured when entering STANCE
     double z_start_ = 0.0;
+    vector_t q_stance_;         // joint target of STANCE (q_stand after STAND_UP, current feet after WALK)
 
     // Walk
     rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr start_walking_srv_;
@@ -151,7 +152,6 @@ private:
     // index of the first joint of each foot: feet {LF, RF, LH, RH}, joints {LF, LH, RF, RG}
     static constexpr std::array<size_t, 4> kFootJoint{0, 6, 3, 9};
     
-    contact_flag_t contact_sensor_{};           // raw contact sensors for debug
   
 
 };

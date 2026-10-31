@@ -39,9 +39,10 @@ simulation:
   N_horizon: 6
   sim_steps: 300
   step_per_phase: 1
-  c_target: [0.0, -2.0]        # m
-  max_lookahead: 0.8          # m
-  max_iter: 4
+  c_target: [10.0, -2.0]        # m
+  max_lookahead: 10          # m
+  goal_tolerance: 0.05        # m, WALK -> STANCE when closer than this to c_target
+  max_iter: 4\
 
 
 obstacles:
