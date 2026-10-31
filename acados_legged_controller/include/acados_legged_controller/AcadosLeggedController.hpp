@@ -41,6 +41,9 @@
 // Service per WALK
 #include <std_srvs/srv/trigger.hpp>
 
+// For /goal_pose
+#include <geometry_msgs/msg/pose_stamped.hpp>
+
 // Inverse Kinematics
 #include "acados_legged_controller/LegIk.hpp"
 
@@ -151,6 +154,9 @@ private:
     vector_t q_des_prev_, dq_des_f_;            // previous IK joints and filtered velocity (12)
     // index of the first joint of each foot: feet {LF, RF, LH, RH}, joints {LF, LH, RF, RG}
     static constexpr std::array<size_t, 4> kFootJoint{0, 6, 3, 9};
+    // Get the goal pose from /goal_pose from RViz
+    rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr goal_sub_;
+    std::atomic<double> goal_x_{0.0}, goal_y_{0.0}; // Current goal, written by /goal_pose
     
   
 

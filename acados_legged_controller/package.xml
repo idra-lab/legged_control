@@ -27,10 +27,18 @@
   <depend>ocs2_centroidal_model</depend>
   <depend>pinocchio</depend>
   <depend>ocs2_msgs</depend>
+  <depend>std_srvs</depend>
+  <depend>geometry_msgs</depend>
   <!-- CONFIG: parsing of config.yaml -->
   <depend>yaml-cpp</depend>
   <depend>ament_index_cpp</depend>
-  <depend>std_srvs</depend>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>rviz2</exec_depend>
+  <exec_depend>controller_manager</exec_depend>
+  
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

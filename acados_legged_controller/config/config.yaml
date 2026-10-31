@@ -24,6 +24,7 @@ limits:
   v_max_y: 0.45               # m/s
   alpha_min: 0.1              #
   alpha_max: 0.9              #
+
 ocp_weights:
   tracking_xy: 5.0      
   vel_alignment: 10.0
@@ -42,7 +43,7 @@ simulation:
   c_target: [10.0, -2.0]        # m
   max_lookahead: 10          # m
   goal_tolerance: 0.05        # m, WALK -> STANCE when closer than this to c_target
-  max_iter: 4\
+  max_iter: 4
 
 
 obstacles:
@@ -73,3 +74,4 @@ controller:
   kd_base_ang: 20.0           # nm/(rad/s)
   kp_swing: 30.0
   swing_height: 0.05          # m
+  moment_weight: 10.0          # priority of the moments over the forces in the two-feet split

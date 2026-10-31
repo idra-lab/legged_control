@@ -29,6 +29,7 @@ find_package(ocs2_self_collision_visualization REQUIRED)
 find_package(ocs2_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
+find_package(geometry_msgs REQUIRED)
 find_package(legged_interface REQUIRED)
 find_package(legged_wbc REQUIRED)
 find_package(legged_estimation REQUIRED)
@@ -121,6 +122,7 @@ ament_target_dependencies(${PROJECT_NAME}
   ocs2_centroidal_model
   std_msgs
   std_srvs
+  geometry_msgs
   angles
   ament_index_cpp  # CONFIG
 )
@@ -171,6 +173,12 @@ install(DIRECTORY config
 # SIM: install the launch files (sim_launch.xml)
 install(DIRECTORY launch
   DESTINATION share/${PROJECT_NAME}
+)
+
+
+# Publishes the TF odom -> base from /odom (robot in RViz)
+install(PROGRAMS scripts/odom_to_tf.py
+  DESTINATION lib/${PROJECT_NAME}
 )
 
 

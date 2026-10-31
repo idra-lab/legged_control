@@ -212,6 +212,17 @@ controller_interface::CallbackReturn AcadosLeggedController::on_configure(const 
         }   
     );
 
+    goal_x_ = cfg_.c_target_x;
+    goal_y_ = cfg_.c_target_y;
+    using PoseStamped = geometry_msgs::msg::PoseStamped;
+    goal_sub_ = get_node()->create_subscription<PoseStamped>("/goal_pose", 10,
+        [this](const PoseStamped::SharedPtr msg) {
+            goal_x_ = msg->pose.position.x;
+            goal_y_ = msg->pose.position.y;
+            RCLCPP_INFO(get_node()->get_logger(), "[Acados MPC]: New goal [%.2f, %.2f]", msg->pose.position.x, msg->pose.position.y);
+            if (phase_ == Phase::STANCE) walk_requested_ = true; // walk from STANCE
+        });
+
     return controller_interface::CallbackReturn::SUCCESS;
 }
 
@@ -488,11 +499,13 @@ void AcadosLeggedController::mpcThreadLoop(){
 
 
         // LOCAL TARGET: at most max_lookahead from robot
-        const double dir_x = cfg_.c_target_x - x0_local[0];
-        const double dir_y = cfg_.c_target_y - x0_local[1];
+        const double goal_x = goal_x_;
+        const double goal_y = goal_y_;
+        const double dir_x = goal_x - x0_local[0];
+        const double dir_y = goal_y - x0_local[1];
         const double dist = std::hypot(dir_x, dir_y);
-        double local_x = cfg_.c_target_x;
-        double local_y = cfg_.c_target_y;
+        double local_x = goal_x;
+        double local_y = goal_y;
         if (dist > cfg_.max_lookahead) {
             local_x = x0_local[0] + dir_x / dist * cfg_.max_lookahead;
             local_y = x0_local[1] + dir_y / dist * cfg_.max_lookahead;
@@ -679,7 +692,7 @@ controller_interface::return_type AcadosLeggedController::update(const rclcpp::T
 
     // Goal reached: stop at a foot switch, when the swing feet have just landed
     if (step_index != walk_step_ && walk_step_ != SIZE_MAX &&
-        std::hypot(cfg_.c_target_x - s(6), cfg_.c_target_y - s(7)) < cfg_.goal_tolerance) {
+        std::hypot(goal_x_ - s(6), goal_y_ - s(7)) < cfg_.goal_tolerance) {
         walk_requested_ = false;
         mpc_ready_ = false;
         walk_step_ = SIZE_MAX;
@@ -734,7 +747,12 @@ controller_interface::return_type AcadosLeggedController::update(const rclcpp::T
                                 r.z(), 0.0, -r.x(),
                                 -r.y(), r.x(), 0.0; 
     }
-    const Eigen::Matrix<scalar_t, 6, 1> f = G.completeOrthogonalDecomposition().solve(W);
+    // Two feet cannot satisfy the whole wrench: give priority to the moments, the MPC handles the force error
+    Eigen::Matrix<scalar_t, 6, 1> S;
+    S << 1.0, 1.0, 1.0, cfg_.moment_weight, cfg_.moment_weight, cfg_.moment_weight;
+    const Eigen::Matrix<scalar_t, 6, 6> SG = S.asDiagonal() * G;
+    const Eigen::Matrix<scalar_t, 6, 1> SW = S.asDiagonal() * W;
+    const Eigen::Matrix<scalar_t, 6, 1> f = SG.completeOrthogonalDecomposition().solve(SW);
 
 
     vector_t optimizedState = s;        // measured state, WBC needs real geometry

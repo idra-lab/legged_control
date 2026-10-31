@@ -73,6 +73,7 @@ LipmConfig LipmConfig::fromYaml(const std::string& path){
     cfg.kd_base_ang = readKey<double>(root, "controller", "kd_base_ang");
     cfg.kp_swing = readKey<double>(root, "controller", "kp_swing");
     cfg.swing_height = readKey<double>(root, "controller", "swing_height");
+    cfg.moment_weight = readKey<double>(root, "controller", "moment_weight");
     
 
 

@@ -45,6 +45,7 @@ struct LipmConfig {
     double kd_base_ang;
     double kp_swing;
     double swing_height;
+    double moment_weight;
 
     // Same nominal dt used in lipm_model.py
     double nominalStepDuration() const { return (dt_min + dt_max) / (2.0 * step_per_phase); }
