@@ -24,7 +24,6 @@ limits:
   v_max_y: 0.45               # m/s
   alpha_min: 0.1              #
   alpha_max: 0.9              #
-
 ocp_weights:
   tracking_xy: 5.0      
   vel_alignment: 10.0
@@ -40,7 +39,7 @@ simulation:
   N_horizon: 6
   sim_steps: 300
   step_per_phase: 1
-  c_target: [0.0, 0.0]        # m
+  c_target: [0.0, -2.0]        # m
   max_lookahead: 0.8          # m
   max_iter: 4
 
@@ -64,12 +63,12 @@ controller:
   kd_stand: 4.0
   kp_stance: 30.0
   kd_stance: 3.0
-  kp_base_xy: 50.0
+  kp_base_xy: 100.0
   kd_base_xy: 14.0
   kp_base_z: 100.0
   kd_base_z: 20.0
   stance_blend: 1.0           # sec
-  kp_base_ang: 100.0          # Nm/rad
+  kp_base_ang: 50.0          # Nm/rad
   kd_base_ang: 20.0           # nm/(rad/s)
   kp_swing: 30.0
   swing_height: 0.05          # m

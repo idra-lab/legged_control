@@ -565,6 +565,11 @@ void AcadosLeggedController::mpcThreadLoop(){
     3) send commands to the motors 
 */
 controller_interface::return_type AcadosLeggedController::update(const rclcpp::Time& time, const rclcpp::Duration& period){ // FIX: preiod -> period
+    if (period.seconds() < 1e-6) { // repeated clock tick: would divide by zero below
+        RCLCPP_WARN_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 1000, "Zero period, cycle skipped");
+        return controller_interface::return_type::OK;
+    }
+    
     // update the estimate of the actual state starting from sensors
     updateStateEstimation(time, period);
 
@@ -690,11 +695,16 @@ controller_interface::return_type AcadosLeggedController::update(const rclcpp::T
         W(1) = m * (cfg_.kp_base_xy * (base_target_(1) - s(7)) - cfg_.kd_base_xy * s(1));
     }
 
+    // Orientation PD in the yaw-aligned frame, W is in the world frame
     const vector3_t omega = measuredRbdState_.segment<3>(18);
-    W(3) = cfg_.kp_base_ang * (-s(11)) - cfg_.kd_base_ang * omega.x();              // roll
-    W(4) = cfg_.kp_base_ang * (-s(10)) - cfg_.kd_base_ang * omega.y();              // pitch
-    W(5) = cfg_.kp_base_ang * (x_next[2] - s(9)) - cfg_.kd_base_ang * omega.z();    // yaw
-
+    const Eigen::Matrix3d R_yaw = Eigen::AngleAxisd(s(9), Eigen::Vector3d::UnitZ()).toRotationMatrix();
+    const vector3_t omega_h = R_yaw.transpose() * omega; 
+    vector3_t tau_h;
+    tau_h.x() = cfg_.kp_base_ang * (-s(11)) - cfg_.kd_base_ang * omega_h.x();           // roll
+    tau_h.y() = cfg_.kp_base_ang * (-s(10)) - cfg_.kd_base_ang * omega_h.y();           // pitch
+    tau_h.z() = cfg_.kp_base_ang * (x_next[2] - s(9)) + cfg_.kd_base_ang * (x_next[5] - omega_h.z());  // yaw: track MPC yaw rate
+    W.tail<3>() = R_yaw * tau_h;
+    
     // 2) Split the wrench on the two stance feet (W = G * f)
     Eigen::Matrix<scalar_t, 6, 6> G;
     for (size_t i = 0; i < 2; ++i) {
@@ -756,9 +766,9 @@ controller_interface::return_type AcadosLeggedController::update(const rclcpp::T
         const size_t j = kFootJoint[foot];
         if (foot == 2) {   // TEMP: debug of LH
             RCLCPP_INFO_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 50,
-                "SW phi=%.2f des=[%.3f %.3f %.3f] foot=[%.3f %.3f %.3f] q_ik=[%.2f %.2f %.2f] q=[%.2f %.2f %.2f] roll=%.3f pitch=%.3f",
+                "SW phi=%.2f des=[%.3f %.3f %.3f] foot=[%.3f %.3f %.3f] q_ik=[%.2f %.2f %.2f] q=[%.2f %.2f %.2f] roll=%.3f pitch=%.3f yaw=%.3f",
                 phi, p_w.x(), p_w.y(), p_w.z(), feet_pos_[2].x(), feet_pos_[2].y(), feet_pos_[2].z(),
-                q_ik(0), q_ik(1), q_ik(2), s(12 + j), s(13 + j), s(14 + j), s(11), s(10));
+                q_ik(0), q_ik(1), q_ik(2), s(12 + j), s(13 + j), s(14 + j), s(11), s(10), s(9));
         }
 
         const vector3_t dq_raw = (q_ik - q_des_prev_.segment<3>(j)) / period.seconds();
@@ -785,20 +795,42 @@ controller_interface::return_type AcadosLeggedController::update(const rclcpp::T
     for (size_t foot = 0; foot < 4; ++foot) {
         const size_t j0 = kFootJoint[foot];
         const double kp = is_swing[foot] ? cfg_.kp_swing : 0.0;
+        const double kd = is_swing[foot] ? cfg_.kd_stance : 0.5;   // low damping on stance legs, 3.0 brakes the body
         for (size_t j = j0; j < j0 + 3; ++j) {
-            hybridJointHandles_[j].setCommand(optimizedState(12 + j), optimizedInput(12 + j), kp, cfg_.kd_stance, torque(j));
-        } 
+            hybridJointHandles_[j].setCommand(optimizedState(12 + j), optimizedInput(12 + j), kp, kd, torque(j));
+        }       
     }
 
     // RCLCPP_INFO_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 500,
     //                     "WALK step=%zu phi=%.2f z=%.3f pitch=%.3f roll=%.3f x=%.3f y=%.3f tau_max=%.1f",
     //                     step_index, phi, s(8), s(10), s(11), s(6), s(7), torque.cwiseAbs().maxCoeff());
 
+    // RCLCPP_INFO_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 100,
+    // "DBG sens=%d%d%d%d stance=%zu,%zu alpha=%.2f cop=[%.3f %.3f] com=[%.3f %.3f] v=[%.2f %.2f] tgt0=[%.3f %.3f] tgt1=[%.3f %.3f]",
+    // contact_sensor_[0], contact_sensor_[1], contact_sensor_[2], contact_sensor_[3],
+    // stance[0], stance[1], alpha, cop_x, cop_y, s(6), s(7), s(0), s(1),
+    // u_opt[0], u_opt[1], u_opt[2], u_opt[3]);
+
+    RCLCPP_INFO_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 100,   // TEMP: debug of yaw
+    "YAW wz_des=%.2f wz=%.2f yaw_err=%.3f tau_z=%.1f f0=[%.1f %.1f] f1=[%.1f %.1f] tau_max=%.1f",
+    x_next[5], omega_h.z(), x_next[2] - s(9), W(5), f(0), f(1), f(3), f(4), torque.cwiseAbs().maxCoeff());
+
+
+    // TEMP: compare the requested moment with the one the WBC really applies
+    const vector_t f_wbc = wbc_output.segment(info.generalizedCoordinatesNum, 12);
+    vector3_t tau_wbc = vector3_t::Zero();
+    double fz_wbc[2];
+    for (size_t i = 0; i < 2; ++i) {
+        const vector3_t r = feet_pos_[stance[i]] - s.segment<3>(6);
+        const vector3_t f_i = f_wbc.segment<3>(3 * stance[i]);
+        tau_wbc += r.cross(f_i);
+        fz_wbc[i] = f_i.z();
+    }
     RCLCPP_INFO_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 100,
-    "DBG sens=%d%d%d%d stance=%zu,%zu alpha=%.2f cop=[%.3f %.3f] com=[%.3f %.3f] v=[%.2f %.2f] tgt0=[%.3f %.3f] tgt1=[%.3f %.3f]",
-    contact_sensor_[0], contact_sensor_[1], contact_sensor_[2], contact_sensor_[3],
-    stance[0], stance[1], alpha, cop_x, cop_y, s(6), s(7), s(0), s(1),
-    u_opt[0], u_opt[1], u_opt[2], u_opt[3]);
+        "TILT stance=%zu,%zu z=%.3f roll=%.3f pitch=%.3f W=[%.1f %.1f] wbc=[%.1f %.1f] fz_des=[%.0f %.0f] fz_wbc=[%.0f %.0f]",
+        stance[0], stance[1], s(8), s(11), s(10), W(3), W(4), tau_wbc.x(), tau_wbc.y(), f(2), f(5), fz_wbc[0], fz_wbc[1]);
+
+
 
     return controller_interface::return_type::OK;
 }
@@ -878,7 +910,7 @@ void AcadosLeggedController::updateStateEstimation(const rclcpp::Time& time, con
     x0_lipm[3] = state(0); // Vel CoM X
     x0_lipm[4] = state(1); // Vel CoM Y
     // state(5) is the normalized angular momentum L_z/m -> omega_z = L_z / Iz = state(5) * m / Iz (m, Iz from config.yaml)
-    x0_lipm[5] = state(5) * cfg_.m / cfg_.Iz; // Vel Yaw (omega_z) (CONFIG: m, Iz from config.yaml)
+    x0_lipm[5] = measuredRbdState_(20); // Vel Yaw (omega_z) (CONFIG: m, Iz from config.yaml)
 
     // CoM data (pessimistic) (the same initially)
     x0_lipm[11] = x0_lipm[0];
