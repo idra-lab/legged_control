@@ -1,0 +1,26 @@
+# Configuration of the controller_manager that runs inside Gazebo (gz_ros2_control plugin).
+# Passed to the robot xacro with controllers_yaml:=... by launch/sim_launch.xml
+controller_manager:
+  ros__parameters:
+    update_rate: 500  # Hz (Alejandro's file uses 100 Hz, too low for WBC + trot?)
+    
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    imu_sensor_broadcaster:
+      type: imu_sensor_broadcaster/IMUSensorBroadcaster
+
+    acados_legged_controller:
+      type: legged/AcadosLeggedController
+
+imu_sensor_broadcaster:
+  ros__parameters:
+    sensor_name: base_imu
+    frame_id: base_imu
+
+# Parameters read in AcadosLeggedController::on_init. taskFile, referenceFile and lipmConfigFile
+# default to the files installed in share/acados_legged_controller/config
+acados_legged_controller:
+  ros__parameters:
+    urdfFile: /tmp/legged_control/aliengo.urdf

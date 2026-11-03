@@ -10,8 +10,10 @@
   <arg name="server" default="true" description="If true, run Gazebo headless (server only). If false, include GUI."/>
   <arg name="x" default="0.0" description="Robot spawn x in the world frame [m]"/>
   <arg name="y" default="0.0" description="Robot spawn y in the world frame [m]"/>
+  <arg name="controllers_yaml" default="$(find-pkg-share legged_controllers)/config/controllers.yaml"
+    description="ros2_control controllers file of Gazebo (acados_legged_controller/config/ros2_controllers.yaml for AcadosLeggedController)"/>
 
-  <let name="legged_robot_description" value="$(command 'xacro $(find-pkg-share legged_unitree_description)/urdf/robot.xacro robot_type:=$(var robot_type) camera:=$(var camera) lidar:=$(var lidar)')"/>
+  <let name="legged_robot_description" value="$(command 'xacro $(find-pkg-share legged_unitree_description)/urdf/robot.xacro robot_type:=$(var robot_type) camera:=$(var camera) lidar:=$(var lidar) controllers_yaml:=$(var controllers_yaml)')"/>
 
   <node pkg="legged_common" exec="generate_urdf.sh" output="screen" name="generate_urdf" args="$(find-pkg-share legged_unitree_description)/urdf/robot.xacro $(var robot_type) $(var camera) $(var lidar)"/>
 

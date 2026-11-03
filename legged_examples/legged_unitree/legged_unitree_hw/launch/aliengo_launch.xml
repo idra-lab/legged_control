@@ -1,10 +1,11 @@
 <launch>
   <arg name="robot_type" default="$(env ROBOT_TYPE)"/>
+  <arg name="controllers_yaml" default="$(find-pkg-share legged_controllers)/config/controllers.yaml"/>
 
   <!-- controller_manager with the hardware plugin of the URDF (it reads /robot_description of robot_state_publisher):
-       the controllers of the simulation, then the overrides of the real robot -->
+       the controllers of controllers_yaml (those of the simulation by default), then the overrides of the real robot -->
   <node pkg="controller_manager" exec="ros2_control_node" output="screen">
-    <param from="$(find-pkg-share legged_controllers)/config/controllers.yaml"/>
+    <param from="$(var controllers_yaml)"/>
     <param from="$(find-pkg-share legged_unitree_hw)/config/$(var robot_type).yaml"/>
   </node>
 </launch>

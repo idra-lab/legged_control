@@ -1,0 +1,9 @@
+<!-- FIX: plugin description file (needed by pluginlib to load the controller) -->
+<library path="acados_legged_controller">
+  <class name="legged/AcadosLeggedController" type="legged::AcadosLeggedController"
+         base_class_type="controller_interface::ControllerInterface">
+    <description>
+      LIPM optimistic-pessimistic MPC (acados) + Weighted WBC.
+    </description>
+  </class>
+</library>

@@ -1,0 +1,51 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>acados_legged_controller</name>
+  <version>0.0.0</version>
+  <description>TODO: Package description</description>
+  <maintainer email="elia2001elia@gmail.com">elia</maintainer>
+  <license>TODO: License declaration</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>legged_common</depend>
+  <depend>legged_interface</depend>
+  <depend>legged_estimation</depend>
+  <depend>legged_wbc</depend>
+  <depend>controller_interface</depend>
+  <depend>pluginlib</depend>
+  <depend>ocs2_legged_robot_ros</depend>
+  <depend>ocs2_self_collision_visualization</depend>
+  <depend>angles</depend>
+  <depend>std_msgs</depend>
+  <!-- Dependencies used by AcadosLeggedController -->
+  <depend>legged_controllers</depend>
+  <depend>hardware_interface</depend>
+  <depend>ocs2_legged_robot</depend>
+  <depend>ocs2_centroidal_model</depend>
+  <depend>pinocchio</depend>
+  <depend>ocs2_msgs</depend>
+  <depend>std_srvs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>visualization_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <!-- CONFIG: parsing of config.yaml -->
+  <depend>yaml-cpp</depend>
+  <depend>ament_index_cpp</depend>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>rviz2</exec_depend>
+  <exec_depend>controller_manager</exec_depend>
+  
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

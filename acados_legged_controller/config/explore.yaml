@@ -1,0 +1,4 @@
+# Extra parameters of acados_legged_controller for load_controller_launch.xml (spawner --param-file)
+acados_legged_controller:
+  ros__parameters:
+    simulatedObstacles: false

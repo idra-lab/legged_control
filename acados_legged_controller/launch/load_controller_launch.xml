@@ -1,0 +1,32 @@
+<?xml version="1.0" ?>
+<!-- AcadosLeggedController in a world launched with our controllers file, in place of load_optipessicontroller_launch.xml:
+       ros2 launch legged_unitree_description empty_room_launch.xml controllers_yaml:=<acados_legged_controller share>/config/ros2_controllers.yaml
+     (example_warehouse_launch.xml takes the same argument; ros2_controllers.yaml sets the 500 Hz update rate). The robot stands up and walks on the first goal: the planner
+     bridges (tare_planner explore_warehouse_launch.xml, far_planner) send /opti_pessi/goal, relayed here to /goal_pose. -->
+<launch>
+  <arg name="use_sim_time" default="true"/>
+  <arg name="rviz" default="true" description="Launch RViz2: robot, MPC CoM and feet trajectories, footholds, goals"/>
+  <arg name="params_file" default="$(find-pkg-share acados_legged_controller)/config/explore.yaml"
+    description="Extra controller parameters (explore.yaml: simulated obstacles of config.yaml off)"/>
+
+  <node pkg="controller_manager" exec="spawner" name="broadcasters_spawner" output="screen"
+    args="joint_state_broadcaster imu_sensor_broadcaster --controller-manager /controller_manager --controller-manager-timeout 120"/>
+
+  <!-- on_init takes about a minute: long service timeout -->
+  <node pkg="controller_manager" exec="spawner" name="acados_legged_controller_spawner" output="screen"
+    args="acados_legged_controller --controller-manager /controller_manager --param-file $(var params_file) --service-call-timeout 300.0"/>
+
+  <!-- The estimator publishes /odom but not the TF odom -> base -->
+  <node pkg="acados_legged_controller" exec="odom_to_tf.py" name="odom_to_tf" output="screen">
+    <param name="use_sim_time" value="$(var use_sim_time)"/>
+  </node>
+
+  <node pkg="acados_legged_controller" exec="opti_pessi_goal_relay.py" name="opti_pessi_goal_relay" output="screen">
+    <param name="use_sim_time" value="$(var use_sim_time)"/>
+  </node>
+
+  <node if="$(var rviz)" pkg="rviz2" exec="rviz2" name="rviz" output="screen"
+    args="-d $(find-pkg-share acados_legged_controller)/config/acados.rviz">
+    <param name="use_sim_time" value="$(var use_sim_time)"/>
+  </node>
+</launch>
