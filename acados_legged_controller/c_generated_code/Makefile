@@ -50,8 +50,8 @@ OBJ+= $(OCP_OBJ)
 EXTERNAL_DIR=
 EXTERNAL_LIB=
 
-INCLUDE_PATH = /home/elia/acados/include
-LIB_PATH = /home/elia/acados/lib
+INCLUDE_PATH = /home/adm-aitec/RaNAV/src/acados/include
+LIB_PATH = /home/adm-aitec/RaNAV/src/acados/lib
 
 # preprocessor flags for make's implicit rules
 CPPFLAGS+= -I$(INCLUDE_PATH)
@@ -105,7 +105,7 @@ ocp_cython_c: ocp_shared_lib
 	-o acados_ocp_solver_pyx.c \
 	-I $(INCLUDE_PATH)/../interfaces/acados_template/acados_template \
 	$(INCLUDE_PATH)/../interfaces/acados_template/acados_template/acados_ocp_solver_pyx.pyx \
-	-I /home/elia/colcon_ws/src/legged_control/acados_legged_controller/c_generated_code \
+	-I /home/adm-aitec/RaNAV/src/legged_control/acados_legged_controller/c_generated_code \
 
 ocp_cython_o: ocp_cython_c
 	$(CC) $(ACADOS_FLAGS) -c -O2 \
@@ -115,7 +115,7 @@ ocp_cython_o: ocp_cython_c
 	-I $(INCLUDE_PATH)/blasfeo/include/ \
 	-I $(INCLUDE_PATH)/hpipm/include/ \
 	-I $(INCLUDE_PATH) \
-	-I /home/elia/opti_pessi_acados/acados_env/lib/python3.12/site-packages/numpy/_core/include \
+	-I /home/adm-aitec/RaNAV/src/legged_control/acados_legged_controller/scripts/.venv/lib/python3.12/site-packages/numpy/_core/include \
 	-I /usr/include/python3.12 \
 	acados_ocp_solver_pyx.c \
 

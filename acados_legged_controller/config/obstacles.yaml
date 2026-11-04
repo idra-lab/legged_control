@@ -1,0 +1,5 @@
+# Extra parameters of acados_legged_controller for load_controller_launch.xml (spawner --param-file)
+# Obstacles of config.yaml on: virtual, the lidar does not see them (shown in RViz on /mpc_obstacles)
+acados_legged_controller:
+  ros__parameters:
+    simulatedObstacles: true

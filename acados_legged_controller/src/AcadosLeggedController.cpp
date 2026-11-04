@@ -1083,8 +1083,15 @@ controller_interface::return_type AcadosLeggedController::update(const rclcpp::T
 
     // 4) WBC
     currentObservation_.input = optimizedInput;
+    benchmark::RepeatedTimer wbcTimer_;
+    wbcTimer_.startTimer();
     vector_t wbc_output = wbc_->update(optimizedState, optimizedInput, measuredRbdState_, current_mode, period.seconds());
+    wbcTimer_.endTimer();
     vector_t torque = wbc_output.tail(12);
+
+    // std::cerr << "\n### WBC Benchmarking";
+    // std::cerr << "\n###   Maximum : " << wbcTimer_.getMaxIntervalInMilliseconds() << "[ms].";
+    // std::cerr << "\n###   Average : " << wbcTimer_.getAverageInMilliseconds() << "[ms].";
 
     if (!safetyChecker_->check(currentObservation_, optimizedState, optimizedInput)) {
         RCLCPP_ERROR(get_node()->get_logger(), "[Acados MPC]: Safety cheker failed!!");

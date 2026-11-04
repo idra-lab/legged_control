@@ -17,8 +17,8 @@ robot:
 
 
 limits:
-  dt_min: 0.1                 # sec
-  dt_max: 0.25                # sec
+  dt_min: 0.2                 # sec
+  dt_max: 0.3                 # sec
   theta_dot_max: 0.6          # rad/sec
   v_max_x: 1.5                # m/s
   v_max_y: 0.45               # m/s
@@ -28,7 +28,7 @@ limits:
   tau_max_knee: 44.4          # Nm, KFE
 
 ocp_weights:
-  tracking_xy: 5.0      
+  tracking_xy: 2.5      
   vel_alignment: 10.0
   vel_xy: 5.0
   time_weight: 0.000001
@@ -43,13 +43,13 @@ simulation:
   sim_steps: 300
   step_per_phase: 1
   c_target: [10.0, -2.0]        # m
-  max_lookahead: 10             # m
+  max_lookahead: 10.0             # m
   goal_tolerance: 0.10          # m, WALK -> STANCE when closer than this to c_target
   max_iter: 2
 
 
 obstacles:
-  N_OBS_MAX: 4
+  N_OBS_MAX: 10
   obs_pos_init: [0.1, 1.0]      # m
   r_obs: 0.2                    # m
   speed: 0.5                    # m/s
@@ -58,13 +58,14 @@ obstacles:
   bot_pos_dyn: [0.1, -1.0]      # m
   obs_type: "random"            # static, dynamic, adversarial, circular, random
   obs_center: [1.0, 0.2]        # m
-  instances: []                    
+  instances: 
+    - {type: "static", pos: [2.0, 0.0], r_obs: 0.3, y_dot_max: 0.1}                    
     # - {type: "adversarial", pos: [2.0, 1.0], r_obs: 0.3, speed: 0.5, y_dot_max: 1.0}
   # {type: "static", pos: [1.5, 0.1], r_obs: 0.3, y_dot_max: 0.1}
   # {type: "dynamic", pos: [5.0, 5.0], pos_end: [5.0, -5.0], r_obs: 0.3, speed: 0.5, y_dot_max: 1.0}
   # {type: "adversarial", pos: [2.0, 1.0], r_obs: 0.3, speed: 0.5, y_dot_max: 1.0}
   random:
-    count: 4                    # 0 = 0ff
+    count: 0                    # 0 = 0ff
     seed: 42
     bounds: [2.0, 9.0, -2.0, 2.0]
     r_range: [0.1, 0.4]         # m
@@ -86,5 +87,5 @@ controller:
   kp_base_ang: 50.0              # Nm/rad
   kd_base_ang: 20.0              # nm/(rad/s)
   kp_swing: 30.0
-  swing_height: 0.05             # m
+  swing_height: 0.10             # m
   moment_weight: 10.0            # priority of the moments over the forces in the two-feet split
