@@ -23,7 +23,7 @@
 #include "legged_controllers/LeggedController.h"
 #include "legged_controllers/SafetyChecker.h"
 #include <ocs2_centroidal_model/CentroidalModelRbdConversions.h>
-#include <legged_wbc/WeightedWbc.h>
+#include <legged_wbc/OptiPessiWbc.h>
 #include <legged_interface/LeggedInterface.h>
 #include <legged_estimation/LinearKalmanFilter.h>
 #include <ocs2_pinocchio_interface/PinocchioEndEffectorKinematics.h>
@@ -44,9 +44,6 @@
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
-
-// Inverse Kinematics
-#include "acados_legged_controller/LegIk.hpp"
 
 // Obstacle Manager
 #include "acados_legged_controller/ObstacleManager.hpp"
@@ -92,6 +89,20 @@ private:
     void publishMonitor(const std::vector<double>& x0);
     void sendJointCommand(size_t j, double q, double dq, double kp, double kd, double tau);
 
+    // WBC references as in OptiPessiController: all feet down where they are, CoM held at com_target_ with the height
+    // ramp of the stance blend r in [0, 1] (holdStance + standUp)
+    WbcReference stanceReference(double r) const;
+    // Swing/stance feet and CoM of one MPC knot (updateFootReferences + updateComReference): CoM and yaw from the
+    // reference of the step, forces and yaw acceleration of the knot from x_start (optimistic branch), the swing pair
+    // is swing_time into its step
+    WbcReference walkReference(const std::vector<double>& x_start, const std::vector<double>& u, double swing_time,
+                               double step_duration, const GaitPlanner::Pair& stance, const GaitPlanner::Pair& swing) const;
+    // Advances the CoM and yaw reference of the step by dt with the knot (x_start, u)
+    void advanceWalkReference(const std::vector<double>& x_start, const std::vector<double>& u, double dt);
+    // OptiPessiWbc on the reference, then the joint commands: WBC torque, velocity target = measured joint velocity
+    // advanced by one step of the WBC accelerations (as OptiPessiController), PD (kp, kd) on q_target. False if the safety check fails
+    bool updateWholeBodyControl(const WbcReference& reference, double period, const vector_t& q_target, double kp, double kd);
+
 
     // Hardware and state
     std::vector<HybridJointHandle> hybridJointHandles_;
@@ -100,7 +111,7 @@ private:
 
     // State estimation and WBC
     std::shared_ptr<StateEstimateBase> stateEstimate_;
-    std::shared_ptr<WeightedWbc> wbc_;
+    std::shared_ptr<OptiPessiWbc> wbc_;
     std::shared_ptr<PinocchioEndEffectorKinematics> eeKinematicsPtr_;
 
     std::shared_ptr<LeggedInterface> leggedInterface_;
@@ -134,9 +145,12 @@ private:
     std::atomic<bool> controller_running_{false};
 
     // Shared data between real time loop (update) and thread MPC
-    std::vector<double> current_state_x0_; 
-    std::vector<double> latest_u_opt_;
-    std::vector<double> latest_x_opt_;
+    std::vector<double> current_state_x0_;
+    // Latest MPC solution (as AcceptedPlan of OptiPessiController): inputs of all the knots, the x0 it was solved from,
+    // the gait step it was solved for and the time left in that step at that moment
+    std::vector<std::vector<double>> latest_u_sol_;
+    std::vector<double> latest_x0_;
+    size_t latest_step_index_ = 0;
     double next_step_duration_ = 0.0; // duration of next step, protected by mpc_mutex_
 
 
@@ -152,22 +166,25 @@ private:
     vector_t q_stand_;          // target posture
     double phase_time_ = 0.0;   // time spent in the current phase [s]
     
-    // Stance
-    vector_t base_target_;      // [x, y, z, yaw, pitch, roll] captured when entering STANCE
-    double z_start_ = 0.0;
-    vector_t q_stance_;         // joint target of STANCE (q_stand after STAND_UP, current feet after WALK)
+    // Stance: CoM and yaw held by the WBC
+    vector3_t com_target_ = vector3_t::Zero();  // xy measured when entering STANCE
+    double z_start_ = 0.0;                      // CoM height when entering STANCE, ramps to h_com
+    double yaw_target_ = 0.0;
 
     // Walk
     rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr start_walking_srv_;
     std::atomic<bool> walk_requested_{false};   // set by the service, starts MPC thread
     std::atomic<bool> mpc_ready_{false};        // true after first successful solve !!
-    // Swing legs
+    // Feet
     std::array<vector3_t, 4> feet_pos_;         // measured feet {LF, RF, LH, RH}
-    std::array<vector3_t, 4> swing_start_;      // feet at lift_off
+    std::array<vector3_t, 4> liftoff_;          // feet at the start of the step (STANCE: where they are held)
+    vector3_t com_pos_ = vector3_t::Zero();     // measured whole-body CoM
     size_t walk_step_ = SIZE_MAX;               // gait step seen by update
-    vector_t q_des_prev_, dq_des_f_;            // previous IK joints and filtered velocity (12)
-    // index of the first joint of each foot: feet {LF, RF, LH, RH}, joints {LF, LH, RF, RG}
-    static constexpr std::array<size_t, 4> kFootJoint{0, 6, 3, 9};
+    std::vector<double> x0_measured_;           // LIPM x0 of this tick (control thread copy of current_state_x0_)
+    std::vector<double> phase_start_x0_;        // LIPM x0 measured when the current step started (shifted plan)
+    // CoM and yaw reference of the WBC: restarts from the measured robot at each step, then advanced every tick
+    Eigen::Vector2d ref_c_ = Eigen::Vector2d::Zero(), ref_dc_ = Eigen::Vector2d::Zero();
+    double ref_yaw_ = 0.0, ref_yaw_rate_ = 0.0;
     // Get the goal pose from /goal_pose from RViz
     rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr goal_sub_;
     std::atomic<double> goal_x_{0.0}, goal_y_{0.0}; // Current goal, written by /goal_pose
@@ -178,6 +195,10 @@ private:
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr obstacle_pub_;
     rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr monitor_pub_;
     std::array<std::atomic<double>, 12> tau_cmd_{}; // total commanded torques, written by update(), read by MPC thread
+    // WBC tracking for PlotJuggler, written by update(), read by MPC thread
+    enum WbcMonitor { YAW_REF, YAW_RATE_REF, YAW_ACC_FF, YAW_ACC_WBC, COM_ERR_X, COM_ERR_Y,
+                      RESIDUAL_X, RESIDUAL_Y, RESIDUAL_Z, N_WBC_MONITOR };
+    std::array<std::atomic<double>, N_WBC_MONITOR> wbc_monitor_{};
  
 };
 

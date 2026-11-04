@@ -37,8 +37,6 @@ struct LipmConfig {
     double Iz;              // kg/m^2
     double off_x;           // m
     double off_y;           // m
-    double hip_y;           // m
-    double thigh_offset;    // m
 
     // limits
     double dt_min;                      // sec
@@ -65,16 +63,12 @@ struct LipmConfig {
     double leg_length;  // m
     double foot_radius; // m
 
-    // controller
+    // controller (CoM, orientation and swing gains are those of OptiPessiWbc in task.info)
     double standup_duration, kp_stand, kd_stand;
-    double kp_stance, kd_stance;
-    double kp_base_xy, kd_base_xy, kp_base_z, kd_base_z;
+    double kd_wbc;          // joint damping with the WBC torques, all joints (OptiPessiController: 3)
     double stance_blend;
-    double kp_base_ang;
-    double kd_base_ang;
-    double kp_swing;
     double swing_height;
-    double moment_weight;
+    double com_height;      // m, CoM height tracked by the WBC (h_com is the one of the acados model)
 
     // Same nominal dt used in lipm_model.py
     double nominalStepDuration() const { return (dt_min + dt_max) / (2.0 * step_per_phase); }

@@ -306,6 +306,19 @@ weight
     contactForce    0.01
 }
 
+; OptiPessiWbc: PD on the CoM and yaw references, roll/pitch to zero (same as legged_controllers/config/aliengo/task.info)
+optiPessiWbc
+{
+    comKpXY         10
+    comKdXY         6
+    comKpZ          100
+    comKdZ          20
+    yawKp           20
+    yawKd           9
+    rollPitchKp     100
+    rollPitchKd     20
+}
+
 ; State Estimation
 kalmanFilter
 {

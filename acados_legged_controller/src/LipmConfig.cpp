@@ -37,8 +37,6 @@ LipmConfig LipmConfig::fromYaml(const std::string& path){
     cfg.off_y = readKey<double>(root, "robot", "off_y");
     cfg.leg_length = readKey<double>(root, "robot", "leg_length");
     cfg.foot_radius = readKey<double>(root, "robot", "foot_radius");
-    cfg.hip_y = readKey<double>(root, "robot", "hip_y");
-    cfg.thigh_offset = readKey<double>(root, "robot", "thigh_offset");
 
 
     cfg.dt_min = readKey<double>(root, "limits", "dt_min");
@@ -95,18 +93,10 @@ LipmConfig LipmConfig::fromYaml(const std::string& path){
     cfg.standup_duration = readKey<double>(root, "controller", "standup_duration");
     cfg.kp_stand = readKey<double>(root, "controller", "kp_stand");
     cfg.kd_stand = readKey<double>(root, "controller", "kd_stand");
-    cfg.kp_stance = readKey<double>(root, "controller", "kp_stance");
-    cfg.kd_stance = readKey<double>(root, "controller", "kd_stance");
-    cfg.kp_base_xy = readKey<double>(root, "controller", "kp_base_xy");
-    cfg.kd_base_xy = readKey<double>(root, "controller", "kd_base_xy");
-    cfg.kp_base_z = readKey<double>(root, "controller", "kp_base_z");
-    cfg.kd_base_z = readKey<double>(root, "controller", "kd_base_z");
+    cfg.kd_wbc = readKey<double>(root, "controller", "kd_wbc");
     cfg.stance_blend = readKey<double>(root, "controller", "stance_blend");
-    cfg.kp_base_ang = readKey<double>(root, "controller", "kp_base_ang");
-    cfg.kd_base_ang = readKey<double>(root, "controller", "kd_base_ang");
-    cfg.kp_swing = readKey<double>(root, "controller", "kp_swing");
     cfg.swing_height = readKey<double>(root, "controller", "swing_height");
-    cfg.moment_weight = readKey<double>(root, "controller", "moment_weight");
+    cfg.com_height = readKey<double>(root, "controller", "com_height");
     
 
 

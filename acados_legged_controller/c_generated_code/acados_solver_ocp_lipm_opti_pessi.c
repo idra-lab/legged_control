@@ -394,6 +394,8 @@ void ocp_lipm_opti_pessi_acados_create_set_default_parameters(ocp_lipm_opti_pess
     // initialize parameters to initial value
     
     double* p = calloc(NP, sizeof(double));
+    p[44] = 10;
+    p[45] = -2;
 
     for (int i = 0; i <= N; i++) {
         ocp_lipm_opti_pessi_acados_update_params(capsule, i, p, NP);
@@ -464,15 +466,15 @@ void ocp_lipm_opti_pessi_acados_create_setup_nlp_in_numerical_values(ocp_lipm_op
     // change only the non-zero elements:
     yref_0[0] = 10;
     yref_0[1] = -2;
-    yref_0[17] = 10;
-    yref_0[18] = -2;
+    yref_0[19] = 10;
+    yref_0[20] = -2;
     ocp_nlp_cost_model_set(nlp_config, nlp_dims, nlp_in, 0, "yref", yref_0);
     free(yref_0);
 
    double* W_0 = calloc(NY0*NY0, sizeof(double));
     // change only the non-zero elements:
-    W_0[0+(NY0) * 0] = 5;
-    W_0[1+(NY0) * 1] = 5;
+    W_0[0+(NY0) * 0] = 10;
+    W_0[1+(NY0) * 1] = 10;
     W_0[2+(NY0) * 2] = 10;
     W_0[3+(NY0) * 3] = 5;
     W_0[4+(NY0) * 4] = 5;
@@ -488,31 +490,35 @@ void ocp_lipm_opti_pessi_acados_create_setup_nlp_in_numerical_values(ocp_lipm_op
     W_0[14+(NY0) * 14] = 10000;
     W_0[15+(NY0) * 15] = 1;
     W_0[16+(NY0) * 16] = 0.001;
-    W_0[17+(NY0) * 17] = 0.005;
-    W_0[18+(NY0) * 18] = 0.005;
+    W_0[17+(NY0) * 17] = 20;
+    W_0[18+(NY0) * 18] = 20;
     W_0[19+(NY0) * 19] = 0.01;
-    W_0[20+(NY0) * 20] = 0.005;
-    W_0[21+(NY0) * 21] = 0.005;
-    W_0[22+(NY0) * 22] = 0.001;
-    W_0[23+(NY0) * 23] = 0.000000001;
-    W_0[24+(NY0) * 24] = 0.01;
-    W_0[25+(NY0) * 25] = 0.01;
+    W_0[20+(NY0) * 20] = 0.01;
+    W_0[21+(NY0) * 21] = 0.01;
+    W_0[22+(NY0) * 22] = 0.005;
+    W_0[23+(NY0) * 23] = 0.005;
+    W_0[24+(NY0) * 24] = 0.001;
+    W_0[25+(NY0) * 25] = 0.000000001;
     W_0[26+(NY0) * 26] = 0.01;
     W_0[27+(NY0) * 27] = 0.01;
-    W_0[28+(NY0) * 28] = 10;
-    W_0[29+(NY0) * 29] = 10;
+    W_0[28+(NY0) * 28] = 0.01;
+    W_0[29+(NY0) * 29] = 0.01;
     W_0[30+(NY0) * 30] = 10;
     W_0[31+(NY0) * 31] = 10;
-    W_0[32+(NY0) * 32] = 0.001;
-    W_0[33+(NY0) * 33] = 0.000001;
+    W_0[32+(NY0) * 32] = 10;
+    W_0[33+(NY0) * 33] = 10;
+    W_0[34+(NY0) * 34] = 0.001;
+    W_0[35+(NY0) * 35] = 0.000001;
+    W_0[36+(NY0) * 36] = 0.02;
+    W_0[37+(NY0) * 37] = 0.02;
     ocp_nlp_cost_model_set(nlp_config, nlp_dims, nlp_in, 0, "W", W_0);
     free(W_0);
     double* yref = calloc(NY, sizeof(double));
     // change only the non-zero elements:
     yref[0] = 10;
     yref[1] = -2;
-    yref[17] = 10;
-    yref[18] = -2;
+    yref[19] = 10;
+    yref[20] = -2;
 
     for (int i = 1; i < N; i++)
     {
@@ -521,8 +527,8 @@ void ocp_lipm_opti_pessi_acados_create_setup_nlp_in_numerical_values(ocp_lipm_op
     free(yref);
     double* W = calloc(NY*NY, sizeof(double));
     // change only the non-zero elements:
-    W[0+(NY) * 0] = 5;
-    W[1+(NY) * 1] = 5;
+    W[0+(NY) * 0] = 10;
+    W[1+(NY) * 1] = 10;
     W[2+(NY) * 2] = 10;
     W[3+(NY) * 3] = 5;
     W[4+(NY) * 4] = 5;
@@ -538,23 +544,27 @@ void ocp_lipm_opti_pessi_acados_create_setup_nlp_in_numerical_values(ocp_lipm_op
     W[14+(NY) * 14] = 10000;
     W[15+(NY) * 15] = 1;
     W[16+(NY) * 16] = 0.001;
-    W[17+(NY) * 17] = 0.005;
-    W[18+(NY) * 18] = 0.005;
+    W[17+(NY) * 17] = 20;
+    W[18+(NY) * 18] = 20;
     W[19+(NY) * 19] = 0.01;
-    W[20+(NY) * 20] = 0.005;
-    W[21+(NY) * 21] = 0.005;
-    W[22+(NY) * 22] = 0.001;
-    W[23+(NY) * 23] = 0.000000001;
-    W[24+(NY) * 24] = 0.01;
-    W[25+(NY) * 25] = 0.01;
+    W[20+(NY) * 20] = 0.01;
+    W[21+(NY) * 21] = 0.01;
+    W[22+(NY) * 22] = 0.005;
+    W[23+(NY) * 23] = 0.005;
+    W[24+(NY) * 24] = 0.001;
+    W[25+(NY) * 25] = 0.000000001;
     W[26+(NY) * 26] = 0.01;
     W[27+(NY) * 27] = 0.01;
-    W[28+(NY) * 28] = 10;
-    W[29+(NY) * 29] = 10;
+    W[28+(NY) * 28] = 0.01;
+    W[29+(NY) * 29] = 0.01;
     W[30+(NY) * 30] = 10;
     W[31+(NY) * 31] = 10;
-    W[32+(NY) * 32] = 0.001;
-    W[33+(NY) * 33] = 0.000001;
+    W[32+(NY) * 32] = 10;
+    W[33+(NY) * 33] = 10;
+    W[34+(NY) * 34] = 0.001;
+    W[35+(NY) * 35] = 0.000001;
+    W[36+(NY) * 36] = 0.02;
+    W[37+(NY) * 37] = 0.02;
 
     for (int i = 1; i < N; i++)
     {
@@ -565,25 +575,29 @@ void ocp_lipm_opti_pessi_acados_create_setup_nlp_in_numerical_values(ocp_lipm_op
     // change only the non-zero elements:
     yref_e[0] = 10;
     yref_e[1] = -2;
-    yref_e[6] = 10;
-    yref_e[7] = -2;
+    yref_e[8] = 10;
+    yref_e[9] = -2;
     ocp_nlp_cost_model_set(nlp_config, nlp_dims, nlp_in, N, "yref", yref_e);
     free(yref_e);
 
     double* W_e = calloc(NYN*NYN, sizeof(double));
     // change only the non-zero elements:
-    W_e[0+(NYN) * 0] = 5;
-    W_e[1+(NYN) * 1] = 5;
+    W_e[0+(NYN) * 0] = 10;
+    W_e[1+(NYN) * 1] = 10;
     W_e[2+(NYN) * 2] = 5;
     W_e[3+(NYN) * 3] = 5;
     W_e[4+(NYN) * 4] = 1;
     W_e[5+(NYN) * 5] = 0.000001;
-    W_e[6+(NYN) * 6] = 0.005;
-    W_e[7+(NYN) * 7] = 0.005;
-    W_e[8+(NYN) * 8] = 0.005;
-    W_e[9+(NYN) * 9] = 0.005;
-    W_e[10+(NYN) * 10] = 0.001;
-    W_e[11+(NYN) * 11] = 0.000000001;
+    W_e[6+(NYN) * 6] = 20;
+    W_e[7+(NYN) * 7] = 20;
+    W_e[8+(NYN) * 8] = 0.01;
+    W_e[9+(NYN) * 9] = 0.01;
+    W_e[10+(NYN) * 10] = 0.005;
+    W_e[11+(NYN) * 11] = 0.005;
+    W_e[12+(NYN) * 12] = 0.001;
+    W_e[13+(NYN) * 13] = 0.000000001;
+    W_e[14+(NYN) * 14] = 0.02;
+    W_e[15+(NYN) * 15] = 0.02;
     ocp_nlp_cost_model_set(nlp_config, nlp_dims, nlp_in, N, "W", W_e);
     free(W_e);
 
@@ -1341,7 +1355,7 @@ void ocp_lipm_opti_pessi_acados_create_setup_nlp_in_numerical_values(ocp_lipm_op
     lh_0[90] = -1000000;
     lh_0[91] = -1000000;
     lh_0[92] = -1000000;
-    lh_0[94] = -0.5;
+    lh_0[94] = -1.5;
     lh_0[95] = -0.45;
     lh_0[100] = -1000000;
     lh_0[101] = -1000000;
@@ -1415,7 +1429,7 @@ void ocp_lipm_opti_pessi_acados_create_setup_nlp_in_numerical_values(ocp_lipm_op
     lh_0[178] = -1000000;
     lh_0[179] = -1000000;
     lh_0[180] = -1000000;
-    lh_0[182] = -0.5;
+    lh_0[182] = -1.5;
     lh_0[183] = -0.45;
     uh_0[8] = 0.09;
     uh_0[9] = 0.09;
@@ -1441,7 +1455,7 @@ void ocp_lipm_opti_pessi_acados_create_setup_nlp_in_numerical_values(ocp_lipm_op
     uh_0[85] = 1000000;
     uh_0[86] = 1;
     uh_0[93] = 1000000;
-    uh_0[94] = 0.5;
+    uh_0[94] = 1.5;
     uh_0[95] = 0.45;
     uh_0[96] = 0.09;
     uh_0[97] = 0.09;
@@ -1467,7 +1481,7 @@ void ocp_lipm_opti_pessi_acados_create_setup_nlp_in_numerical_values(ocp_lipm_op
     uh_0[173] = 1000000;
     uh_0[174] = 1;
     uh_0[181] = 1000000;
-    uh_0[182] = 0.5;
+    uh_0[182] = 1.5;
     uh_0[183] = 0.45;
 
     ocp_nlp_constraints_model_set(nlp_config, nlp_dims, nlp_in, nlp_out, 0, "lh", lh_0);
@@ -1950,7 +1964,7 @@ void ocp_lipm_opti_pessi_acados_create_setup_nlp_in_numerical_values(ocp_lipm_op
     lh[82] = -1000000;
     lh[83] = -1000000;
     lh[84] = -1000000;
-    lh[86] = -0.5;
+    lh[86] = -1.5;
     lh[87] = -0.45;
     lh[92] = -1000000;
     lh[93] = -1000000;
@@ -2024,7 +2038,7 @@ void ocp_lipm_opti_pessi_acados_create_setup_nlp_in_numerical_values(ocp_lipm_op
     lh[170] = -1000000;
     lh[171] = -1000000;
     lh[172] = -1000000;
-    lh[174] = -0.5;
+    lh[174] = -1.5;
     lh[175] = -0.45;
     uh[0] = 0.09;
     uh[1] = 0.09;
@@ -2050,7 +2064,7 @@ void ocp_lipm_opti_pessi_acados_create_setup_nlp_in_numerical_values(ocp_lipm_op
     uh[77] = 1000000;
     uh[78] = 1;
     uh[85] = 1000000;
-    uh[86] = 0.5;
+    uh[86] = 1.5;
     uh[87] = 0.45;
     uh[88] = 0.09;
     uh[89] = 0.09;
@@ -2076,7 +2090,7 @@ void ocp_lipm_opti_pessi_acados_create_setup_nlp_in_numerical_values(ocp_lipm_op
     uh[165] = 1000000;
     uh[166] = 1;
     uh[173] = 1000000;
-    uh[174] = 0.5;
+    uh[174] = 1.5;
     uh[175] = 0.45;
 
     for (int i = 1; i < N; i++)
@@ -2723,7 +2737,7 @@ int ocp_lipm_opti_pessi_acados_update_params(ocp_lipm_opti_pessi_solver_capsule*
 {
     int solver_status = 0;
 
-    int casadi_np = 44;
+    int casadi_np = 46;
     if (casadi_np != np) {
         printf("acados_update_params: trying to set %i parameters for external functions."
             " External function has %i parameters. Exiting.\n", np, casadi_np);
