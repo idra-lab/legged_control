@@ -1,6 +1,6 @@
 <?xml version="1.0" ?>
 <launch>
-  <arg name="robot_type" default="aliengo" description="Robot type: [a1, aliengo, go1, laikago]"/>
+  <arg name="robot_type" default="aliengo" description="Robot type: [a1, aliengo, go1, go2, laikago]"/>
   <arg name="joy"                 default="false" description="Enable joystick teleoperation"/>
   <arg name="rviz"                default="true"  description="Launch RViz2"/>
   <arg name="description_name"    default="legged_robot_description"/>
@@ -19,7 +19,9 @@
   <let name="taskFile" value="$(find-pkg-share legged_controllers)/config/$(var robot_type)/task.info"/>
   <let name="referenceFile" value="$(find-pkg-share legged_controllers)/config/$(var robot_type)/reference.info"/>
   <let name="gaitCommandFile" value="$(find-pkg-share legged_controllers)/config/$(var robot_type)/gait.info"/>
+  <!-- Opti-Pessi robot model: go2 has its own, the other robots use the Aliengo one -->
   <let name="optipessiFile" value="$(find-pkg-share opti_pessi_interface)/config/task.info"/>
+  <let if="$(eval '\'$(var robot_type)\' == \'go2\'')" name="optipessiFile" value="$(find-pkg-share legged_controllers)/config/go2/opti_pessi_task.info"/>
   <let name="libraryFolder" value="$(find-pkg-share opti_pessi_interface)/lib"/>
   <let name="fallRecoveryFile" value="$(find-pkg-share legged_controllers)/config/$(var robot_type)/fall_recovery.info"/>
 

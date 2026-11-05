@@ -219,8 +219,12 @@ controller_interface::CallbackReturn OptiPessiController::on_init() {
   bool verbose = true;
   loadData::loadCppDataType(taskFile, "legged_robot_interface.verbose", verbose);
 
-  // Helper node for OCS2 ROS 2 communication
-  ros2_node_ = std::make_shared<rclcpp::Node>("opti_pessi_controller_ros2_node");
+  // Helper node for OCS2 ROS 2 communication, on the clock of the controller (sim time in Gazebo): it stamps the
+  // joint_states and odom -> base TF of the visualizer, which on wall time mix with the sim time ones of
+  // joint_state_broadcaster and robot_state_publisher (TF_OLD_DATA)
+  const bool useSimTime = node->get_parameter("use_sim_time").as_bool();
+  ros2_node_ = std::make_shared<rclcpp::Node>(
+      "opti_pessi_controller_ros2_node", rclcpp::NodeOptions().parameter_overrides({rclcpp::Parameter("use_sim_time", useSimTime)}));
   executor_ = std::make_shared<rclcpp::executors::SingleThreadedExecutor>();
   executor_->add_node(ros2_node_);
   spin_thread_ = std::thread([this]() {

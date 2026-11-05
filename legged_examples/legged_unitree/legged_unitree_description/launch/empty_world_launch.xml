@@ -1,5 +1,5 @@
 <launch>
-  <arg name="robot_type" default="aliengo" description="Robot type: [a1, aliengo, go1, laikago]"/>
+  <arg name="robot_type" default="aliengo" description="Robot type: [a1, aliengo, go1, go2, laikago]"/>
   <arg name="use_sim_time" default="true"/>
   <arg name="camera" default="true" description="Mount the Intel RealSense D435i and bridge its rgb/depth images"/>
   <arg name="lidar" default="true" description="Mount the RoboSense Airy and publish its point cloud/IMU on the rslidar_sdk topics"/>
