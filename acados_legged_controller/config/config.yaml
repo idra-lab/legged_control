@@ -56,6 +56,15 @@ heading:
   yaw_tolerance: 0.10           # rad, WALK -> STANCE only if also the yaw error is below this
 
 
+
+# Obstacles 
+# Radius and speed bound per class of legged_controllers/msg/Obstacle (same values of task.info obstacleTypes):
+# the topic carries only class and position
+obstacle_types:
+  human: {radius: 0.2, y_dot_max: 1.0}
+  car: {radius: 2.4, y_dot_max: 2.0}
+
+
 obstacles:
   N_OBS_MAX: 3
   obs_pos_init: [0.1, 1.0]      # m
@@ -67,7 +76,7 @@ obstacles:
   obs_type: "random"            # static, dynamic, adversarial, circular, random
   obs_center: [1.0, 0.2]        # m
   instances: 
-    - {type: "dynamic", pos: [2.0, 0.5], pos_end: [2.0, -0.5], r_obs: 0.15, speed: 0.2, y_dot_max: 1.0}                
+    - {type: "dynamic", class: "human", pos: [2.0, 0.5], pos_end: [2.0, -0.5], r_obs: 0.15, speed: 0.2, y_dot_max: 1.0}                
     # - {type: "adversarial", pos: [2.0, 1.0], r_obs: 0.3, speed: 0.5, y_dot_max: 1.0}
   # {type: "static", pos: [1.5, 0.1], r_obs: 0.3, y_dot_max: 0.1}
   # {type: "dynamic", pos: [5.0, 5.0], pos_end: [5.0, -5.0], r_obs: 0.3, speed: 0.5, y_dot_max: 1.0}

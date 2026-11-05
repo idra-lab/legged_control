@@ -47,7 +47,8 @@
 
 // Obstacle Manager
 #include "acados_legged_controller/ObstacleManager.hpp"
-
+// Obstacle from topic (perception or obstacle_simulator)
+#include <legged_controllers/msg/obstacle_array.hpp>
 
 
 namespace legged {
@@ -83,7 +84,12 @@ private:
     // Publish the MPC solution of the Optimistic and Pessimistic branch: CoM, feet trajectories and footholds
     void publishPredictions(const GaitPlanner& gait);
     // Publish obstacles and their keep-out zone in RViz
-    void publishObstacles(); 
+    void publishObstacles(const std::vector<ObstacleState>& obstacles);
+    // Obstacles that the OCP sees now: from the topic (class radius inflated by the age of the message, the N_OBS_MAX closest to the robot)
+    // or from config.yaml (ObstacleManager)
+    std::vector<ObstacleState> activeObstacles(double robot_x, double robot_y);
+    // N_OBS_MAX slots of the solver: free slots are far-away ghosts (as ObstacleManager::slots)
+    std::vector<ObstacleState> toSlots(std::vector<ObstacleState> obstacles) const;
 
     // Torques, local velocities and limits for PlotJuggler
     void publishMonitor(const std::vector<double>& x0);
@@ -137,6 +143,17 @@ private:
     std::vector<std::vector<double>> u_prev_sol_;  // N x nu
     size_t last_step_index_ = 0;                   // gait step of the last solve (shift only when it changes)
     std::shared_ptr<ObstacleManager> obstacle_manager_; // used only by the MPC thread
+    
+    // OBSTACLE TOPIC: last legged_controllers/ObstacleArray, written by subscription callback, read by MPC thread
+    bool obstacles_from_topic_ = false;
+    std::string obstacles_topic_;
+    double obstacles_timeout_ = 0.5;        // s, older message -> warning
+    double obstacles_max_age_ = 2.0;        // s, inflation stops growing here
+    rclcpp::Subscription<legged_controllers::msg::ObstacleArray>::SharedPtr obstacles_sub_;
+    std::mutex obstacles_mutex_;
+    std::vector<ObstacleState> topic_obstacles_;    // protected by obstacles_mutex_
+    double topic_obstacles_stamp_ = 0.0;    // s, header.stamp (0 = "now"), protected by obstacles_mutex_
+    bool topic_obstacles_received_ = false; // protected by obstacles_mutex_
 
 
     // Multi threading

@@ -42,7 +42,7 @@ find_package(pinocchio REQUIRED)
 # CONFIG: parsing of config.yaml and default path from the share directory
 find_package(yaml-cpp REQUIRED)
 find_package(ament_index_cpp REQUIRED)
-
+find_package(nav_msgs REQUIRED) # Sim obstacles: robot position for adversarial obstacles
 
 # ACADOS configuration
 set(ACADOS_DIR $ENV{ACADOS_SOURCE_DIR})
@@ -122,6 +122,8 @@ add_library(${PROJECT_NAME} SHARED
 target_link_libraries(${PROJECT_NAME}
   mpc_solver
   pinocchio::pinocchio
+  legged_controllers::legged_controllers__rosidl_generator_cpp
+  legged_controllers::legged_controllers__rosidl_typesupport_cpp
 )
 
 ament_target_dependencies(${PROJECT_NAME}
@@ -200,6 +202,32 @@ install(DIRECTORY launch
 install(PROGRAMS scripts/odom_to_tf.py scripts/opti_pessi_goal_relay.py
   DESTINATION lib/${PROJECT_NAME}
 )
+
+
+# SIM OBSTACLES: obstacles of config.yaml published as legged_controllers/ObstacleArray (as the perception)
+# LipmConfig.cpp compiled in directly: no acados needed by this node
+add_executable(obstacle_simulator
+  src/obstacle_simulator.cpp
+  src/LipmConfig.cpp
+)
+target_link_libraries(obstacle_simulator
+  yaml-cpp::yaml-cpp
+  # only the messages of legged_controllers (as opti_pessi_perception): its exported executable must not be linked
+  legged_controllers::legged_controllers__rosidl_generator_cpp
+  legged_controllers::legged_controllers__rosidl_typesupport_cpp
+)
+ament_target_dependencies(obstacle_simulator
+  rclcpp
+  nav_msgs
+  std_srvs
+  visualization_msgs
+  ament_index_cpp
+)
+install(TARGETS obstacle_simulator
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+
 
 
 ament_package()

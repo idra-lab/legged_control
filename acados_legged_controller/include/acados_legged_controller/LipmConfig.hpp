@@ -13,6 +13,7 @@ struct ObstacleConfig {
     double end_x = 0.0;     // m
     double end_y = 0.0;     // m
     double speed = 0.0;     // m/s
+    std::string obstacle_class = "human";   // class in legged_controllers/msg/Obstacle: "human" or "car"
 };
 
 
@@ -26,6 +27,12 @@ struct RandomObstacleConfig {
     double y_dot_max = 0.0;                 // m/s
 };
 
+
+// obstacle types in config.yaml: what the controller assumes for each class of the obstacle topic
+struct ObstacleTypeConfig {
+    double radius = 0.0;        // m
+    double y_dot_max = 0.0;     // m/s
+};
 
 
 // Parameters shared with the python code generator (scripts/model_gen.py), read from config/config.yaml
@@ -65,6 +72,7 @@ struct LipmConfig {
     int N_OBS_MAX;
     std::vector<ObstacleConfig> obstacles;
     RandomObstacleConfig random_obstacles;
+    ObstacleTypeConfig human_type, car_type;
 
 
     

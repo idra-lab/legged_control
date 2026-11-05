@@ -2,7 +2,7 @@
 # Passed to the robot xacro with controllers_yaml:=... by launch/sim_launch.xml
 controller_manager:
   ros__parameters:
-    update_rate: 300  # Hz (Alejandro's file uses 100 Hz, too low for WBC + trot?)
+    update_rate: 400  # Hz (Alejandro's file uses 100 Hz, too low for WBC + trot?)
     
 
     joint_state_broadcaster:
@@ -24,3 +24,7 @@ imu_sensor_broadcaster:
 acados_legged_controller:
   ros__parameters:
     urdfFile: /tmp/legged_control/aliengo.urdf
+    obstaclesFromTopic: true        # false: obstacles of config.yaml simulated in controller
+    obstaclesTopic: /opti_pessi/obstacles
+    obstaclesTimeout: 0.5           # s
+    obstaclesMaxAge: 0.0            # s

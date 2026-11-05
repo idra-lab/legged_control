@@ -6,14 +6,22 @@ from launch.actions import IncludeLaunchDescription, RegisterEventHandler
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import AnyLaunchDescriptionSource
 from launch_ros.actions import Node
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, RegisterEventHandler
+from launch.substitutions import LaunchConfiguration
+
 
 
 def generate_launch_description():
     share = get_package_share_directory('acados_legged_controller')
 
+    world = DeclareLaunchArgument('world', default_value='empty_world.world',
+                                  description='World in legged_gazebo/worlds')
+
     # Gazebo, robot_state_publisher and spawn of the robot
     sim = IncludeLaunchDescription(
-        AnyLaunchDescriptionSource(os.path.join(share, 'launch', 'sim_launch.xml')))
+        AnyLaunchDescriptionSource(os.path.join(share, 'launch', 'sim_launch.xml')),
+        launch_arguments={'world': LaunchConfiguration('world')}.items())
+
 
     # Broadcasters first: the controller needs the imu and joint interfaces
     broadcasters = Node(
@@ -37,6 +45,7 @@ def generate_launch_description():
         parameters=[{'use_sim_time': True}])
 
     return LaunchDescription([
+        world,
         sim,
         broadcasters,
         odom_to_tf,

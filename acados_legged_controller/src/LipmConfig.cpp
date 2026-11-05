@@ -88,6 +88,10 @@ LipmConfig LipmConfig::fromYaml(const std::string& path){
         obstacle.end_x = pos_end[0];
         obstacle.end_y = pos_end[1];
         obstacle.speed = obs["speed"].as<double>(0.0);
+        obstacle.obstacle_class = obs["class"].as<std::string>("human");
+        if (obstacle.obstacle_class != "human" && obstacle.obstacle_class != "car"){
+            throw std::runtime_error("[LipmConfig]: obstacle class '" + obstacle.obstacle_class + "' unknown (human, car)!");
+        }
         cfg.obstacles.push_back(obstacle);
     }
     const YAML::Node random = root["obstacles"]["random"];
@@ -99,6 +103,17 @@ LipmConfig LipmConfig::fromYaml(const std::string& path){
         cfg.random_obstacles.speed_range = random["speed_range"].as<std::array<double, 2>>();
         cfg.random_obstacles.y_dot_max = random["y_dot_max"].as<double>();
     }
+
+
+    auto readType = [&root](const std::string& name) {
+        const YAML::Node type = root["obstacle_types"][name];
+        if (!type || !type["radius"] || !type["y_dot_max"]){
+            throw std::runtime_error("[LipmConfig]: missing obstacle_types." + name + ".{radius, y_dot_max} in config.yaml");
+        }
+        return ObstacleTypeConfig{type["radius"].as<double>(), type["y_dot_max"].as<double>()};
+    };
+    cfg.human_type = readType("human");
+    cfg.car_type = readType("car");
 
 
     cfg.standup_duration = readKey<double>(root, "controller", "standup_duration");

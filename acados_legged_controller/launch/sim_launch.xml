@@ -9,6 +9,7 @@
   <!-- This launch has no camera/lidar bridges: the sensors would only slow Gazebo down -->
   <arg name="camera" default="false" description="Mount the Intel RealSense D435i"/>
   <arg name="lidar" default="false" description="Mount the RoboSense Airy"/>
+  <arg name="world" default="empty_world.world" description="World in legged_gazebo/worlds (warehouse_world.world)"/>
 
   <!-- URDF file for the controller (in ROS 1 it was done by generate_urdf.sh, the ROS 2 launch does not do it) -->
   <executable cmd="$(find-pkg-prefix legged_common)/lib/legged_common/generate_urdf.sh $(find-pkg-share legged_unitree_description)/urdf/robot.xacro $(var robot_type) $(var camera) $(var lidar)" output="screen"/>
@@ -25,7 +26,7 @@
 
   <!-- Gazebo Sim (-r: start unpaused) -->
   <include file="$(find-pkg-share ros_gz_sim)/launch/gz_sim.launch.py">
-    <arg name="gz_args" value="-r $(find-pkg-share legged_gazebo)/worlds/warehouse_world.world"/>
+    <arg name="gz_args" value="-r $(find-pkg-share legged_gazebo)/worlds/$(var world)"/>
   </include>
 
   <!-- Spawn the robot from the robot_description topic -->

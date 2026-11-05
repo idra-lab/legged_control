@@ -94,6 +94,21 @@ controller_interface::CallbackReturn AcadosLeggedController::on_init(){
         node->declare_parameter<bool>("useGoalYaw", true);
     }
 
+    // OBSTACLE TOPIC: obstacles from legged_controllers/ObstacleArray (perception or obstacle_simulator) instead of config.yaml
+    if (!node->has_parameter("obstaclesFromTopic")){
+        node->declare_parameter<bool>("obstaclesFromTopic", false);
+    }
+    if (!node->has_parameter("obstaclesTopic")){
+        node->declare_parameter<std::string>("obstaclesTopic", "/opti_pessi/obstacles");
+    }
+    if (!node->has_parameter("obstaclesTimeout")){
+        node->declare_parameter<double>("obstaclesTimeout", 0.5);
+    }
+    if (!node->has_parameter("obstaclesMaxAge")){
+        node->declare_parameter<double>("obstaclesMaxAge", 2.0);
+    }
+
+
 
 
     std::string urdfFile = node->get_parameter("urdfFile").as_string();
@@ -122,11 +137,20 @@ controller_interface::CallbackReturn AcadosLeggedController::on_init(){
         return controller_interface::CallbackReturn::ERROR;
     }
     RCLCPP_INFO(node->get_logger(), "[Acados MPC]: Loaded config from %s", lipmConfigFile.c_str());
-    if (!node->get_parameter("simulatedObstacles").as_bool()){
+    obstacles_from_topic_ = node->get_parameter("obstaclesFromTopic").as_bool();
+    obstacles_topic_ = node->get_parameter("obstaclesTopic").as_string();
+    obstacles_timeout_ = node->get_parameter("obstaclesTimeout").as_double();
+    obstacles_max_age_ = node->get_parameter("obstaclesMaxAge").as_double();
+    // From the topic the obstacles of config.yaml are not simulated here (obstacle_simulator does it)
+    if (obstacles_from_topic_ || !node->get_parameter("simulatedObstacles").as_bool()){
         cfg_.obstacles.clear();
         cfg_.random_obstacles.count = 0;
         RCLCPP_INFO(node->get_logger(), "[Acados MPC]: simulated obstacles off");
     }
+    if (obstacles_from_topic_){
+        RCLCPP_INFO(node->get_logger(), "[Acados MPC]: obstacles from %s", obstacles_topic_.c_str());
+    }
+
     use_goal_yaw_ = node->get_parameter("useGoalYaw").as_bool();
     RCLCPP_INFO(node->get_logger(), "[Acados MPC]: goal yaw %s", use_goal_yaw_ ? "on" : "off (face the velocity only)");
 
@@ -305,6 +329,38 @@ controller_interface::CallbackReturn AcadosLeggedController::on_configure(const 
             if (phase_ == Phase::STANCE) walk_requested_ = true; // walk from STANCE
         });
 
+
+    // Obstacle topic: each message replaces the set (an empty one clears it), only odom (no TF here)
+    if (obstacles_from_topic_) {
+        using ObstacleArray = legged_controllers::msg::ObstacleArray;
+        using ObstacleMsg = legged_controllers::msg::Obstacle;
+        obstacles_sub_ = get_node()->create_subscription<ObstacleArray>(obstacles_topic_, rclcpp::QoS(1), 
+            [this](const ObstacleArray::SharedPtr msg) {
+                if (!msg->header.frame_id.empty() && msg->header.frame_id != "odom") {
+                    RCLCPP_WARN_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 5000, 
+                    "[Acados MPC]: obstacles in frame '%s' ignored: expected odom", msg->header.frame_id.c_str());
+                    return;
+                }
+                std::vector<ObstacleState> obstacles;
+                for (const auto& obs : msg->obstacles) {
+                    const ObstacleTypeConfig* type = nullptr;
+                    if (obs.type == ObstacleMsg::HUMAN) type = &cfg_.human_type;
+                    else if (obs.type == ObstacleMsg::CAR) type = &cfg_.car_type;
+                    else {
+                        RCLCPP_WARN_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 5000,
+                            "[Acados MPC]: obstacle of unknown type %u ignored", static_cast<unsigned>(obs.type));
+                        continue;
+                    }
+                    obstacles.push_back({obs.position.x, obs.position.y, type->radius, type->y_dot_max});
+                }
+                std::lock_guard<std::mutex> lock(obstacles_mutex_);
+                topic_obstacles_ = std::move(obstacles);
+                topic_obstacles_stamp_ = rclcpp::Time(msg->header.stamp).seconds();
+                topic_obstacles_received_ = true;
+            });
+    }
+
+    
     prediction_pub_ = get_node()->create_publisher<visualization_msgs::msg::MarkerArray>("/mpc_predictions", 1);
     obstacle_pub_ = get_node()->create_publisher<visualization_msgs::msg::MarkerArray>("/mpc_obstacles", 1);
     monitor_pub_ = get_node()->create_publisher<sensor_msgs::msg::JointState>("/monitor", 10);
@@ -651,11 +707,66 @@ void AcadosLeggedController::publishPredictions(const GaitPlanner& gait){
 
 
 
+// OBSTACLE TOPIC: obstacles the OCP sees now. From the topic: the class radius grows with y_dot_max times the age of
+// the message (the obstacle may have moved that much since it was seen, as the pessimistic branch assumes); with more
+// obstacles than N_OBS_MAX the closest to the robot (distance minus radius) are kept
+std::vector<ObstacleState> AcadosLeggedController::activeObstacles(double robot_x, double robot_y){
+    if (!obstacles_from_topic_) return obstacle_manager_->active();
+
+    std::vector<ObstacleState> obstacles;
+    double stamp = 0.0;
+    bool received = false;
+    {
+        std::lock_guard<std::mutex> lock(obstacles_mutex_);
+        obstacles = topic_obstacles_;
+        stamp = topic_obstacles_stamp_;
+        received = topic_obstacles_received_;
+    }
+    if (!received) {
+        RCLCPP_WARN_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 5000,
+                             "[Acados MPC]: no message on %s yet: no obstacles", obstacles_topic_.c_str());
+        return obstacles;
+    }
+
+    // stamp 0 (ros2 topic pub) = now
+    double age = (stamp > 0.0) ? sim_time_ - stamp : 0.0;
+    if (age > obstacles_timeout_) {
+        RCLCPP_WARN_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 2000,
+                             "[Acados MPC]: obstacles %.2f s old, radius inflated", age);
+    }
+    age = std::clamp(age, 0.0, obstacles_max_age_);
+    for (auto& obs : obstacles) obs.radius += obs.y_dot_max * age;
+
+    if (static_cast<int>(obstacles.size()) > n_obs_max_) {
+        auto clearance = [robot_x, robot_y](const ObstacleState& o) {
+            return std::hypot(o.x - robot_x, o.y - robot_y) - o.radius;
+        };
+        std::partial_sort(obstacles.begin(), obstacles.begin() + n_obs_max_, obstacles.end(),
+                          [&](const ObstacleState& a, const ObstacleState& b) { return clearance(a) < clearance(b); });
+        obstacles.resize(n_obs_max_);
+    }
+    return obstacles;
+}
+
+
+std::vector<ObstacleState> AcadosLeggedController::toSlots(std::vector<ObstacleState> obstacles) const {
+    constexpr double kGhostObsPos = 15.0;   // same ghosts as ObstacleManager::slots
+    for (int i = static_cast<int>(obstacles.size()); i < n_obs_max_; ++i) {
+        obstacles.push_back({kGhostObsPos + 2.0 * i, kGhostObsPos, 0.0, 0.0});
+    }
+    return obstacles;
+}
+
+
+
+
+
+
 
 // Publish each obstacle in red and its keep-out zone as a transparent disc
-void AcadosLeggedController::publishObstacles(){
+void AcadosLeggedController::publishObstacles(const std::vector<ObstacleState>& obstacles){
     visualization_msgs::msg::MarkerArray msg;
-    const std::vector<ObstacleState> obstacles = obstacle_manager_->active();
+
 
     for (size_t i = 0; i < obstacles.size(); ++i){
         for (const bool keep_out : {false, true}){
@@ -775,15 +886,18 @@ void AcadosLeggedController::mpcThreadLoop(){
             robot_x = current_state_x0_[0];
             robot_y = current_state_x0_[1];
         }
-        // dt = 0 outside WALK: MPC is off and adversarial must not reach the robot standing still
-        const double obs_dt = (phase_ == Phase::WALK) ? t - last_obs_t : 0.0;
-        obstacle_manager_->updateAll(obs_dt, t, robot_x, robot_y);
+        // dt = 0 outside walk, MPC is off and adversarial must not reach robot standing still
+        if (!obstacles_from_topic_) {
+            const double obs_dt = (phase_ == Phase::WALK) ? t - last_obs_t : 0.0;
+            obstacle_manager_->updateAll(obs_dt, t, robot_x, robot_y);
+        }
         last_obs_t = t;
+        const std::vector<ObstacleState> active_obstacles = activeObstacles(robot_x, robot_y);
 
-        // Obstacles in RViz at 100 Hz, even if robot stands still
+        // Obstacles in RViz at 30Hz, even if robot stands still
         const auto now = std::chrono::steady_clock::now();
         if (now - last_obs_pub > std::chrono::milliseconds(33)){
-            publishObstacles();
+            publishObstacles(active_obstacles);
             last_obs_pub = now;
         }
 
@@ -823,9 +937,10 @@ void AcadosLeggedController::mpcThreadLoop(){
             gait_local = *gait_planner_; // copy
         }
 
+
         // Set the initial state and parameters
         mpc_solver_->setInitialState(x0_local);
-        const std::vector<ObstacleState> obstacles = obstacle_manager_->slots();
+        const std::vector<ObstacleState> obstacles = toSlots(active_obstacles);
         // HEADING: blend of node k on the distance from the goal of the CoM predicted by the previous solution,
         // the last nodes start turning to the goal yaw before the robot gets there
         const double goal_x_now = goal_x_, goal_y_now = goal_y_;
