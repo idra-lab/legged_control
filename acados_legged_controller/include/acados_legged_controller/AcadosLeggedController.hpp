@@ -153,6 +153,9 @@ private:
     size_t latest_step_index_ = 0;
     double next_step_duration_ = 0.0; // duration of next step, protected by mpc_mutex_
 
+    // YAW ZERO: yaw of the IMU at the first valid sample, removed from the orientation (as the position, zero at start)
+    double yaw_offset_ = 0.0;
+    bool yaw_offset_set_ = false;
 
     // Gait planner
     std::shared_ptr<GaitPlanner> gait_planner_; // protected by mpc_mutex_
@@ -188,6 +191,13 @@ private:
     // Get the goal pose from /goal_pose from RViz
     rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr goal_sub_;
     std::atomic<double> goal_x_{0.0}, goal_y_{0.0}; // Current goal, written by /goal_pose
+    // HEADING: goal yaw from the orientation of /goal_pose. goal_has_yaw_ false (useGoalYaw off, or orientation
+    // not set) -> the robot only faces the velocity and stops with any yaw
+    std::atomic<double> goal_theta_{0.0};
+    std::atomic<bool> goal_has_yaw_{false};
+    bool use_goal_yaw_ = true;
+    // Weight of the velocity alignment at distance d from the goal: 0 below d_near, 1 above d_far (smoothstep)
+    double headingBlend(double d) const;
     std::atomic<double> sim_time_{0.0}; // written by update(), read by MPC thread
 
     // Save CoP traj of the two branches

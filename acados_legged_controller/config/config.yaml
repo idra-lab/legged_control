@@ -35,6 +35,7 @@ ocp_weights:
   posture: 10000.0   # 1e4
   alpha_weight: 1.0
   dt_weight: 0.001   # 1e-3
+  heading_goal: 20.0 # theta -> theta_goal close to the goal (cos/sin error, no wrap at +-pi)
 
 simulation:
   N_horizon: 6
@@ -42,12 +43,19 @@ simulation:
   step_per_phase: 1
   c_target: [10.0, -2.0]        # m
   max_lookahead: 10.0             # m
-  goal_tolerance: 0.10          # m, WALK -> STANCE when closer than this to c_target
+  goal_tolerance: 0.15          # m, WALK -> STANCE when closer than this to c_target
+  theta_target: 0.0             # rad, goal yaw at start (then the orientation of /goal_pose)
   max_iter: 2
+
+# Heading: far from the goal face the velocity (goes around the obstacles looking where it walks),
+# close to the goal reach the goal yaw. Blend per MPC node on the predicted distance from the goal
+heading:
+  blend_dist: [0.4, 1.2]        # m, [d_near, d_far]: only goal yaw below d_near, only velocity above d_far
+  yaw_tolerance: 0.10           # rad, WALK -> STANCE only if also the yaw error is below this
 
 
 obstacles:
-  N_OBS_MAX: 10
+  N_OBS_MAX: 3
   obs_pos_init: [0.1, 1.0]      # m
   r_obs: 0.2                    # m
   speed: 0.5                    # m/s
@@ -57,7 +65,7 @@ obstacles:
   obs_type: "random"            # static, dynamic, adversarial, circular, random
   obs_center: [1.0, 0.2]        # m
   instances: 
-    - {type: "static", pos: [2.0, -0.1], r_obs: 0.15, y_dot_max: 0.5}                    
+    - {type: "dynamic", pos: [2.0, 1], pos_end: [2.0, -1], r_obs: 0.15, speed: 0.3, y_dot_max: 0.2}                
     # - {type: "adversarial", pos: [2.0, 1.0], r_obs: 0.3, speed: 0.5, y_dot_max: 1.0}
   # {type: "static", pos: [1.5, 0.1], r_obs: 0.3, y_dot_max: 0.1}
   # {type: "dynamic", pos: [5.0, 5.0], pos_end: [5.0, -5.0], r_obs: 0.3, speed: 0.5, y_dot_max: 1.0}

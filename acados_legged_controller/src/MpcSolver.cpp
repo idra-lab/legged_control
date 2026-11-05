@@ -12,7 +12,7 @@ MpcSolver::MpcSolver(int n_obs_max, int n_horizon) : n_obs_max_(n_obs_max), n_ho
 
     nx_ = 22;
     nu_ = (8 + 3 * n_obs_max_) * 2;
-    np_ = 4 + 4 * n_obs_max_;
+    np_ = 4 + 4 * n_obs_max_ + 2; // hips, obstacles, heading (s_align, theta_goal)
 
     // CONFIG CHECK: config.yaml must match the dimensions of c_generated_code (otherwise regenerate with model_gen.py)
     if(n_horizon_ != OCP_LIPM_OPTI_PESSI_N || nx_ != OCP_LIPM_OPTI_PESSI_NX ||
@@ -74,9 +74,9 @@ bool MpcSolver::setInitialState(const std::vector<double>& x0){
 
 bool MpcSolver::setReference(int stage, const std::vector<double>& yref){
     if(stage < 0 || stage > n_horizon_) return false;
-    // Intermediate stage has 34 variables the final 12
-    if (stage == n_horizon_ && yref.size() != 12) return false;
-    if (stage < n_horizon_ && yref.size() != 34) return false;
+    // Intermediate stage has 38 variables the final 16 (dimensions of c_generated_code)
+    if (stage == n_horizon_ && static_cast<int>(yref.size()) != OCP_LIPM_OPTI_PESSI_NYN) return false;
+    if (stage < n_horizon_ && static_cast<int>(yref.size()) != OCP_LIPM_OPTI_PESSI_NY) return false;
 
     ocp_nlp_cost_model_set(nlp_config_, nlp_dims_, nlp_in_, stage, "yref", const_cast<double*>(yref.data()));
     return true;

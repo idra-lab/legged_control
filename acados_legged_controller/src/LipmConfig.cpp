@@ -59,6 +59,15 @@ LipmConfig LipmConfig::fromYaml(const std::string& path){
     cfg.c_target_y = c_target[1];
     cfg.max_lookahead = readKey<double>(root, "simulation", "max_lookahead");
     cfg.goal_tolerance = readKey<double>(root, "simulation", "goal_tolerance");
+    cfg.theta_target = readKey<double>(root, "simulation", "theta_target");
+
+    const auto blend_dist = readKey<std::vector<double>>(root, "heading", "blend_dist");
+    if (blend_dist.size() != 2 || blend_dist[0] < 0.0 || blend_dist[1] <= blend_dist[0]){
+        throw std::runtime_error("[LipmConfig]: heading.blend_dist must be [d_near, d_far] with 0 <= d_near < d_far!!");
+    }
+    cfg.heading_d_near = blend_dist[0];
+    cfg.heading_d_far = blend_dist[1];
+    cfg.yaw_tolerance = readKey<double>(root, "heading", "yaw_tolerance");
 
 
     cfg.N_OBS_MAX = readKey<int>(root, "obstacles", "N_OBS_MAX");

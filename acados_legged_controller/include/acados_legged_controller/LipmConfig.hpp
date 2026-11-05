@@ -52,6 +52,12 @@ struct LipmConfig {
     double c_target_y;
     double max_lookahead;
     double goal_tolerance;  // m
+    double theta_target;    // rad, goal yaw before the first /goal_pose
+
+    // heading: face the velocity far from the goal, reach the goal yaw close to it
+    double heading_d_near;  // m, only goal yaw below this distance
+    double heading_d_far;   // m, only velocity alignment above this distance
+    double yaw_tolerance;   // rad, WALK -> STANCE only if the yaw error is below this
 
     // obstacles
     int N_OBS_MAX;

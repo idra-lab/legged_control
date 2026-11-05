@@ -51,26 +51,26 @@ extern "C" {
 #endif
 
 static const casadi_int casadi_s0[3] = {22, 1, 1};
-static const casadi_int casadi_s1[3] = {76, 1, 1};
-static const casadi_int casadi_s2[3] = {46, 1, 1};
+static const casadi_int casadi_s1[3] = {34, 1, 1};
+static const casadi_int casadi_s2[3] = {18, 1, 1};
 static const casadi_int casadi_s3[113] = 
-  {98, 22, 0, 6, 12, 15, 21, 27,
+  {56, 22, 0, 6, 12, 15, 21, 27,
   38, 39, 40, 41, 42, 44, 50, 56,
   59, 65, 71, 82, 83, 84, 85, 86,
-  88, 4, 7, 76, 79, 82, 84, 4,
-  7, 77, 80, 83, 85, 7, 78, 81,
-  4, 7, 76, 79, 82, 84, 4, 7,
-  77, 80, 83, 85, 4, 5, 6, 7,
-  76, 77, 81, 82, 83, 84, 85, 0,
-  1, 2, 3, 7, 86, 42, 45, 87,
-  90, 93, 95, 42, 45, 88, 91, 94,
-  96, 45, 89, 92, 42, 45, 87, 90,
-  93, 95, 42, 45, 88, 91, 94, 96,
-  42, 43, 44, 45, 87, 88, 92, 93,
-  94, 95, 96, 38, 39, 40, 41, 45,
-  97};
+  88, 4, 7, 34, 37, 40, 42, 4,
+  7, 35, 38, 41, 43, 7, 36, 39,
+  4, 7, 34, 37, 40, 42, 4, 7,
+  35, 38, 41, 43, 4, 5, 6, 7,
+  34, 35, 39, 40, 41, 42, 43, 0,
+  1, 2, 3, 7, 44, 21, 24, 45,
+  48, 51, 53, 21, 24, 46, 49, 52,
+  54, 24, 47, 50, 21, 24, 45, 48,
+  51, 53, 21, 24, 46, 49, 52, 54,
+  21, 22, 23, 24, 45, 46, 50, 51,
+  52, 53, 54, 17, 18, 19, 20, 24,
+  55};
 
-/* lipm_opti_pessi_dyn_disc_phi_fun_jac:(i0[22],i1[76],i2[46])->(o0[22],o1[98x22,88nz]) */
+/* lipm_opti_pessi_dyn_disc_phi_fun_jac:(i0[22],i1[34],i2[18])->(o0[22],o1[56x22,88nz]) */
 static int casadi_f0(const casadi_real** arg, casadi_real** res, casadi_int* iw, casadi_real* w, int mem) {
   casadi_real a00, a01, a02, a03, a04, a05, a06, a07, a08, a09, a10, a11;
   casadi_real a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23;
@@ -171,7 +171,7 @@ static int casadi_f0(const casadi_real** arg, casadi_real** res, casadi_int* iw,
   a33=arg[0]? arg[0][10] : 0;
   a33=(a33+a01);
   if (res[0]!=0) res[0][10]=a33;
-  a33=arg[1]? arg[1][45] : 0;
+  a33=arg[1]? arg[1][24] : 0;
   a36=(a00*a33);
   a37=cosh(a36);
   a38=arg[0]? arg[0][11] : 0;
@@ -183,7 +183,7 @@ static int casadi_f0(const casadi_real** arg, casadi_real** res, casadi_int* iw,
   a39=(a39+a42);
   a42=(a08-a37);
   a43=arg[0]? arg[0][17] : 0;
-  a44=arg[1]? arg[1][42] : 0;
+  a44=arg[1]? arg[1][21] : 0;
   a45=arg[0]? arg[0][19] : 0;
   a46=(a45-a43);
   a47=(a44*a46);
@@ -224,13 +224,13 @@ static int casadi_f0(const casadi_real** arg, casadi_real** res, casadi_int* iw,
   if (res[0]!=0) res[0][15]=a36;
   a15=(a33/a15);
   a43=(a43-a38);
-  a36=arg[1]? arg[1][44] : 0;
+  a36=arg[1]? arg[1][23] : 0;
   a48=(a39-a53);
   a48=(a24*a48);
   a55=(a36*a48);
   a56=(a43*a55);
   a50=(a50-a39);
-  a57=arg[1]? arg[1][43] : 0;
+  a57=arg[1]? arg[1][22] : 0;
   a58=(a38-a47);
   a58=(a24*a58);
   a59=(a57*a58);
@@ -249,13 +249,13 @@ static int casadi_f0(const casadi_real** arg, casadi_real** res, casadi_int* iw,
   a62=(a15*a56);
   a62=(a54+a62);
   if (res[0]!=0) res[0][16]=a62;
-  a62=arg[1]? arg[1][38] : 0;
+  a62=arg[1]? arg[1][17] : 0;
   if (res[0]!=0) res[0][17]=a62;
-  a62=arg[1]? arg[1][39] : 0;
+  a62=arg[1]? arg[1][18] : 0;
   if (res[0]!=0) res[0][18]=a62;
-  a62=arg[1]? arg[1][40] : 0;
+  a62=arg[1]? arg[1][19] : 0;
   if (res[0]!=0) res[0][19]=a62;
-  a62=arg[1]? arg[1][41] : 0;
+  a62=arg[1]? arg[1][20] : 0;
   if (res[0]!=0) res[0][20]=a62;
   a62=arg[0]? arg[0][21] : 0;
   a62=(a62+a33);

@@ -2,3 +2,5 @@
 acados_legged_controller:
   ros__parameters:
     simulatedObstacles: false
+    # Goals of TARE/FAR are waypoints: face the velocity only, do not turn to the yaw of the marker
+    useGoalYaw: false

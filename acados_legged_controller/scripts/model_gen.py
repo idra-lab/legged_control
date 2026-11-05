@@ -62,6 +62,7 @@ solver = create_lipm_ocp(
     cfg=cfg,
     N=cfg.simulation.N_horizon, 
     c_target=cfg.simulation.c_target, 
+    theta_target=cfg.simulation.theta_target,
     x_init=X_aug
 )
 

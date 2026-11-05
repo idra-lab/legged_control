@@ -46,7 +46,12 @@ def create_lipm_ocp(
         cfg.ocp_weights.yaw_rate, 
         cfg.ocp_weights.time_weight
     ]
-    W_end_pe = [w * 1e-3 for w in W_end_op] 
+    W_end_pe = [w * 1e-3 for w in W_end_op]
+
+    # HEADING: [cos(th) - cos(th_goal), sin(th) - sin(th_goal)], appended after both branches (the indices of
+    # yref used by the controller do not change). Same weight on intermediate and terminal nodes
+    W_head = [cfg.ocp_weights.heading_goal] * 2
+    W_head_pe = [w * 1e-3 for w in W_head]
 
     # dt_nominal for the reference
     dt_nominal = (cfg.limits.dt_min + cfg.limits.dt_max) / (2*cfg.simulation.step_per_phase) # We must fix a nominal value, otherwise the solver would sent it to zero to avoid errors
@@ -106,11 +111,21 @@ def create_lipm_ocp(
     u_pe = cs.SX.sym('u_pe', n_u)
     u = cs.vertcat(u_op, u_pe)
 
-    n_p = 4 + (4 * cfg.obstacles.N_OBS_MAX) # 4 hips_off, (x, y, r, y_dot_max) for each obs
-    p_sym = cs.SX.sym('p', n_p) # hip0_x, hip0_y, hip1_x, hip1_y, obs_x, obs_y, r_obs, y_dot_max
+    # 4 hips_off, (x, y, r, y_dot_max) for each obs, (s_align, theta_goal) for the heading
+    n_p = 4 + (4 * cfg.obstacles.N_OBS_MAX) + 2
+    p_sym = cs.SX.sym('p', n_p) # hip0_x, hip0_y, hip1_x, hip1_y, obs_x, obs_y, r_obs, y_dot_max, ..., s_align, theta_goal
 
     hip_offset0, hip_offset1 = p_sym[0:2], p_sym[2:4]
-    
+
+    # HEADING blend, set by the controller at each node:
+    #   s_align = 1 -> face the velocity (far from the goal, around the obstacles)
+    #   s_align = 0 -> reach theta_goal (close to the goal)
+    idx_head = 4 + 4 * cfg.obstacles.N_OBS_MAX
+    s_align = cs.fmin(cs.fmax(p_sym[idx_head], 0.0), 1.0)
+    theta_goal = p_sym[idx_head + 1]
+    sqrt_align = cs.sqrt(s_align)
+    sqrt_goal = cs.sqrt(1.0 - s_align)
+
 
     # --- HELPER FUNCTION FOR DYNAMIC ---
     def compute_dynamic(x_curr, u_curr):
@@ -197,7 +212,8 @@ def create_lipm_ocp(
     vx_op, vy_op = c_dot_op[0], c_dot_op[1]
     # v_sq_op = vx_op**2 + vy_op**2
     # vel_err_op = (v_sq_op*(cs.cos(theta_op))**2-vx_op**2)**2+(v_sq_op*(cs.sin(theta_op))**2-vy_op**2)**2
-    vel_err_op = -vx_op * cs.sin(theta_op) + vy_op * cs.cos(theta_op)
+    vel_err_op = sqrt_align * (-vx_op * cs.sin(theta_op) + vy_op * cs.cos(theta_op))
+    head_err_op = sqrt_goal * cs.vertcat(cs.cos(theta_op) - cs.cos(theta_goal), cs.sin(theta_op) - cs.sin(theta_goal))
 
 
     # COSTS
@@ -231,7 +247,8 @@ def create_lipm_ocp(
     vx_pe, vy_pe = c_dot_pe[0], c_dot_pe[1]
     # v_sq_pe = vx_pe**2 + vy_pe**2
     # vel_err_pe = (v_sq_pe*(cs.cos(theta_pe))**2-vx_pe**2)**2+(v_sq_pe*(cs.sin(theta_pe))**2-vy_pe**2)**2
-    vel_err_pe = -vx_pe * cs.sin(theta_pe) + vy_pe * cs.cos(theta_pe)
+    vel_err_pe = sqrt_align * (-vx_pe * cs.sin(theta_pe) + vy_pe * cs.cos(theta_pe))
+    head_err_pe = sqrt_goal * cs.vertcat(cs.cos(theta_pe) - cs.cos(theta_goal), cs.sin(theta_pe) - cs.sin(theta_goal))
 
     delta_p0_move_pe = p0_next_pe - p0_pe  
     delta_p1_move_pe = p1_next_pe - p1_pe
@@ -247,24 +264,25 @@ def create_lipm_ocp(
     )
     cost_y_expr_e_pe = cs.vertcat(c_pe, c_dot_pe, theta_dot_pe, x_pe[10])
 
-    # Combine Expressions (40 elements for intermediate, 14 for terminal)
+    # Combine Expressions (17 + 17 + 2 + 2 = 38 for intermediate, 6 + 6 + 2 + 2 = 16 for terminal)
+    # HEADING residuals at the end: indices 0-1 / 17-18 (yref) and 0-1 / 6-7 (yref_e) of the CoM do not change
     # Define cost function: (y-y_ref).T W (y-y_ref)
-    model.cost_y_expr = cs.vertcat(cost_y_expr_op, cost_y_expr_pe)
-    model.cost_y_expr_e = cs.vertcat(cost_y_expr_e_op, cost_y_expr_e_pe)
+    model.cost_y_expr = cs.vertcat(cost_y_expr_op, cost_y_expr_pe, head_err_op, head_err_pe)
+    model.cost_y_expr_e = cs.vertcat(cost_y_expr_e_op, cost_y_expr_e_pe, head_err_op, head_err_pe)
 
     
     
     ocp.cost.cost_type = 'NONLINEAR_LS'
     ocp.cost.cost_type_e = 'NONLINEAR_LS'
-    ocp.cost.W = np.diag(W_diag_op + W_diag_pe)
-    ocp.cost.W_e = np.diag(W_end_op + W_end_pe)
+    ocp.cost.W = np.diag(W_diag_op + W_diag_pe + W_head + W_head_pe)
+    ocp.cost.W_e = np.diag(W_end_op + W_end_pe + W_head + W_head_pe)
 
-    # Reference (Updated lengths)
-    y_ref = np.zeros(34)
+    # Reference (Updated lengths), heading reference is 0 (theta_goal is in the residual)
+    y_ref = np.zeros(38)
     y_ref[:2] = c_target
     y_ref[17:19] = c_target
     
-    y_ref_e = np.zeros(12)
+    y_ref_e = np.zeros(16)
     y_ref_e[:2] = c_target
     y_ref_e[6:8] = c_target
 
@@ -452,7 +470,10 @@ def create_lipm_ocp(
     ocp.constraints.ubu = np.array(bnd_u_max + bnd_u_max)
     ocp.constraints.idxbu = np.array(idxbu_op + idxbu_pe)
 
+    # Default: face the velocity (s_align = 1), theta_goal = theta_target
     ocp.parameter_values = np.zeros(n_p)
+    ocp.parameter_values[idx_head] = 1.0
+    ocp.parameter_values[idx_head + 1] = theta_target
 
     ocp.solver_options.qp_solver = 'PARTIAL_CONDENSING_HPIPM'
     ocp.solver_options.hessian_approx = 'GAUSS_NEWTON'

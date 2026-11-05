@@ -22,11 +22,12 @@ int main(int argc, char** argv){
     solver.setInitialState(x0);
     
     // Parameter and reference
-    int np = 4 + 4 * n_obs_max;
+    int np = 4 + 4 * n_obs_max + 2;
     std::vector<double> p(np, 0.0);
+    p[np - 2] = 1.0; // s_align: face the velocity
 
-    std::vector<double> yref(34, 0.0);
-    std::vector<double> yref_e(12, 0.0);
+    std::vector<double> yref(OCP_LIPM_OPTI_PESSI_NY, 0.0);
+    std::vector<double> yref_e(OCP_LIPM_OPTI_PESSI_NYN, 0.0);
 
     for (int k = 0; k <= n_horizon; ++k){
         solver.setParameters(k, p);

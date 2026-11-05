@@ -89,6 +89,10 @@ controller_interface::CallbackReturn AcadosLeggedController::on_init(){
     if (!node->has_parameter("simulatedObstacles")){
         node->declare_parameter<bool>("simulatedObstacles", true);
     }
+    // HEADING: reach the yaw of /goal_pose (false with the exploration planners, their goals are waypoints)
+    if (!node->has_parameter("useGoalYaw")){
+        node->declare_parameter<bool>("useGoalYaw", true);
+    }
 
 
 
@@ -123,6 +127,8 @@ controller_interface::CallbackReturn AcadosLeggedController::on_init(){
         cfg_.random_obstacles.count = 0;
         RCLCPP_INFO(node->get_logger(), "[Acados MPC]: simulated obstacles off");
     }
+    use_goal_yaw_ = node->get_parameter("useGoalYaw").as_bool();
+    RCLCPP_INFO(node->get_logger(), "[Acados MPC]: goal yaw %s", use_goal_yaw_ ? "on" : "off (face the velocity only)");
 
     // Initialize the ocs2 interface only for reading the phisics of the robot
     leggedInterface_ = std::make_shared<LeggedInterface>(taskFile, urdfFile, referenceFile);
@@ -275,12 +281,27 @@ controller_interface::CallbackReturn AcadosLeggedController::on_configure(const 
 
     goal_x_ = cfg_.c_target_x;
     goal_y_ = cfg_.c_target_y;
+    goal_theta_ = cfg_.theta_target;
+    goal_has_yaw_ = use_goal_yaw_;
     using PoseStamped = geometry_msgs::msg::PoseStamped;
     goal_sub_ = get_node()->create_subscription<PoseStamped>("/goal_pose", 10,
         [this](const PoseStamped::SharedPtr msg) {
+            // HEADING: yaw of the quaternion, a zero quaternion means orientation not set
+            const auto& q = msg->pose.orientation;
+            const double q_norm = std::sqrt(q.w * q.w + q.x * q.x + q.y * q.y + q.z * q.z);
+            const bool has_yaw = use_goal_yaw_ && q_norm > 0.5;
+            if (has_yaw) {
+                goal_theta_ = std::atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z));
+            }
             goal_x_ = msg->pose.position.x;
             goal_y_ = msg->pose.position.y;
-            RCLCPP_INFO(get_node()->get_logger(), "[Acados MPC]: New goal [%.2f, %.2f]", msg->pose.position.x, msg->pose.position.y);
+            goal_has_yaw_ = has_yaw;
+            if (has_yaw) {
+                RCLCPP_INFO(get_node()->get_logger(), "[Acados MPC]: New goal [%.2f, %.2f], yaw %.2f",
+                            msg->pose.position.x, msg->pose.position.y, goal_theta_.load());
+            } else {
+                RCLCPP_INFO(get_node()->get_logger(), "[Acados MPC]: New goal [%.2f, %.2f]", msg->pose.position.x, msg->pose.position.y);
+            }
             if (phase_ == Phase::STANCE) walk_requested_ = true; // walk from STANCE
         });
 
@@ -435,6 +456,13 @@ void AcadosLeggedController::resetWarmStart(const std::vector<double>& x0){
 
     x_prev_sol_.assign(n_horizon_ + 1, x0);
     u_prev_sol_.assign(n_horizon_, u_init);
+}
+
+
+// HEADING: 0 -> only goal yaw (d <= d_near), 1 -> only velocity alignment (d >= d_far), smoothstep in between
+double AcadosLeggedController::headingBlend(double d) const {
+    const double x = std::clamp((d - cfg_.heading_d_near) / (cfg_.heading_d_far - cfg_.heading_d_near), 0.0, 1.0);
+    return x * x * (3.0 - 2.0 * x);
 }
 
 
@@ -798,11 +826,19 @@ void AcadosLeggedController::mpcThreadLoop(){
         // Set the initial state and parameters
         mpc_solver_->setInitialState(x0_local);
         const std::vector<ObstacleState> obstacles = obstacle_manager_->slots();
+        // HEADING: blend of node k on the distance from the goal of the CoM predicted by the previous solution,
+        // the last nodes start turning to the goal yaw before the robot gets there
+        const double goal_x_now = goal_x_, goal_y_now = goal_y_;
+        const bool has_yaw = goal_has_yaw_;
+        const double theta_goal = goal_theta_;
         for(int k = 0; k <= n_horizon_; ++k){
             std::vector<double> p = gait_local.hipOffsetParams(k);
             for(const auto& obs : obstacles){
                 p.insert(p.end(), {obs.x, obs.y, obs.radius, obs.y_dot_max});
             }
+            const std::vector<double>& x_pred = (k == 0) ? x0_local : x_prev_sol_[k];
+            const double s_align = has_yaw ? headingBlend(std::hypot(goal_x_now - x_pred[0], goal_y_now - x_pred[1])) : 1.0;
+            p.insert(p.end(), {s_align, theta_goal});
             mpc_solver_->setParameters(k, p);
         }
         mpc_solver_->setFirstStepDuration(gait_local.timeLeft());
@@ -822,10 +858,11 @@ void AcadosLeggedController::mpcThreadLoop(){
         }
 
         // yref: index 0-1 optimistic CoM, 17-18 pessimistic CoM, yref_e: 0-1 and 6-7
-        std::vector<double> yref(34, 0.0);
+        // heading residuals (34-37, 12-15) have reference 0: theta_goal is a parameter
+        std::vector<double> yref(OCP_LIPM_OPTI_PESSI_NY, 0.0);
         yref[0] = local_x; yref[1] = local_y;
         yref[17] = local_x; yref[18] = local_y;
-        std::vector<double> yref_e(12, 0.0);
+        std::vector<double> yref_e(OCP_LIPM_OPTI_PESSI_NYN, 0.0);
         yref_e[0] = local_x; yref_e[1] = local_y;
         yref_e[6] = local_x; yref_e[7] = local_y;
         for (int k = 0; k < n_horizon_; ++k) mpc_solver_->setReference(k, yref);
@@ -966,7 +1003,10 @@ controller_interface::return_type AcadosLeggedController::update(const rclcpp::T
     if (u_sol.empty()) return controller_interface::return_type::OK;
 
     // Goal reached: stop at a foot switch, when the swing feet have just landed
-    if (step_index != walk_step_ && walk_step_ != SIZE_MAX &&
+    // HEADING: with a goal yaw also the yaw error must be below yaw_tolerance
+    const bool yaw_reached = !goal_has_yaw_ ||
+        std::abs(angles::shortest_angular_distance(s(9), goal_theta_)) < cfg_.yaw_tolerance;
+    if (step_index != walk_step_ && walk_step_ != SIZE_MAX && yaw_reached &&
         std::hypot(goal_x_ - com_pos_.x(), goal_y_ - com_pos_.y()) < cfg_.goal_tolerance) {
         walk_requested_ = false;
         mpc_ready_ = false;
@@ -1167,6 +1207,17 @@ void AcadosLeggedController::updateStateEstimation(const rclcpp::Time& time, con
     }
     const double* ori = imuSensorHandle_.getOrientation();
     quat.coeffs() << ori[0], ori[1], ori[2], ori[3];
+
+    // YAW ZERO: the yaw of the IMU starts at its power on, the position of the estimator at on_init.
+    // Rotate the world by the first yaw so that odom starts with robot at (0, 0, 0)
+    if (!yaw_offset_set_ && quat.norm() > 1e-6) {
+        yaw_offset_ = quatToZyx(quat.normalized())(0);
+        yaw_offset_set_ = true;
+        RCLCPP_INFO(get_node()->get_logger(), "[Acados MPC]: initial imu yaw %.3f rad set to zero", yaw_offset_);
+    }
+    if (yaw_offset_set_) {
+        quat = Eigen::Quaternion<scalar_t>(Eigen::AngleAxis<scalar_t>(-yaw_offset_, vector3_t::UnitZ())) * quat;
+    }
 
     const double* angVel = imuSensorHandle_.getAngularVelocity();
     angularVel << angVel[0], angVel[1], angVel[2]; // FIX: vector3_t has no coeffs()
