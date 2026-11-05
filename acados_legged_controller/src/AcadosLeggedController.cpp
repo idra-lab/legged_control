@@ -1004,24 +1004,47 @@ controller_interface::return_type AcadosLeggedController::update(const rclcpp::T
 
     // Goal reached: stop at a foot switch, when the swing feet have just landed
     // HEADING: with a goal yaw also the yaw error must be below yaw_tolerance
+    // POSTURE: the MPC keeps trotting at the goal until every foot is under its hip (posture cost of the OCP), at most
+    // max_settle_steps steps, so the robot stops in the stand posture and not with the feet of the last stride
     const bool yaw_reached = !goal_has_yaw_ ||
         std::abs(angles::shortest_angular_distance(s(9), goal_theta_)) < cfg_.yaw_tolerance;
-    if (step_index != walk_step_ && walk_step_ != SIZE_MAX && yaw_reached &&
-        std::hypot(goal_x_ - com_pos_.x(), goal_y_ - com_pos_.y()) < cfg_.goal_tolerance) {
-        walk_requested_ = false;
-        mpc_ready_ = false;
-        walk_step_ = SIZE_MAX;
-        // Four feet down where they landed, CoM held where it is at com_height (OptiPessiController::standAtGoal)
-        liftoff_ = feet_pos_;
-        com_target_ = com_pos_;
-        z_start_ = cfg_.com_height;
-        yaw_target_ = s(9);
+    const bool at_goal = yaw_reached &&
+        std::hypot(goal_x_ - com_pos_.x(), goal_y_ - com_pos_.y()) < cfg_.goal_tolerance;
+    if (step_index != walk_step_ && walk_step_ != SIZE_MAX) {
+        if (!at_goal) {
+            steps_at_goal_ = 0;
+        } else {
+            // Largest distance of a foot from its nominal foothold c + R(yaw) hip_offset (hips of the MPC)
+            const double cy = std::cos(s(9)), sy = std::sin(s(9));
+            const std::array<std::array<double, 2>, 4> off{{{cfg_.off_x, cfg_.off_y}, {cfg_.off_x, -cfg_.off_y},
+                                                            {-cfg_.off_x, cfg_.off_y}, {-cfg_.off_x, -cfg_.off_y}}};
+            double feet_err = 0.0;
+            for (size_t foot = 0; foot < 4; ++foot) {
+                const double hx = com_pos_.x() + cy * off[foot][0] - sy * off[foot][1];
+                const double hy = com_pos_.y() + sy * off[foot][0] + cy * off[foot][1];
+                feet_err = std::max(feet_err, std::hypot(feet_pos_[foot].x() - hx, feet_pos_[foot].y() - hy));
+            }
+            ++steps_at_goal_;
+            if (feet_err < cfg_.feet_tolerance || steps_at_goal_ > cfg_.max_settle_steps) {
+                walk_requested_ = false;
+                mpc_ready_ = false;
+                walk_step_ = SIZE_MAX;
+                // Four feet down where they landed, CoM held where it is at com_height (OptiPessiController::standAtGoal)
+                liftoff_ = feet_pos_;
+                com_target_ = com_pos_;
+                z_start_ = cfg_.com_height;
+                yaw_target_ = s(9);
 
-        phase_time_ = cfg_.stance_blend;   // already at com_height: no height and gain ramp
-        phase_ = Phase::STANCE;
-        RCLCPP_INFO_STREAM(get_node()->get_logger(), "[Acados MPC]: Goal reached, STANCE, CoM target: " << com_target_.transpose());
-        return controller_interface::return_type::OK;
+                phase_time_ = cfg_.stance_blend;   // already at com_height: no height and gain ramp
+                phase_ = Phase::STANCE;
+                RCLCPP_INFO_STREAM(get_node()->get_logger(), "[Acados MPC]: Goal reached after " << steps_at_goal_
+                                   << " step(s), feet error " << feet_err << " m, STANCE, CoM target: " << com_target_.transpose());
+                steps_at_goal_ = 0;
+                return controller_interface::return_type::OK;
+            }
+        }
     }
+
 
     // New step: lift-off of the swing pair, the stance pair stays where it is. The CoM and yaw reference restart from
     // the robot measured now and run for the whole step (OptiPessiController closes the LIP loop once per step), so

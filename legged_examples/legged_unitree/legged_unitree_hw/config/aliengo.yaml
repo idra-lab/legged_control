@@ -3,5 +3,5 @@
 # legged_unitree_hw_launch.xml.
 controller_manager:
   ros__parameters:
-    update_rate: 500  # Hz: read() and write() exchange one UDP packet with the robot per cycle
+    update_rate: 400  # Hz: read() and write() exchange one UDP packet with the robot per cycle
     thread_priority: 95  # SCHED_FIFO, needs the rtprio limit of the README

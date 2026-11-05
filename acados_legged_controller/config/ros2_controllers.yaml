@@ -2,7 +2,7 @@
 # Passed to the robot xacro with controllers_yaml:=... by launch/sim_launch.xml
 controller_manager:
   ros__parameters:
-    update_rate: 500  # Hz (Alejandro's file uses 100 Hz, too low for WBC + trot?)
+    update_rate: 300  # Hz (Alejandro's file uses 100 Hz, too low for WBC + trot?)
     
 
     joint_state_broadcaster:

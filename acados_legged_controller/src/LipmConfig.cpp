@@ -59,6 +59,8 @@ LipmConfig LipmConfig::fromYaml(const std::string& path){
     cfg.c_target_y = c_target[1];
     cfg.max_lookahead = readKey<double>(root, "simulation", "max_lookahead");
     cfg.goal_tolerance = readKey<double>(root, "simulation", "goal_tolerance");
+    cfg.feet_tolerance = readKey<double>(root, "simulation", "feet_tolerance");
+    cfg.max_settle_steps = readKey<int>(root, "simulation", "max_settle_steps");
     cfg.theta_target = readKey<double>(root, "simulation", "theta_target");
 
     const auto blend_dist = readKey<std::vector<double>>(root, "heading", "blend_dist");

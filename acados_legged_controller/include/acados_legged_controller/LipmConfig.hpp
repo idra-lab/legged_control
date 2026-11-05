@@ -52,6 +52,8 @@ struct LipmConfig {
     double c_target_y;
     double max_lookahead;
     double goal_tolerance;  // m
+    double feet_tolerance;  // m, feet under the hips to stop at the goal
+    int max_settle_steps;   // steps at the goal waiting for the feet
     double theta_target;    // rad, goal yaw before the first /goal_pose
 
     // heading: face the velocity far from the goal, reach the goal yaw close to it

@@ -183,6 +183,7 @@ private:
     std::array<vector3_t, 4> liftoff_;          // feet at the start of the step (STANCE: where they are held)
     vector3_t com_pos_ = vector3_t::Zero();     // measured whole-body CoM
     size_t walk_step_ = SIZE_MAX;               // gait step seen by update
+    int steps_at_goal_ = 0;                     // foot switches spent at the goal waiting fot the feet under hips
     std::vector<double> x0_measured_;           // LIPM x0 of this tick (control thread copy of current_state_x0_)
     std::vector<double> phase_start_x0_;        // LIPM x0 measured when the current step started (shifted plan)
     // CoM and yaw reference of the WBC: restarts from the measured robot at each step, then advanced every tick
