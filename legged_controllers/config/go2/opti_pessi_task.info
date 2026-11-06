@@ -1,15 +1,20 @@
 ; Opti-Pessi MPC -- robot model, cost, limits, horizon and solver settings.
 ; Unitree Go2: opti_pessi_interface/config/task.info (Aliengo) with the Go2 geometry. Pass it to
-; load_optipessicontroller_launch.xml as optipessiFile. Untuned: only comHeight, hipOffsets and footHipMax changed.
+; load_optipessicontroller_launch.xml as optipessiFile.
+; Not tuned in simulation yet. Lengths follow the Go2 URDF; times and speeds are the Aliengo values times
+; sqrt(h_go2 / h_aliengo) = sqrt(0.30 / 0.38) = 0.889 (omega 5.08 -> 5.72), so dt * omega and the Froude number stay as on
+; the Aliengo. Cost weights are the Aliengo ones.
+; Every value here except obstacleTypes is compiled into the CppAD libraries, whose folder name only changes with
+; mass/inertia: launch with recompile:=true after editing.
 ; Scenario-specific data (goal, obstacles, simulation) lives in opti_pessi_interface/config/scenario_S*.info.
 
 model
 {
-  comHeight            0.30    ; h, locked CoM height [m] (legged_controllers/config/go2/reference.info comHeight)
+  comHeight            0.30    ; h, locked CoM height [m] (go2/reference.info comHeight; the default stance stands 0.342 m, Aliengo 0.38 of 0.433)
   gravity              9.81    ; g [m/s^2]
-  mass                 15.0    ; m [kg]; OptiPessiController replaces it with the URDF mass
-  inertia              0.5     ; I about the vertical axis [kg m^2]; OptiPessiController replaces it with the URDF one
-  frictionCoefficient  0.8     ; mu, rubber on asphalt
+  mass                 15.329  ; m [kg], URDF with sensors; OptiPessiController replaces it with the URDF mass
+  inertia              0.5163  ; I about the vertical axis [kg m^2], URDF at the default stance; OptiPessiController replaces it
+  frictionCoefficient  0.6     ; mu, Gazebo foot mu1/mu2 (leg.xacro _FOOT) and go2/task.info frictionConeTask; Aliengo file 0.8
 }
 
 ; Body-frame hip offsets [m], rows in the order FL, FR, RL, RR.
@@ -40,13 +45,13 @@ cost
 limits
 {
   alphaReduction  0.1    ; CoP margin: alpha in [eps, 1-eps], keeps both feet loaded
-  dtMin           0.1    ; [s]
-  dtMax           0.25   ; [s]
-  dtCost0         0.25   ; preferred contact-phase duration [s]
+  dtMin           0.09   ; [s] (Aliengo 0.1; stays above OptiPessiController's 0.08 s least landing time)
+  dtMax           0.22   ; [s] (Aliengo 0.25)
+  dtCost0         0.22   ; preferred contact-phase duration [s] (Aliengo 0.25)
   footHipMax      0.13   ; foot-to-hip reachability radius [m] (Aliengo 0.15, scaled by leg length 0.426/0.5)
-  dcxMax          1.5    ; body-frame longitudinal speed [m/s]
-  dcyMax          0.45   ; body-frame lateral speed [m/s]
-  dthetaMax       0.8    ; yaw rate [rad/s]
+  dcxMax          1.33   ; body-frame longitudinal speed [m/s] (Aliengo 1.5)
+  dcyMax          0.40   ; body-frame lateral speed [m/s] (Aliengo 0.45)
+  dthetaMax       0.8    ; yaw rate [rad/s], Aliengo value: per phase the hips sweep 0.32 of footHipMax (Aliengo 0.37)
 }
 
 ; Keep-out model of each obstacle class a controller receives on its obstacle topic
@@ -69,7 +74,7 @@ obstacleTypes
 
 horizon
 {
-  N  6   ; contact phases; with dt in [0.2, 0.35] s this is a 1.2-2.1 s lookahead
+  N  6   ; contact phases; with dt in [0.09, 0.22] s this is a 0.54-1.32 s lookahead
 }
 
 ; Measured 10-dof robot state the simulation starts from:
