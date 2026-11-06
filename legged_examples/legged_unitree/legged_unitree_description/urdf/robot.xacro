@@ -20,6 +20,12 @@
         separate {robot_type}_description package (which does not exist here). -->
    <xacro:property name="mesh_path" value="package://legged_unitree_description/meshes/$(arg robot_type)"/>
 
+    <!-- Sensor mounts. A const.xacro may set them first, e.g. go2, whose head sticks out past the trunk box -->
+    <xacro:property name="camera_mount_x" default="${trunk_length/2 + 0.03}"/>
+    <xacro:property name="camera_mount_z" default="0"/>
+    <xacro:property name="lidar_mount_x" default="${trunk_length/2 - 0.04}"/>
+    <xacro:property name="lidar_mount_z" default="${trunk_height/2 + 0.01}"/>
+
     <link name="base"/>
     <joint name="base_inertia_joint" type="fixed">
       <parent link="base"/>
@@ -53,7 +59,7 @@
 
     <!-- Front-mounted Intel RealSense D435i, pitched 20 deg down to see the terrain ahead -->
     <xacro:if value="$(arg camera)">
-        <xacro:D435i name="camera" parent="base" xyz="${trunk_length/2 + 0.03} 0 0" rpy="0 ${5*pi/180} 0"/>
+        <xacro:D435i name="camera" parent="base" xyz="${camera_mount_x} 0 ${camera_mount_z}" rpy="0 ${5*pi/180} 0"/>
     </xacro:if>
 
     <!-- RoboSense Airy on top of the trunk, 4 cm behind the front edge on a 1 cm riser, pitched 5 deg forward.
@@ -65,7 +71,7 @@
          few hours (no floor at all), then 5 deg.
          Mount-dependent: FAST-LIO imu_R/extrinsic_R and the static TFs of fast_lio_slam_launch.xml. -->
     <xacro:if value="$(arg lidar)">
-        <xacro:RobosenseAiry name="rslidar" parent="base" xyz="${trunk_length/2 - 0.04} 0 ${trunk_height/2 + 0.01}" rpy="0 ${5*pi/180} 0"/>
+        <xacro:RobosenseAiry name="rslidar" parent="base" xyz="${lidar_mount_x} 0 ${lidar_mount_z}" rpy="0 ${5*pi/180} 0"/>
     </xacro:if>
 
 
