@@ -99,3 +99,23 @@ controller:
   stance_blend: 1.0             # sec
   swing_height: 0.080            # m
   com_height: 0.38              # m, whole-body CoM height tracked by the WBC (h_com stays the one of the acados model). The CoM is ~1.1 cm below the base: 0.37 = base at ~0.38
+  damping_kd: 10.0              # Nm/(rad/s): in DAMPING kp=0, tau = 0, only damping
+  max_tilt: 0.6                 # rad, for the max roll or pitch
+  max_tilt_rate: 8.0            # rad/s, filtered roll/pitch velocity: extreme limit only, the predicted tilt acts before
+  min_base_height: 0.20         # m
+  max_com_error: 0.15           # m, CoM error in WALK
+  max_solver_failures: 1        # consecutive solver failures then DAMPING
+  max_solution_age: 0.2           # s, maximum age of the MPC solution in WALK
+  # Predicted tilt: angle + rate * lookahead, the rate counts only when it moves the robot away from upright
+  tilt_lookahead: 0.08          # s
+  tilt_filter_hz: 10.0          # Hz, low-pass on the roll/pitch rates (impacts of the feet)
+  tilt_ticks: 12                 # consecutive ticks over max_tilt before DAMPING (30 ms at 400 Hz)
+  # Fall: brace (low and wide pose), then damping
+  hard_fall_tilt: 0.9           # rad, over this damping only, no brace
+  brace_duration: 2           # s
+  brace_ramp: 2               # s, smoothstep from the current pose to the brace pose
+  kp_brace: 50.0
+  kd_brace: 4.0
+  brace_haa: 0.2                # rad, legs open outwards
+  brace_hfe: 1.1                # rad
+  brace_kfe: -2.4               # rad, URDF limit -2.77

@@ -9,36 +9,45 @@ source ~/colcon_ws/install/setup.bash
 ## Compilare
 
 ```bash
-# Compila il controller
 cd ~/colcon_ws
-colcon build --symlink-install --packages-select acados_legged_controller --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo
-source install/setup.bash
 
-# Ricompila forzando CMake (se file generati o CMakeLists non vengono rilevati)
+# Controller e obstacle_simulator
+colcon build --symlink-install --packages-select acados_legged_controller --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo
+
+# Se CMake non vede file generati o modifiche al CMakeLists
 colcon build --symlink-install --packages-select acados_legged_controller --cmake-force-configure --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo
 
-# Compila il plugin del robot reale e le sue dipendenze
+# Plugin del robot reale e dipendenze
 colcon build --symlink-install --packages-up-to legged_unitree_hw --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo
+
+source install/setup.bash
 ```
 
-Dopo ogni compilazione riavvia la simulazione: il controller viene caricato all'avvio di Gazebo.
+Dopo ogni compilazione riavvia il controller (in simulazione: riavvia `sim_full.launch.py`).
 
 ## Rigenerare il codice acados
 
-Serve quando cambi `lipm_model.py`, oppure pesi, limiti o dimensioni dell'OCP in `config.yaml`.
+Serve quando cambi `lipm_model.py`, oppure pesi, limiti, `N_horizon`, `N_OBS_MAX` o `max_iter` in `config.yaml`.
 
 ```bash
 cd ~/colcon_ws/src/legged_control/acados_legged_controller/scripts
 LD_LIBRARY_PATH=$HOME/acados/lib PYTHONPATH= ~/opti_pessi_acados/acados_env/bin/python model_gen.py
 ```
 
-Poi ricompila. Le posizioni degli ostacoli e i parametri del controller non richiedono `model_gen.py`.
+Poi ricompila. Ostacoli, goal e parametri della sezione `controller` non richiedono `model_gen.py`.
 
 ## Simulazione
 
 ```bash
-# Avvia Gazebo, broadcaster, controller, odom_to_tf e RViz
+# Gazebo, broadcaster, controller (si attiva da solo), odom_to_tf e RViz
 ros2 launch acados_legged_controller sim_full.launch.py
+
+# Con un altro mondo di legged_gazebo/worlds
+ros2 launch acados_legged_controller sim_full.launch.py world:=warehouse_world.world
+
+# Salva il log per cercare errori
+ros2 launch acados_legged_controller sim_full.launch.py 2>&1 | tee ~/sim_log.txt
+grep -nE "ERROR|WARN|Failed|died|exception|terminate" ~/sim_log.txt | head -50
 
 # Chiude i processi rimasti aperti
 pkill -f "gz sim"
@@ -47,10 +56,7 @@ pkill -f rviz2
 
 ## Robot reale (laboratorio)
 
-File usati: `launch/real_hw.launch.py`, `launch/real_controller.launch.py`, `config/ros2_controllers_real.yaml`, `config/config.yaml` (lo stesso della simulazione).
-I limiti di velocità e di durata del passo sono nel codice generato: cambiarli in `config.yaml` non ha effetto senza `model_gen.py`.
-
-### Rete
+### Rete (una volta sola)
 
 Portatile collegato via cavo (adattatore USB-C → Ethernet) a una porta libera del robot. Nessun altro programma deve inviare comandi low-level a `192.168.123.10`.
 
@@ -58,216 +64,191 @@ Portatile collegato via cavo (adattatore USB-C → Ethernet) a una porta libera 
 # Nome dell'interfaccia dell'adattatore (di solito enx...)
 ip -br link
 
-# IP statico sulla rete del robot (una volta sola, poi resta salvato)
+# IP statico sulla rete del robot, resta salvato
 sudo nmcli con add type ethernet ifname <enx...> con-name unitree ipv4.method manual ipv4.addresses 192.168.123.162/24
 sudo nmcli con up unitree
-
-# In ogni terminale: ROS 2 solo in locale, così non si mescola con altri ROS in laboratorio
-export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
 ```
+
+Priorità real-time (`thread_priority: 95` in `legged_unitree_hw/config/aliengo.yaml`): aggiungi `elia - rtprio 98` in `/etc/security/limits.conf`, poi logout e login.
 
 ### Prima di accendere
 
 ```bash
-# Il PC deve stare sulla rete del robot (IP 192.168.123.x)
+# In ogni terminale: ROS 2 solo in locale, così non si mescola con altri ROS in laboratorio
+export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
+
+# Il PC deve vedere il robot
 ping 192.168.123.10
 
-# Priorità real-time massima: se è 0, thread_priority: 95 non viene applicato (solo un warning)
+# Deve essere 98, non 0
 ulimit -r
 ```
 
-Per abilitarla: aggiungi `elia - rtprio 98` in `/etc/security/limits.conf`, poi logout e login.
+### Avvio
 
-### Procedura
-
-Ogni terminale: `source ~/colcon_ws/install/setup.bash`.
-
-**Terminale 1, robot appeso:** hardware, sensori e RViz, senza controller. I motori sono passivi (Kp=Kd=tau=0).
+**Terminale 1: hardware.** Avvia `ros2_control_node` con il plugin UnitreeHW e i controller di `ros2_controllers.yaml`.
 
 ```bash
-ros2 launch acados_legged_controller real_hw.launch.py
+ros2 launch legged_unitree_hw legged_unitree_hw_launch.xml robot_type:=aliengo \
+  controllers_yaml:=$(ros2 pkg prefix --share acados_legged_controller)/config/ros2_controllers.yaml
 
-# Opzioni: SDK 3.8.0, soglia contatti, limite di potenza, senza RViz
-ros2 launch acados_legged_controller real_hw.launch.py unitree_sdk:=3_8_0 contact_threshold:=30 power_limit:=7 rviz:=false
+# Opzioni: SDK 3.8.0, soglia contatti, limite di potenza (1-10), senza sensori nell'URDF
+#   unitree_sdk:=3_8_0 contact_threshold:=40 power_limit:=10 camera:=false lidar:=false
 ```
 
-Nel log controlla: `UnitreeHW` senza errori UDP, *Receiving the robot state*, i due broadcaster attivi.
+Nel log controlla: `UnitreeHW` senza errori UDP e *Receiving the robot state*.
 
-**Terminale 1b:** carica il controller **inattivo**, il robot non si muove.
+**Terminale 2: controller.** Avvia broadcaster, controller, `odom_to_tf`, il relay dei goal e RViz.
+
+> Il controller si **attiva da solo** appena caricato (`on_init` dura circa un minuto) e parte subito con STAND_UP. Prima di lanciarlo, metti il robot nella posizione da cui deve alzarsi.
 
 ```bash
-ros2 launch acados_legged_controller real_controller.launch.py
+ros2 launch acados_legged_controller load_controller_launch.xml use_sim_time:=false
+
+# Con gli ostacoli finti di obstacle_simulator (vedi sotto)
+ros2 launch acados_legged_controller load_controller_launch.xml use_sim_time:=false \
+  params_file:=$(ros2 pkg prefix --share acados_legged_controller)/config/obstacles.yaml
 ```
 
-Nel log controlla: lo spawner che dice *Loaded*, le due masse (`config.yaml` e URDF) simili. `ros2 control list_controllers` deve mostrarlo `inactive`.
+- `explore.yaml` (default): goal dei planner, il robot guarda solo nella direzione di marcia (`useGoalYaw: false`).
+- `obstacles.yaml`: raggiunge anche l'orientamento di `/goal_pose`.
 
-**Terminale 2:** emergenza. Scrivilo e tienilo pronto **senza premere invio**.
+Nel log controlla: le due masse (`config.yaml` e URDF) simili, `Solver initialized`, poi `STANCE`.
 
-```bash
-ros2 service call /acados_legged_controller/damping std_srvs/srv/Trigger
-```
-
-**Terminale 3:** registra tutto per l'analisi a casa.
+**Terminale 3: registrazione.**
 
 ```bash
 mkdir -p ~/colcon_ws/bags && cd ~/colcon_ws/bags
 ros2 bag record -a -o lab_$(date +%H%M)
 ```
 
-**Terminale 4:** grafici dal vivo, con lo stesso layout della simulazione (`/monitor` lo pubblica il controller).
+**Terminale 4: grafici dal vivo.**
 
 ```bash
 ros2 run plotjuggler plotjuggler -l ~/colcon_ws/src/legged_control/acados_legged_controller/config/monitor.xml
 ```
 
-Se non parte da solo: **Streaming** → **ROS2 Topic Subscriber** → **Start** → `/monitor`. I grafici restano vuoti finché il controller non è attivo.
+Se non parte da solo: **Streaming** → **ROS2 Topic Subscriber** → **Start** → `/monitor`.
 
-**Terminale 5:** controlli e comandi, passo per passo.
+**Terminale 5: controlli e comandi.**
 
 ```bash
-# 1. Sensori, robot appeso: piega una gamba a mano e guarda giunto e segno
+# Sensori: piega una gamba a mano e guarda giunto e segno
 ros2 topic echo /joint_states --once
 
-# 2. Forze ai piedi: appeso sotto contact_threshold (40), appoggiato sopra
-ros2 topic echo /contact
-
-# 3. Attivazione, ancora appeso: RECOVER, STAND_UP, STANCE
-ros2 control switch_controllers --activate acados_legged_controller
-
-# 4. A terra, in STANCE: la posizione stimata deve restare ferma
+# In STANCE la posizione stimata deve restare ferma
 ros2 topic echo /odom --field pose.pose.position
 
-# 5. Primi passi: goal nel frame odom, l'origine è dove è partito lo stimatore
+# Primi passi: goal nel frame odom, l'origine è dove è partito lo stimatore
 ros2 topic pub --once /goal_pose geometry_msgs/msg/PoseStamped "{header: {frame_id: odom}, pose: {position: {x: 0.3, y: 0.0}}}"
-
-# Oppure verso c_target di config.yaml
-ros2 service call /acados_legged_controller/start_walking std_srvs/srv/Trigger
-
-# Stop controllato
-ros2 service call /acados_legged_controller/stop std_srvs/srv/Trigger
 ```
 
-Alla fine: `Ctrl+C` nel terminale 3 per chiudere la bag, poi nel terminale 1.
+### Fermare
 
-## Muovere il robot
+```bash
+# Ferma il controller (MPC e stimatore si fermano)
+ros2 control switch_controllers --deactivate acados_legged_controller
 
-- **RViz:** usa il tool `2D Goal Pose` e clicca sul piano.
-- **Terminale:** il comando qui sotto invia lo stesso goal nel frame `odom`.
+# Riattiva: STAND_UP, poi STANCE
+ros2 control switch_controllers --activate acados_legged_controller
+
+ros2 control list_controllers
+```
+
+In questo branch **non ci sono** i servizi `stop` e `damping`, né il controllo di inclinazione. Tieni il robot assicurato e lo stop di emergenza a portata di mano.
+
+Alla fine: `Ctrl+C` nel terminale 3 per chiudere la bag, poi nel terminale 2 e nel terminale 1.
+
+## Goal
+
+- **RViz:** tool `2D Goal Pose`, clicca sul piano (la freccia dà anche il yaw, se `useGoalYaw` è attivo).
+- **Terminale:**
 
 ```bash
 ros2 topic pub --once /goal_pose geometry_msgs/msg/PoseStamped "{header: {frame_id: odom}, pose: {position: {x: 1.0, y: 0.5}}}"
+
+# Da STANCE verso c_target di config.yaml
+ros2 service call /acados_legged_controller/start_walking std_srvs/srv/Trigger
 ```
 
-## Servizi del controller
+I planner (TARE, FAR) pubblicano su `/opti_pessi/goal`, e `opti_pessi_goal_relay.py` lo inoltra a `/goal_pose`.
 
-| Comando | Cosa fa |
-|---|---|
-| `ros2 service call /acados_legged_controller/start_walking std_srvs/srv/Trigger` | Da STANCE parte verso il goal corrente, inizialmente `c_target`. |
-| `ros2 service call /acados_legged_controller/stop std_srvs/srv/Trigger` | Stop controllato: frena al capture point e torna in STANCE. |
-| `ros2 service call /acados_legged_controller/damping std_srvs/srv/Trigger` | Stop di emergenza: smorzamento immediato, il controller resta attivo. Per ripartire serve il ciclo qui sotto. |
+## Ostacoli
 
-## Attivare e disattivare il controller
+Il controller legge gli ostacoli dal topic `/opti_pessi/obstacles` (`obstaclesFromTopic: true` in `config/ros2_controllers.yaml`): gli ostacoli di `config.yaml` non vengono simulati dentro il controller.
+`obstacle_simulator` muove gli ostacoli di `obstacles.instances` di `config.yaml` e li pubblica su quel topic, nel frame `odom`.
 
 ```bash
-# Stato dei controller
-ros2 control list_controllers
+# Robot reale
+ros2 run acados_legged_controller obstacle_simulator
 
-# Disattiva: smorzamento, stimatore e MPC si fermano, quindi RViz resta fermo
-ros2 control switch_controllers --deactivate acados_legged_controller
+# Simulazione
+ros2 run acados_legged_controller obstacle_simulator --ros-args -p use_sim_time:=true
 
-# Attiva: RECOVER, poi STAND_UP e STANCE
-ros2 control switch_controllers --activate acados_legged_controller
+# Partono fermi: avvia, metti in pausa
+ros2 service call /obstacle_simulator/set_moving std_srvs/srv/SetBool "{data: true}"
+ros2 service call /obstacle_simulator/set_moving std_srvs/srv/SetBool "{data: false}"
+
+# Controlli
+ros2 topic hz /opti_pessi/obstacles
+ros2 topic echo /opti_pessi/obstacles --once
 ```
 
-Se il robot è inclinato oltre `max_tilt`, l'attivazione passa in `DAMPING`: va raddrizzato prima.
+Parametri del nodo: `rate` (50 Hz), `autostart` (false), `obstacle_topic`, `frame_id`, `lipmConfigFile`.
+Il raggio usato dal controller è quello della classe (`obstacle_types` di `config.yaml`: `human`, `car`), non `r_obs` dell'istanza.
+In RViz: `/mpc_obstacles` (quelli visti dall'MPC, con la zona di sicurezza) e `/obstacle_simulator/markers`.
 
-## Spinte in Gazebo
-
-```bash
-cd ~/colcon_ws/src/legged_control/acados_legged_controller
-
-# Forza di 30 N lungo x per 0,3 s
-bash push.sh x 30 0.3
-
-# Forza di 30 N lungo -y per 0,2 s
-bash push.sh y -30 0.2
-```
-
-Parametri: asse, forza in N, durata in s.
-
-## Grafici con PlotJuggler
-
-```bash
-# Con il layout salvato
-ros2 run plotjuggler plotjuggler -l ~/colcon_ws/src/legged_control/acados_legged_controller/config/monitor.xml
-
-# Senza layout
-ros2 run plotjuggler plotjuggler
-```
-
-Serve `sudo apt install ros-jazzy-plotjuggler-ros`. Per i dati dal vivo: **Streaming** → **ROS2 Topic Subscriber** → **Start** → `/monitor`.
+Senza ostacoli: non lanciare `obstacle_simulator`. Il controller avvisa che non arriva nessun messaggio e cammina senza ostacoli.
 
 ## Topic principali
 
 | Topic | Contenuto |
 |---|---|
-| `/goal_pose` | Goal del robot. |
-| `/odom` | Stima dello stato; twist nel frame della base. Si ferma se il controller è inattivo. |
+| `/goal_pose` | Goal del robot (frame `odom`). |
+| `/opti_pessi/obstacles` | Ostacoli per l'MPC (`legged_controllers/ObstacleArray`). |
+| `/odom` | Stima dello stato. Si ferma se il controller è inattivo. |
 | `/joint_states` | Posizione, velocità e sforzo dei giunti. |
-| `/monitor` | Coppie comandate, velocità locali e limiti. |
-| `/mpc_predictions` | Traiettorie: blu ottimistica, arancione pessimistica. |
+| `/monitor` | Coppie comandate, velocità, limiti e tracking del WBC (PlotJuggler). |
+| `/mpc_predictions` | Traiettorie: ottimistica piena, pessimistica trasparente. |
 | `/mpc_obstacles` | Ostacoli e zona di sicurezza. |
 
 ```bash
-ros2 topic list                  # elenca i topic
-ros2 topic hz /monitor           # misura la frequenza
-ros2 topic echo /odom --once     # stampa un messaggio
-ros2 topic info /odom -v         # mostra publisher, subscriber e QoS
+ros2 topic list
+ros2 topic hz /monitor
+ros2 topic info /odom -v
 ```
 
-## Log e registrazioni
+## Bag e log
 
 ```bash
-# Registra una prova in ~/colcon_ws/bags
-mkdir -p ~/colcon_ws/bags
-cd ~/colcon_ws/bags
-ros2 bag record /monitor /odom /mpc_predictions /mpc_obstacles
-
-# Mostra il contenuto e riproduce una registrazione
 ros2 bag info <cartella>
 ros2 bag play <cartella>
-
-# Mostra i log più recenti
 ls -t ~/.ros/log | head
 ```
+
+Nel log cerca `solver failed` per i fallimenti dell'MPC, `solve_avg` per il tempo di calcolo e `Safety check failed` per uno stop del controller.
 
 ## Diagnostica
 
 ```bash
-# Controlla che il binario sia più recente del sorgente
+# Il binario deve essere più recente del sorgente
 ls -laL --time-style=long-iso ~/colcon_ws/install/acados_legged_controller/lib/libacados_legged_controller.so ~/colcon_ws/src/legged_control/acados_legged_controller/src/AcadosLeggedController.cpp
 
-# Posizione reale del robot in Gazebo
+# Simulazione: posizione reale del robot e real time factor
 gz model -m aliengo -p
-
-# Real time factor di Gazebo
 gz topic -e -t /stats -n 1
 ```
 
-Nel log cerca `[Acados MPC]: solver failed` per i fallimenti del solver e `[Safety]: DAMPING` per il motivo di uno stop.
-
 ## Parametri da ricordare
 
-File: `config/config.yaml`.
+| File | Parametro | Uso |
+|---|---|---|
+| `config.yaml` | `obstacles.instances` | Ostacoli di `obstacle_simulator`. |
+| `config.yaml` | `obstacle_types` | Raggio e velocità massima per classe. |
+| `config.yaml` | `simulation.goal_tolerance`, `heading.yaw_tolerance` | Distanza e yaw dal goal per tornare in STANCE. |
+| `config.yaml` | `simulation.feet_tolerance`, `max_settle_steps` | Piedi sotto le anche prima di fermarsi. |
+| `config.yaml` | `controller.*` | Guadagni, durate di STAND_UP e STANCE, altezza del passo. |
+| `ros2_controllers.yaml` | `update_rate` | Frequenza in simulazione (il reale usa `legged_unitree_hw/config/aliengo.yaml`). |
+| `ros2_controllers.yaml` | `obstaclesFromTopic`, `obstaclesTimeout`, `obstaclesMaxAge` | Ostacoli dal topic e gonfiaggio con l'età del messaggio. |
 
-| Parametro | Uso |
-|---|---|
-| `obstacles.instances` | Ostacoli `static`, `dynamic`, `adversarial`. Con `[]` non ce ne sono. |
-| `obstacles.random.count` | Numero di ostacoli random. Con `0` sono spenti. |
-| `obstacles.random.seed` | Stesso seed, stessi ostacoli. |
-| `simulation.goal_tolerance` | Distanza dal goal per entrare in STANCE. |
-| `simulation.goal_speed_tolerance` | Velocità massima per entrare in STANCE. |
-| `controller.damping_kd` | Smorzamento dei giunti in `DAMPING`. |
-| `controller.max_tilt` | Inclinazione che attiva `DAMPING`. |
-
-`instances` più `random.count` non possono superare `N_OBS_MAX`. Modificare `N_OBS_MAX` richiede `model_gen.py`.
+Il numero di ostacoli non può superare `N_OBS_MAX`. Modificare `N_OBS_MAX` richiede `model_gen.py`.

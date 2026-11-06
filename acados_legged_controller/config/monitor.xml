@@ -5,10 +5,10 @@
    <Container>
     <DockSplitter count="1" orientation="-" sizes="1">
      <DockSplitter count="2" orientation="|" sizes="0.5;0.5">
-      <DockSplitter count="2" orientation="-" sizes="0.500559;0.499441">
+      <DockSplitter count="2" orientation="-" sizes="0.5;0.5">
        <DockArea name="...">
         <plot flip_x="false" flip_y="false" line_width="1.0" mode="TimeSeries">
-         <range bottom="-1.575000" left="161.415905" right="191.400980" top="1.575000"/>
+         <range bottom="-1.575000" left="0.000000" right="13.704460" top="1.575000"/>
          <limitY/>
          <curve color="#1f77b4" name="/monitor/v_x/position"/>
          <curve color="#d62728" name="/monitor/v_x_max/position"/>
@@ -17,7 +17,7 @@
        </DockArea>
        <DockArea name="...">
         <plot flip_x="false" flip_y="false" line_width="1.0" mode="TimeSeries">
-         <range bottom="-0.630000" left="161.415905" right="191.400980" top="0.630000"/>
+         <range bottom="-0.630000" left="0.000000" right="13.704460" top="0.630000"/>
          <limitY/>
          <curve color="#17becf" name="/monitor/yaw_rate/position"/>
          <curve color="#bcbd22" name="/monitor/yaw_rate_max/position"/>
@@ -25,10 +25,10 @@
         </plot>
        </DockArea>
       </DockSplitter>
-      <DockSplitter count="2" orientation="-" sizes="0.500559;0.499441">
+      <DockSplitter count="2" orientation="-" sizes="0.5;0.5">
        <DockArea name="...">
         <plot flip_x="false" flip_y="false" line_width="1.0" mode="TimeSeries">
-         <range bottom="-0.472500" left="161.415905" right="191.400980" top="0.472500"/>
+         <range bottom="-0.472500" left="0.000000" right="13.704460" top="0.472500"/>
          <limitY/>
          <curve color="#ff7f0e" name="/monitor/v_y/position"/>
          <curve color="#f14cc1" name="/monitor/v_y_max/position"/>
@@ -48,10 +48,10 @@
   </Tab>
   <Tab containers="1" tab_name="torques_LF">
    <Container>
-    <DockSplitter count="3" orientation="-" sizes="0.333333;0.333333;0.333333">
+    <DockSplitter count="3" orientation="-" sizes="0.318182;0.363636;0.318182">
      <DockArea name="...">
       <plot flip_x="false" flip_y="false" line_width="1.0" mode="TimeSeries">
-       <range bottom="-37.041900" left="161.415905" right="191.400980" top="37.041900"/>
+       <range bottom="-37.041900" left="0.000000" right="13.704460" top="37.041900"/>
        <limitY/>
        <curve color="#d62728" name="/monitor/tau_LF_HAA/position"/>
        <curve color="#f14cc1" name="/monitor/tau_hip_max/position"/>
@@ -60,7 +60,7 @@
      </DockArea>
      <DockArea name="...">
       <plot flip_x="false" flip_y="false" line_width="1.0" mode="TimeSeries">
-       <range bottom="-37.041900" left="161.415905" right="191.400980" top="37.041900"/>
+       <range bottom="-37.041900" left="0.000000" right="13.704460" top="37.041900"/>
        <limitY/>
        <curve color="#1ac938" name="/monitor/tau_LF_HFE/position"/>
        <curve color="#f14cc1" name="/monitor/tau_hip_max/position"/>
@@ -69,7 +69,7 @@
      </DockArea>
      <DockArea name="...">
       <plot flip_x="false" flip_y="false" line_width="1.0" mode="TimeSeries">
-       <range bottom="-46.620000" left="161.415905" right="191.400980" top="46.620000"/>
+       <range bottom="-46.620000" left="0.000000" right="13.704460" top="46.620000"/>
        <limitY/>
        <curve color="#ff7f0e" name="/monitor/tau_LF_KFE/position"/>
        <curve color="#17becf" name="/monitor/tau_knee_max/position"/>
@@ -81,10 +81,10 @@
   </Tab>
   <Tab containers="1" tab_name="torques_LH">
    <Container>
-    <DockSplitter count="3" orientation="-" sizes="0.333333;0.333333;0.333333">
+    <DockSplitter count="3" orientation="-" sizes="0.318182;0.363636;0.318182">
      <DockArea name="...">
       <plot flip_x="false" flip_y="false" line_width="1.0" mode="TimeSeries">
-       <range bottom="-37.041900" left="161.415905" right="191.400980" top="37.041900"/>
+       <range bottom="-37.041900" left="0.000000" right="13.704460" top="37.041900"/>
        <limitY/>
        <curve color="#1f77b4" name="/monitor/tau_LH_HAA/position"/>
        <curve color="#f14cc1" name="/monitor/tau_hip_max/position"/>
@@ -93,7 +93,7 @@
      </DockArea>
      <DockArea name="...">
       <plot flip_x="false" flip_y="false" line_width="1.0" mode="TimeSeries">
-       <range bottom="-37.041900" left="161.415905" right="191.400980" top="37.041900"/>
+       <range bottom="-37.041900" left="0.000000" right="13.704460" top="37.041900"/>
        <limitY/>
        <curve color="#d62728" name="/monitor/tau_LH_HFE/position"/>
        <curve color="#f14cc1" name="/monitor/tau_hip_max/position"/>
@@ -102,7 +102,7 @@
      </DockArea>
      <DockArea name="...">
       <plot flip_x="false" flip_y="false" line_width="1.0" mode="TimeSeries">
-       <range bottom="-46.620000" left="161.415905" right="191.400980" top="46.620000"/>
+       <range bottom="-46.620000" left="0.000000" right="13.704460" top="46.620000"/>
        <limitY/>
        <curve color="#1ac938" name="/monitor/tau_LH_KFE/position"/>
        <curve color="#17becf" name="/monitor/tau_knee_max/position"/>
@@ -114,10 +114,10 @@
   </Tab>
   <Tab containers="1" tab_name="torques_RF">
    <Container>
-    <DockSplitter count="3" orientation="-" sizes="0.333333;0.333333;0.333333">
+    <DockSplitter count="3" orientation="-" sizes="0.318182;0.363636;0.318182">
      <DockArea name="...">
       <plot flip_x="false" flip_y="false" line_width="1.0" mode="TimeSeries">
-       <range bottom="-37.041900" left="161.415905" right="191.400980" top="37.041900"/>
+       <range bottom="-37.041900" left="0.000000" right="13.704460" top="37.041900"/>
        <limitY/>
        <curve color="#ff7f0e" name="/monitor/tau_RF_HAA/position"/>
        <curve color="#f14cc1" name="/monitor/tau_hip_max/position"/>
@@ -126,7 +126,7 @@
      </DockArea>
      <DockArea name="...">
       <plot flip_x="false" flip_y="false" line_width="1.0" mode="TimeSeries">
-       <range bottom="-37.041900" left="161.415905" right="191.400980" top="37.041900"/>
+       <range bottom="-37.041900" left="0.000000" right="13.704460" top="37.041900"/>
        <limitY/>
        <curve color="#f14cc1" name="/monitor/tau_RF_HFE/position"/>
        <curve color="#f14cc1" name="/monitor/tau_hip_max/position"/>
@@ -135,7 +135,7 @@
      </DockArea>
      <DockArea name="...">
       <plot flip_x="false" flip_y="false" line_width="1.0" mode="TimeSeries">
-       <range bottom="-46.620000" left="161.415905" right="191.400980" top="46.620000"/>
+       <range bottom="-46.620000" left="0.000000" right="13.704460" top="46.620000"/>
        <limitY/>
        <curve color="#9467bd" name="/monitor/tau_RF_KFE/position"/>
        <curve color="#17becf" name="/monitor/tau_knee_max/position"/>
@@ -147,10 +147,10 @@
   </Tab>
   <Tab containers="1" tab_name="torques_RH">
    <Container>
-    <DockSplitter count="3" orientation="-" sizes="0.333333;0.333333;0.333333">
+    <DockSplitter count="3" orientation="-" sizes="0.318182;0.363636;0.318182">
      <DockArea name="...">
       <plot flip_x="false" flip_y="false" line_width="1.0" mode="TimeSeries">
-       <range bottom="-37.041900" left="161.415905" right="191.400980" top="37.041900"/>
+       <range bottom="-37.041900" left="0.000000" right="13.704460" top="37.041900"/>
        <limitY/>
        <curve color="#17becf" name="/monitor/tau_RH_HAA/position"/>
        <curve color="#f14cc1" name="/monitor/tau_hip_max/position"/>
@@ -159,7 +159,7 @@
      </DockArea>
      <DockArea name="...">
       <plot flip_x="false" flip_y="false" line_width="1.0" mode="TimeSeries">
-       <range bottom="-37.041900" left="161.415905" right="191.400980" top="37.041900"/>
+       <range bottom="-37.041900" left="0.000000" right="13.704460" top="37.041900"/>
        <limitY/>
        <curve color="#bcbd22" name="/monitor/tau_RH_HFE/position"/>
        <curve color="#f14cc1" name="/monitor/tau_hip_max/position"/>
@@ -168,7 +168,7 @@
      </DockArea>
      <DockArea name="...">
       <plot flip_x="false" flip_y="false" line_width="1.0" mode="TimeSeries">
-       <range bottom="-46.620000" left="161.415905" right="191.400980" top="46.620000"/>
+       <range bottom="-46.620000" left="0.000000" right="13.704460" top="46.620000"/>
        <limitY/>
        <curve color="#1f77b4" name="/monitor/tau_RH_KFE/position"/>
        <curve color="#17becf" name="/monitor/tau_knee_max/position"/>
@@ -178,7 +178,29 @@
     </DockSplitter>
    </Container>
   </Tab>
-  <currentTabIndex index="0"/>
+  <Tab containers="1" tab_name="limits_for_damping">
+   <Container>
+    <DockSplitter count="2" orientation="-" sizes="0.5;0.5">
+     <DockArea name="...">
+      <plot flip_x="false" flip_y="false" line_width="1.0" mode="TimeSeries">
+       <range bottom="-0.000220" left="0.000000" right="13.704460" top="0.614640"/>
+       <limitY/>
+       <curve color="#1f77b4" name="/monitor/tilt_max/position"/>
+       <curve color="#1ac938" name="/monitor/tilt_pred/position"/>
+      </plot>
+     </DockArea>
+     <DockArea name="...">
+      <plot flip_x="false" flip_y="false" line_width="1.0" mode="TimeSeries">
+       <range bottom="0.195395" left="0.000000" right="13.704460" top="0.388788"/>
+       <limitY/>
+       <curve color="#f14cc1" name="/monitor/base_z/position"/>
+       <curve color="#9467bd" name="/monitor/base_z_min/position"/>
+      </plot>
+     </DockArea>
+    </DockSplitter>
+   </Container>
+  </Tab>
+  <currentTabIndex index="5"/>
  </tabbed_widget>
  <use_relative_time_offset enabled="1"/>
  <streaming_buffer_size value="30"/>
