@@ -2,5 +2,6 @@
 acados_legged_controller:
   ros__parameters:
     simulatedObstacles: false
-    # Goals of TARE/FAR are waypoints: face the velocity only, do not turn to the yaw of the marker
-    useGoalYaw: false
+    # Goals of TARE/FAR carry a yaw (tare_path_to_opti_pessi_goal.py: the path direction at the goal; a stop keeps the
+    # robot's yaw): face the velocity far from the goal, turn to its yaw near it (heading.blend_dist)
+    useGoalYaw: true

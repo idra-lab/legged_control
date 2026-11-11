@@ -9,12 +9,14 @@
            ${name}_color_frame          RGB imager, 15 mm to the left of the depth imager
            ${name}_color_optical_frame  z forward, x right, y down
          Published gz topics (bridged to ROS by legged_gazebo/config/d435i_bridge.yaml):
-           /${name}/color/image_raw         rgb8,    640x360 @ 30 Hz, HFOV 69.4 deg
+           /${name}/color/image_raw         rgb8,    1920x1080 @ 15 Hz, HFOV 69.4 deg
            /${name}/color/camera_info
-           /${name}/depth/image_rect_raw    32FC1 [m], 848x480 @ 30 Hz, HFOV 86 deg
+           /${name}/depth/image_rect_raw    32FC1 [m], 848x480 @ 15 Hz, HFOV 86 deg
            /${name}/depth/camera_info
-           /${name}/aligned_depth_to_color/image_raw    32FC1 [m], registered to color (640x360, HFOV 69.4 deg)
+           /${name}/aligned_depth_to_color/image_raw    32FC1 [m], registered to color (1920x1080 @ 15 Hz, HFOV 69.4 deg)
            /${name}/aligned_depth_to_color/camera_info  (like realsense-ros align_depth.enable:=true)
+         Full HD color like the real camera; all streams at 15 Hz (realsense-ros runs them at one fps) because a
+         1080p rgb8 + 32FC1 pair is 14.5 MB through ros_gz_bridge.
          The D435i IMU is not simulated. No collision geometry, so contacts are unchanged. -->
     <xacro:macro name="D435i" params="name:=camera parent xyz:='0 0 0' rpy:='0 0 0'">
         <xacro:property name="d435i_mass" value="0.072"/>
@@ -82,7 +84,7 @@
         <gazebo reference="${name}_color_frame">
             <sensor name="${name}_color" type="camera">
                 <always_on>true</always_on>
-                <update_rate>30</update_rate>
+                <update_rate>15</update_rate>
                 <visualize>false</visualize>
                 <topic>${name}/color/image_raw</topic>
                 <gz_frame_id>${name}_color_optical_frame</gz_frame_id>
@@ -90,8 +92,8 @@
                     <camera_info_topic>${name}/color/camera_info</camera_info_topic>
                     <horizontal_fov>${69.4*pi/180}</horizontal_fov>
                     <image>
-                        <width>640</width>
-                        <height>360</height>
+                        <width>1920</width>
+                        <height>1080</height>
                         <format>R8G8B8</format>
                     </image>
                     <clip>
@@ -109,7 +111,7 @@
                  matches the color image 1:1. Stands in for realsense-ros depth-to-color alignment. -->
             <sensor name="${name}_aligned_depth" type="depth_camera">
                 <always_on>true</always_on>
-                <update_rate>30</update_rate>
+                <update_rate>15</update_rate>
                 <visualize>false</visualize>
                 <topic>${name}/aligned_depth_to_color/image_raw</topic>
                 <gz_frame_id>${name}_color_optical_frame</gz_frame_id>
@@ -117,8 +119,8 @@
                     <camera_info_topic>${name}/aligned_depth_to_color/camera_info</camera_info_topic>
                     <horizontal_fov>${69.4*pi/180}</horizontal_fov>
                     <image>
-                        <width>640</width>
-                        <height>360</height>
+                        <width>1920</width>
+                        <height>1080</height>
                         <format>R_FLOAT32</format>
                     </image>
                     <clip>
@@ -137,7 +139,7 @@
         <gazebo reference="${name}_depth_frame">
             <sensor name="${name}_depth" type="depth_camera">
                 <always_on>true</always_on>
-                <update_rate>30</update_rate>
+                <update_rate>15</update_rate>
                 <visualize>false</visualize>
                 <topic>${name}/depth/image_rect_raw</topic>
                 <gz_frame_id>${name}_depth_optical_frame</gz_frame_id>
