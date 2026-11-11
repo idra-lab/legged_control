@@ -85,20 +85,6 @@ struct LipmConfig {
     double stance_blend;        
     double swing_height;        
     double com_height;              // m, CoM height tracked by the WBC (h_com is the one of the acados model)
-    double damping_kd;              // m/(rad/s): in DAMPING kp=0, tau = 0, only damping
-    double max_tilt;                // rad, for the max roll or pitch
-    double max_tilt_rate;           // rad/s, roll or pitch velocity
-    double min_base_height;         // m
-    double max_com_error;           // m, CoM error in WALK
-    int max_solver_failures;        // consecutive solver failures then DAMPING
-    double max_solution_age;        // s, maximum age of the MPC solution in WALK
-    double tilt_lookahead;          // s, predicted tilt = angle + rate * lookahead
-    double tilt_filter_hz;          // Hz, low-pass on roll/pitch rates
-    int tilt_ticks;                 // consecutive ticks of predicted tilt over max_tilt
-    double hard_fall_tilt;          // rad, over this no brace
-    double brace_duration, brace_ramp;      // s
-    double kp_brace, kd_brace;
-    double brace_haa, brace_hfe, brace_kfe; // rad, brace pose (HAA outwards)
 
     // Same nominal dt used in lipm_model.py
     double nominalStepDuration() const { return (dt_min + dt_max) / (2.0 * step_per_phase); }

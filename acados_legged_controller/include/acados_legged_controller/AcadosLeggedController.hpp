@@ -54,7 +54,7 @@
 namespace legged {
 
 // Phase of the controller
-enum class Phase { STAND_UP, STANCE, WALK, DAMPING };
+enum class Phase { STAND_UP, STANCE, WALK };
 
 
 class AcadosLeggedController : public controller_interface::ControllerInterface{
@@ -222,32 +222,15 @@ private:
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr prediction_pub_;
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr obstacle_pub_;
     rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr monitor_pub_;
+    // TESTS: one message per solve (status, solve time, phase, alpha, beta, gamma, dt), read by analyze_tests.py
+    rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr mpc_stats_pub_;
+    void publishMpcStats(int status, double solve_time);
     std::array<std::atomic<double>, 12> tau_cmd_{}; // total commanded torques, written by update(), read by MPC thread
     // WBC tracking for PlotJuggler, written by update(), read by MPC thread
     enum WbcMonitor { YAW_REF, YAW_RATE_REF, YAW_ACC_FF, YAW_ACC_WBC, COM_ERR_X, COM_ERR_Y,
-                      RESIDUAL_X, RESIDUAL_Y, RESIDUAL_Z,
-                      ROLL, PITCH, ROLL_RATE_F, PITCH_RATE_F, TILT_PRED, BASE_Z,   // safety
-                      N_WBC_MONITOR };
+                      RESIDUAL_X, RESIDUAL_Y, RESIDUAL_Z, N_WBC_MONITOR };
     std::array<std::atomic<double>, N_WBC_MONITOR> wbc_monitor_{};
 
-
-    // DAMPING
-    void enterDamping(const char* reason);
-    const char* checkSafety();
-    void sendDamping();
-    void sendBrace(double t);
-
-    double roll_rate_f_ = 0.0;                              // filtered ZYX roll and pitch rates
-    double pitch_rate_f_ = 0.0;
-    int tilt_ticks_ = 0;                                    // consecutive ticks of predicted tilt over max_tilt
-    vector_t q_fall_start_;                                 // joints when DAMPING started (start of the brace)
-    bool hard_fall_ = false;                                // already too tilted: damping only, no brace
-
-    std::atomic<const char*> damping_request_{nullptr};     // wrote by mpc thread and service, read by update()
-    int solver_failures_ = 0;                               // only MPC thread
-    int com_error_ticks_ = 0;                               // consecutive update() ticks with CoM error over max_com_error
-    std::atomic<double> last_solution_time_{0.0};           // sim_time_ from last good solve
-    rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr damping_srv_;
 
 };
 

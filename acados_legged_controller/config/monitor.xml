@@ -178,29 +178,7 @@
     </DockSplitter>
    </Container>
   </Tab>
-  <Tab containers="1" tab_name="limits_for_damping">
-   <Container>
-    <DockSplitter count="2" orientation="-" sizes="0.5;0.5">
-     <DockArea name="...">
-      <plot flip_x="false" flip_y="false" line_width="1.0" mode="TimeSeries">
-       <range bottom="-0.000220" left="0.000000" right="13.704460" top="0.614640"/>
-       <limitY/>
-       <curve color="#1f77b4" name="/monitor/tilt_max/position"/>
-       <curve color="#1ac938" name="/monitor/tilt_pred/position"/>
-      </plot>
-     </DockArea>
-     <DockArea name="...">
-      <plot flip_x="false" flip_y="false" line_width="1.0" mode="TimeSeries">
-       <range bottom="0.195395" left="0.000000" right="13.704460" top="0.388788"/>
-       <limitY/>
-       <curve color="#f14cc1" name="/monitor/base_z/position"/>
-       <curve color="#9467bd" name="/monitor/base_z_min/position"/>
-      </plot>
-     </DockArea>
-    </DockSplitter>
-   </Container>
-  </Tab>
-  <currentTabIndex index="5"/>
+  <currentTabIndex index="0"/>
  </tabbed_widget>
  <use_relative_time_offset enabled="1"/>
  <streaming_buffer_size value="30"/>

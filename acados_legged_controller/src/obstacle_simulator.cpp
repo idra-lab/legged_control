@@ -10,6 +10,7 @@
 #include <nav_msgs/msg/odometry.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <std_srvs/srv/set_bool.hpp>
+#include <std_srvs/srv/trigger.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
 
 #include "acados_legged_controller/LipmConfig.hpp"
@@ -51,6 +52,38 @@ public:
             [this](const nav_msgs::msg::Odometry::SharedPtr msg) {
                 robot_x_ = msg->pose.pose.position.x;
                 robot_y_ = msg->pose.pose.position.y;
+            });
+
+        // REPEATABLE TESTS: ~/reset puts the obstacles back at their start and pauses them. The first obstacle of
+        // config.yaml can be overridden (record_test.py sets these before the reset): obstacle_start [x, y] = start of
+        // its path (pos_end stays the one of config.yaml), obstacle_speed > 0 = its speed. Empty / <= 0: config.yaml
+        declare_parameter<std::vector<double>>("obstacle_start", std::vector<double>{});
+        declare_parameter<double>("obstacle_speed", 0.0);
+        reset_srv_ = create_service<std_srvs::srv::Trigger>("~/reset",
+            [this](const std::shared_ptr<std_srvs::srv::Trigger::Request>,
+                    std::shared_ptr<std_srvs::srv::Trigger::Response> res) {
+                        LipmConfig cfg = cfg_;
+                        const auto start = get_parameter("obstacle_start").as_double_array();
+                        const double speed = get_parameter("obstacle_speed").as_double();
+                        if (!cfg.obstacles.empty()) {
+                            if (start.size() == 2) {
+                                cfg.obstacles[0].x = start[0];
+                                cfg.obstacles[0].y = start[1];
+                            }
+                            if (speed > 0.0) cfg.obstacles[0].speed = speed;
+                        }
+                        manager_ = std::make_unique<ObstacleManager>(cfg);
+                        t_moving_ = 0.0;
+                        moving_ = false;
+                        res->success = true;
+                        if (cfg.obstacles.empty()) {
+                            res->message = "no obstacle in config.yaml";
+                        } else {
+                            const auto& o = cfg.obstacles[0];
+                            res->message = "obstacle 0 at [" + std::to_string(o.x) + ", " + std::to_string(o.y) +
+                                           "], speed " + std::to_string(o.speed) + ", paused";
+                        }
+                        RCLCPP_INFO(get_logger(), "[ObstacleSimulator]: reset, %s", res->message.c_str());
             });
 
         moving_srv_ = create_service<std_srvs::srv::SetBool>("~/set_moving",
@@ -141,6 +174,7 @@ private:
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr markers_pub_;
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
     rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr moving_srv_;
+    rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr reset_srv_;
     rclcpp::TimerBase::SharedPtr timer_;
 
 };

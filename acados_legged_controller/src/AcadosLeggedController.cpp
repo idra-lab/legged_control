@@ -21,6 +21,7 @@
 
 // WARM START: std::cos/sin/hypot, std::min/max/copy
 #include <cmath>
+#include <limits>
 #include <algorithm>
 #include <chrono>
 // CONFIG: default path of config.yaml (installed in share/acados_legged_controller/config)
@@ -303,14 +304,6 @@ controller_interface::CallbackReturn AcadosLeggedController::on_configure(const 
         }   
     );
 
-    // Service for the damping
-    damping_srv_ = get_node()->create_service<Trigger>("~/damping", 
-        [this](const std::shared_ptr<Trigger::Request>, std::shared_ptr<Trigger::Response> res) {
-            damping_request_ = "emergency stop requested";
-            res->success = true;
-            res->message = "DAMPING";
-        });
-
     goal_x_ = cfg_.c_target_x;
     goal_y_ = cfg_.c_target_y;
     goal_theta_ = cfg_.theta_target;
@@ -372,6 +365,7 @@ controller_interface::CallbackReturn AcadosLeggedController::on_configure(const 
     prediction_pub_ = get_node()->create_publisher<visualization_msgs::msg::MarkerArray>("/mpc_predictions", 1);
     obstacle_pub_ = get_node()->create_publisher<visualization_msgs::msg::MarkerArray>("/mpc_obstacles", 1);
     monitor_pub_ = get_node()->create_publisher<sensor_msgs::msg::JointState>("/monitor", 10);
+    mpc_stats_pub_ = get_node()->create_publisher<sensor_msgs::msg::JointState>("/mpc_stats", 100);
 
 
     return controller_interface::CallbackReturn::SUCCESS;
@@ -465,11 +459,6 @@ controller_interface::CallbackReturn AcadosLeggedController::on_activate(const r
     currentObservation_.state.setZero(leggedInterface_->getCentroidalModelInfo().stateDim);
     currentObservation_.input.setZero(leggedInterface_->getCentroidalModelInfo().inputDim);
     currentObservation_.mode = ModeNumber::STANCE;
-    // Filters of the predicted tilt restart from zero (before the first estimation, which updates them)
-    roll_rate_f_ = 0.0;
-    pitch_rate_f_ = 0.0;
-    tilt_ticks_ = 0;
-    hard_fall_ = false;
     updateStateEstimation(node->get_clock()->now(), rclcpp::Duration::from_seconds(0.002));
 
 
@@ -480,12 +469,6 @@ controller_interface::CallbackReturn AcadosLeggedController::on_activate(const r
     liftoff_ = feet_pos_;
     mpc_ready_ = false;
 
-
-    // Reset for damping phase
-    damping_request_ = nullptr;
-    solver_failures_ = 0;
-    com_error_ticks_ = 0;
-    last_solution_time_ = sim_time_.load();
 
     // Start the mpc thread
     controller_running_ = true;
@@ -515,8 +498,6 @@ controller_interface::CallbackReturn AcadosLeggedController::on_deactivate(const
     if(mpc_thread_.joinable()){
         mpc_thread_.join(); // wait for the closing of the thread
     }
-    // Last command to the motors: damping, not the WBC torques of the last cycle
-    sendDamping();
     return controller_interface::CallbackReturn::SUCCESS;
 }
 
@@ -874,15 +855,8 @@ void AcadosLeggedController::publishMonitor(const std::vector<double>& x0){
     add("wbc_residual_y", wbc_monitor_[RESIDUAL_Y]);
     add("wbc_residual_z", wbc_monitor_[RESIDUAL_Z]);
 
-    // Safety: margins of the DAMPING checks
-    add("roll", wbc_monitor_[ROLL]);
-    add("pitch", wbc_monitor_[PITCH]);
-    add("roll_rate_f", wbc_monitor_[ROLL_RATE_F]);
-    add("pitch_rate_f", wbc_monitor_[PITCH_RATE_F]);
-    add("tilt_pred", wbc_monitor_[TILT_PRED]);
-    add("tilt_max", cfg_.max_tilt);
-    add("base_z", wbc_monitor_[BASE_Z]);
-    add("base_z_min", cfg_.min_base_height);
+    // TESTS: phase (0 STAND_UP, 1 STANCE, 2 WALK), record_test.py detects the end of a test from it
+    add("phase", static_cast<double>(static_cast<int>(phase_.load())));
 
     monitor_pub_->publish(msg);
 }
@@ -891,97 +865,24 @@ void AcadosLeggedController::publishMonitor(const std::vector<double>& x0){
 
 
 
-// Enter DAMPING phase function
-void AcadosLeggedController::enterDamping(const char* reason) {
-    if (phase_ == Phase::DAMPING) return;
-    phase_ = Phase::DAMPING;
-    phase_time_ = 0.0;
-    walk_requested_ = false;        // MPC thread stopped
-    mpc_ready_ = false;
-
-    // Start of the brace: the joints as they are now. Already too tilted: damping only
-    q_fall_start_.resize(hybridJointHandles_.size());
-    for (size_t j = 0; j < hybridJointHandles_.size(); ++j) q_fall_start_(j) = hybridJointHandles_[j].getPosition();
-    const vector_t& s = currentObservation_.state;
-    hard_fall_ = std::max(std::abs(s(10)), std::abs(s(11))) > cfg_.hard_fall_tilt;
-
-    RCLCPP_ERROR(get_node()->get_logger(), "[Safety]: DAMPING (%s), reason: %s",
-                 hard_fall_ ? "damping only" : "brace, then damping", reason);
-}
-
-
-
-// Low and wide pose: lower CoM, wider support. Joint order LF, LH, RF, RH; the HAA axis is +x in every leg,
-// so a positive HAA moves the foot to +y: outwards is + for the left legs, - for the right ones
-void AcadosLeggedController::sendBrace(double t){
-    const double x = std::min(t / cfg_.brace_ramp, 1.0);
-    const double s = x * x * (3.0 - 2.0 * x);    // smoothstep from the pose at the start of DAMPING
-    static constexpr std::array<double, 4> outward{+1.0, +1.0, -1.0, -1.0};
-    for (size_t leg = 0; leg < 4; ++leg) {
-        const vector3_t q_brace(outward[leg] * cfg_.brace_haa, cfg_.brace_hfe, cfg_.brace_kfe);
-        for (size_t i = 0; i < 3; ++i) {
-            const size_t j = 3 * leg + i;
-            const double q_des = (1.0 - s) * q_fall_start_(j) + s * q_brace(i);
-            sendJointCommand(j, q_des, 0.0, cfg_.kp_brace, cfg_.kd_brace, 0.0);
-        }
+// TESTS: one message per solve, in the MPC thread (not real time). Controls of the step in progress (stage 0 of the
+// optimistic branch, the one applied by update()): alpha, beta, gamma, dt; dt_next = duration of the next step.
+// A failed solve has no solution: NaN controls
+void AcadosLeggedController::publishMpcStats(int status, double solve_time) {
+    const bool ok = (status == 0 || status == 2);
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    std::vector<double> u0, u1;
+    if (ok) {
+        u0 = mpc_solver_->getControl(0);
+        u1 = mpc_solver_->getControl(1);
     }
-}
-
-
-
-// kp = 0, tau = 0: keep only damping kd
-void AcadosLeggedController::sendDamping(){
-    for (size_t j = 0; j < hybridJointHandles_.size(); ++j) {
-        sendJointCommand(j, hybridJointHandles_[j].getPosition(), 0.0, 0.0, cfg_.damping_kd, 0.0);
-    }
-}
-
-
-
-
-// SAFETY CHECK
-const char* AcadosLeggedController::checkSafety() {
-    if (const char* req = damping_request_.exchange(nullptr)) return req;       // MPC or service
-
-    const vector_t& s = currentObservation_.state;      // s(9) yaw, s(10) pitch, s(11) roll
-    const double pitch = s(10), roll = s(11);
-
-    // Predicted tilt: the rate counts only when it moves the robot away from upright, so the oscillation of the
-    // trot coming back does not trigger, a real fall triggers before the angle reaches max_tilt
-    auto predicted = [this](double angle, double rate) {
-        return (angle * rate > 0.0) ? std::abs(angle + rate * cfg_.tilt_lookahead) : std::abs(angle);
-    };
-    const double tilt_pred = std::max(predicted(roll, roll_rate_f_), predicted(pitch, pitch_rate_f_));
-
-    // For PlotJuggler, also when the checks are off
-    wbc_monitor_[ROLL] = roll;
-    wbc_monitor_[PITCH] = pitch;
-    wbc_monitor_[ROLL_RATE_F] = roll_rate_f_;
-    wbc_monitor_[PITCH_RATE_F] = pitch_rate_f_;
-    wbc_monitor_[TILT_PRED] = tilt_pred;
-    wbc_monitor_[BASE_Z] = measuredRbdState_(5);
-
-    // In STAND_UP the robot start from a whatever pose: no controls in roll or pitch and height
-    if (phase_ == Phase::STANCE || phase_ == Phase::WALK) {
-        if (std::abs(roll) > cfg_.max_tilt || std::abs(pitch) > cfg_.max_tilt) return "roll or pitch over max_tilt";
-
-        tilt_ticks_ = (tilt_pred > cfg_.max_tilt) ? tilt_ticks_ + 1 : 0;
-        if (tilt_ticks_ > cfg_.tilt_ticks) return "predicted tilt over max_tilt";
-
-        if (std::hypot(roll_rate_f_, pitch_rate_f_) > cfg_.max_tilt_rate) return "roll/pitch rate over max_tilt_rate";
-
-        if (measuredRbdState_(5) < cfg_.min_base_height) return "base too low";
-    } else {
-        tilt_ticks_ = 0;
-    }
-    if (phase_ == Phase::WALK) {
-        // CoM error over the threshold for 20 consecutive ticks (50 ms at 400 Hz): a single peak does not stop the robot
-        const double com_err = std::hypot(wbc_monitor_[COM_ERR_X].load(), wbc_monitor_[COM_ERR_Y].load());
-        com_error_ticks_ = (com_err > cfg_.max_com_error) ? com_error_ticks_ + 1 : 0;
-        if (com_error_ticks_ > 20) return "CoM error over max_com_error";
-        if (sim_time_ - last_solution_time_ > cfg_.max_solution_age) return "MPC solution too old";
-    }
-    return nullptr;
+    sensor_msgs::msg::JointState msg;
+    msg.header.stamp = get_node()->now();
+    msg.name = {"status", "solve_time_ms", "phase", "alpha", "beta", "gamma", "dt", "dt_next"};
+    msg.position = {static_cast<double>(status), solve_time * 1000.0,
+                    static_cast<double>(static_cast<int>(phase_.load())),
+                    ok ? u0[4] : nan, ok ? u0[5] : nan, ok ? u0[6] : nan, ok ? u0[7] : nan, ok ? u1[7] : nan};
+    mpc_stats_pub_->publish(msg);
 }
 
 
@@ -998,6 +899,10 @@ void AcadosLeggedController::mpcThreadLoop(){
     double solve_time_sum = 0.0;
     int solve_count = 0;
     double last_log_t = sim_time_;
+    // Average over the whole run, never reset
+    double solve_tot_sum = 0.0;
+    int solve_tot_count = 0;
+    double last_tot_log_t = sim_time_;
 
     // For monitor in PlotJuggler
     auto last_monitor_pub = std::chrono::steady_clock::now();
@@ -1118,20 +1023,24 @@ void AcadosLeggedController::mpcThreadLoop(){
         int status = mpc_solver_->solve();
         solve_time_sum += mpc_solver_->getComputationTime();
         solve_count++;
+        solve_tot_sum += mpc_solver_->getComputationTime();
+        solve_tot_count++;
+        if (t - last_tot_log_t >= 5.0) {
+            const double solve_tot_avg = solve_tot_sum / solve_tot_count * 1000.0;
+            RCLCPP_INFO(get_node()->get_logger(),
+                "[Acados MPC]: AVERAGE solve time up to now: %.2f ms (%d solves)", solve_tot_avg, solve_tot_count);
+            last_tot_log_t = t;
+        }
 
         // publish the solution only if the solver succeeded (0) or reached max iter (2)
         if(status != 0 && status != 2){
             // WARM START: a failed solution is not a good guess, restart from x0
             resetWarmStart(x0_local);
             RCLCPP_INFO(get_node()->get_logger(), "[Acados MPC]: solver failed with status %d", status);
-            // ONLY IN WALK: before sending command a fail is not damaging
-            if (phase_ == Phase::WALK && ++solver_failures_ >= cfg_.max_solver_failures) {
-                damping_request_ = "MPC solver failed";
-            }
+            publishMpcStats(status, mpc_solver_->getComputationTime());
             continue;
         }
-        solver_failures_ = 0;
-        last_solution_time_ = sim_time_.load();
+        publishMpcStats(status, mpc_solver_->getComputationTime());
 
         // WARM START: store the whole solution for the next solve
         for(int k = 0; k <= n_horizon_; ++k){
@@ -1188,16 +1097,6 @@ controller_interface::return_type AcadosLeggedController::update(const rclcpp::T
 
     // update the estimate of the actual state starting from sensors
     updateStateEstimation(time, period);
-
-    // CHECK ON ESTIMATE OF THE STATE
-    if (const char* reason = checkSafety()) enterDamping(reason);
-    if (phase_ == Phase::DAMPING) {
-        // 1) brace: low and wide pose for brace_duration, 2) damping. Too tilted: damping at once
-        if (!hard_fall_ && phase_time_ < cfg_.brace_duration) sendBrace(phase_time_);
-        else sendDamping();
-        phase_time_ += period.seconds();
-        return controller_interface::return_type::OK;   // OK: controller awake and in damping
-    }
 
 
     // Manage the phase
@@ -1449,17 +1348,12 @@ bool AcadosLeggedController::updateWholeBodyControl(const WbcReference& referenc
         measuredRbdState_.segment(nq + 6, info.actuatedDofNum) + period * x.segment(6, info.actuatedDofNum);
     currentObservation_.input = desiredInput;
 
-    const vector_t torque = x.tail(info.actuatedDofNum);
-    if (!torque.allFinite()) { 
-        enterDamping("WBC torques not finite"); 
-        sendDamping(); 
-        return true; 
-    }
     if (!safetyChecker_->check(currentObservation_, currentObservation_.state, desiredInput)) {
-        enterDamping("SafetyChecker: roll over 90 deg");
-        sendDamping();
-        return true;
+        RCLCPP_ERROR(get_node()->get_logger(), "[Acados MPC]: Safety check failed!!");
+        return false;
     }
+
+    const vector_t torque = x.tail(info.actuatedDofNum);
 
     for (size_t j = 0; j < info.actuatedDofNum; ++j) {
         sendJointCommand(j, q_target(j), desiredInput(3 * info.numThreeDofContacts + j), kp, kd, torque(j));
@@ -1550,10 +1444,6 @@ void AcadosLeggedController::updateStateEstimation(const rclcpp::Time& time, con
     com_pos_ = pinocchio::centerOfMass(pinocchioInterface.getModel(), pinocchioInterface.getData(), qPino, vPino);
     const vector3_t com_vel = pinocchioInterface.getData().vcom[0];
 
-    // ZYX rates (vPino(3) yaw, (4) pitch, (5) roll), low-pass against the impacts of the feet
-    const double a_filt = 1.0 - std::exp(-2.0 * M_PI * cfg_.tilt_filter_hz * period.seconds());
-    pitch_rate_f_ += a_filt * (vPino(4) - pitch_rate_f_);
-    roll_rate_f_ += a_filt * (vPino(5) - roll_rate_f_);
     pinocchio::updateFramePlacements(pinocchioInterface.getModel(), pinocchioInterface.getData());
     auto feet_positions = eeKinematicsPtr_->getPosition(state);
     for (size_t i = 0; i < 4; ++i) feet_pos_[i] = feet_positions[i];

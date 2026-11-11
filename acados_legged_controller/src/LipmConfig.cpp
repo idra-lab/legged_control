@@ -123,24 +123,6 @@ LipmConfig LipmConfig::fromYaml(const std::string& path){
     cfg.stance_blend = readKey<double>(root, "controller", "stance_blend");
     cfg.swing_height = readKey<double>(root, "controller", "swing_height");
     cfg.com_height = readKey<double>(root, "controller", "com_height");
-    cfg.damping_kd = readKey<double>(root, "controller", "damping_kd");
-    cfg.max_tilt = readKey<double>(root, "controller", "max_tilt");
-    cfg.max_tilt_rate = readKey<double>(root, "controller", "max_tilt_rate");
-    cfg.min_base_height = readKey<double>(root, "controller", "min_base_height");
-    cfg.max_com_error = readKey<double>(root, "controller", "max_com_error");
-    cfg.max_solver_failures = readKey<int>(root, "controller", "max_solver_failures");
-    cfg.max_solution_age = readKey<double>(root, "controller", "max_solution_age");
-    cfg.tilt_lookahead = readKey<double>(root, "controller", "tilt_lookahead");
-    cfg.tilt_filter_hz = readKey<double>(root, "controller", "tilt_filter_hz");
-    cfg.tilt_ticks = readKey<int>(root, "controller", "tilt_ticks");
-    cfg.hard_fall_tilt = readKey<double>(root, "controller", "hard_fall_tilt");
-    cfg.brace_duration = readKey<double>(root, "controller", "brace_duration");
-    cfg.brace_ramp = readKey<double>(root, "controller", "brace_ramp");
-    cfg.kp_brace = readKey<double>(root, "controller", "kp_brace");
-    cfg.kd_brace = readKey<double>(root, "controller", "kd_brace");
-    cfg.brace_haa = readKey<double>(root, "controller", "brace_haa");
-    cfg.brace_hfe = readKey<double>(root, "controller", "brace_hfe");
-    cfg.brace_kfe = readKey<double>(root, "controller", "brace_kfe");
 
 
     return cfg;
