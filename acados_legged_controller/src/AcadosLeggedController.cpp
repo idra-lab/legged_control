@@ -159,11 +159,32 @@ controller_interface::CallbackReturn AcadosLeggedController::on_init(){
     leggedInterface_ = std::make_shared<LeggedInterface>(taskFile, urdfFile, referenceFile);
     leggedInterface_->setupOptimalControlProblem(taskFile, urdfFile, referenceFile, verbose);
 
-    // Extract the stand posture of the joints 
-    // Stand posture from h_com: foot under the hip, HAA = 0 -> feet at y = off_y
-    const double hfe = std::acos((cfg_.h_com - cfg_.foot_radius) / (2.0 * cfg_.leg_length));
-    q_stand_.resize(12);
-    for (int leg = 0; leg < 4; ++leg) q_stand_.segment<3>(3 * leg) << 0.0, hfe, -2.0 * hfe;
+    // Stand posture of the joints: foot under the hip, HAA = 0 -> feet at y = off_y.
+    // Same CoM height as STANCE and WALK: the base height is the one that puts the whole-body CoM (pinocchio, URDF)
+    // at com_height. The CoM is below the base by an amount that depends on the posture -> a few fixed-point iterations
+    {
+        const auto& info = leggedInterface_->getCentroidalModelInfo();
+        const auto& model = leggedInterface_->getPinocchioInterface().getModel();
+        pinocchio::Data data(model);
+        auto standPosture = [this](double base_height) {
+            const double c = std::clamp((base_height - cfg_.foot_radius) / (2.0 * cfg_.leg_length), 0.0, 1.0);
+            const double hfe = std::acos(c);
+            vector_t q(12);
+            for (int leg = 0; leg < 4; ++leg) q.segment<3>(3 * leg) << 0.0, hfe, -2.0 * hfe;
+            return q;
+        };
+        double base_height = cfg_.com_height;
+        double com_below_base = 0.0;
+        for (int it = 0; it < 10; ++it) {
+            vector_t qPino = vector_t::Zero(info.generalizedCoordinatesNum);   // base at the origin, zero ZYX angles
+            qPino.tail(info.actuatedDofNum) = standPosture(base_height);
+            com_below_base = -pinocchio::centerOfMass(model, data, qPino).z();
+            base_height = cfg_.com_height + com_below_base;
+        }
+        q_stand_ = standPosture(base_height);
+        RCLCPP_INFO(node->get_logger(), "[Acados MPC]: stand posture: CoM %.3f m (com_height), base %.3f m, CoM %.1f mm below the base",
+                    cfg_.com_height, base_height, 1000.0 * com_below_base);
+    }
     RCLCPP_INFO_STREAM(node->get_logger(), "[Acados MPC]: q_stand is: " << q_stand_.transpose());
 
     // Guard: LIPM mass unit match URDF
@@ -837,7 +858,7 @@ void AcadosLeggedController::publishMonitor(const std::vector<double>& x0){
     add("v_y", -x0[3] * st + x0[4] * ct);
     add("yaw_rate", x0[5]);
     add("v_x_max", cfg_.v_max_x);
-    add("v_x_min", -cfg_.v_max_x);
+    add("v_x_min", -cfg_.v_min_x);
     add("v_y_max", cfg_.v_max_y);
     add("v_y_min", -cfg_.v_max_y);
     add("yaw_rate_max", cfg_.theta_dot_max);
@@ -977,14 +998,29 @@ void AcadosLeggedController::mpcThreadLoop(){
         const double goal_x_now = goal_x_, goal_y_now = goal_y_;
         const bool has_yaw = goal_has_yaw_;
         const double theta_goal = goal_theta_;
-        for(int k = 0; k <= n_horizon_; ++k){
+        // PATH HEADING: far from the goal the yaw is held on the direction to the goal, or on the opposite one if
+        // the robot is walking backwards (the one closer to the yaw now), so it does not drift
+        const double dist_now = std::hypot(goal_x_now - x0_local[0], goal_y_now - x0_local[1]);
+        const double bearing = std::atan2(goal_y_now - x0_local[1], goal_x_now - x0_local[0]);
+        const double theta_path = (std::abs(angles::shortest_angular_distance(x0_local[2], bearing)) > M_PI_2) 
+                                    ? angles::normalize_angle(bearing + M_PI) : bearing;
+        // at the goal the direction is not defined: no path weight closer than d_near
+        const double w_path = (dist_now > cfg_.heading_d_near) ? cfg_.heading_path_weight : 0.0;
+        for(int k = 0; k <= n_horizon_; ++k) {
             std::vector<double> p = gait_local.hipOffsetParams(k);
-            for(const auto& obs : obstacles){
+            for(const auto& obs : obstacles) {
                 p.insert(p.end(), {obs.x, obs.y, obs.radius, obs.y_dot_max});
             }
             const std::vector<double>& x_pred = (k == 0) ? x0_local : x_prev_sol_[k];
-            const double s_align = has_yaw ? headingBlend(std::hypot(goal_x_now - x_pred[0], goal_y_now - x_pred[1])) : 1.0;
-            p.insert(p.end(), {s_align, theta_goal});
+            double s_align = 1.0 - w_path;
+            double theta_ref = theta_path;
+            if (has_yaw) {
+                // b = 1 far, b = 0 at the goal, reference turns smoothly between them            }
+                const double b = headingBlend(std::hypot(goal_x_now - x_pred[0], goal_y_now - x_pred[1]));
+                s_align = b * (1.0 - w_path);
+                theta_ref = theta_path + (1.0 - b) * angles::shortest_angular_distance(theta_path, theta_goal);
+            } 
+            p.insert(p.end(), {s_align, theta_ref});
             mpc_solver_->setParameters(k, p);
         }
         mpc_solver_->setFirstStepDuration(gait_local.timeLeft());

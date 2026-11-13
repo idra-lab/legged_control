@@ -32,6 +32,8 @@ public:
     virtual ~Obstacle() = default;
     
     virtual void update(double dt, double t, double robot_x, double robot_y) = 0;
+    // true: it follows the robot, so it stands still while the robot is not walking (updateAll)
+    virtual bool chasesRobot() const { return false; }
     const ObstacleState& state() const { return state_; }
 
 protected:
@@ -74,10 +76,36 @@ private:
 
 
 
+// CIRCULAR: around a centre, starting from pos, constant speed along the circle (radius = |pos - centre|).
+// Position from the time of the motion like DYNAMIC: same path at every test, restarts from pos after a reset
+class CircularObstacle : public Obstacle {
+public:
+    CircularObstacle(const ObstacleState& state, double center_x, double center_y, double speed, bool clockwise)
+        : Obstacle(state), center_x_(center_x), center_y_(center_y),
+          radius_(std::hypot(state.x - center_x, state.y - center_y)),
+          angle0_(std::atan2(state.y - center_y, state.x - center_x)),
+          omega_((clockwise ? -1.0 : 1.0) * (radius_ > 1e-5 ? speed / radius_ : 0.0)) {}
+
+    void update(double, double t, double, double) override {
+        const double angle = angle0_ + omega_ * t;
+        state_.x = center_x_ + radius_ * std::cos(angle);
+        state_.y = center_y_ + radius_ * std::sin(angle);
+    }
+
+private:
+    double center_x_, center_y_;
+    double radius_;
+    double angle0_;
+    double omega_;  // rad/s, negative = clockwise
+};
+
+
+
 // ADVERARIAL: straight towards the robot
 class AdversarialObstacle : public Obstacle {
 public: 
     AdversarialObstacle(const ObstacleState& state, double speed) : Obstacle(state), speed_(speed) {}
+    bool chasesRobot() const override { return true; }
 
 
     void update(double dt, double, double robot_x, double robot_y) override {
@@ -153,6 +181,8 @@ public:
                 obstacles_.push_back(std::make_unique<StaticObstacle>(state));
             } else if (obs.type == "dynamic") {
                 obstacles_.push_back(std::make_unique<DynamicObstacle>(state, obs.end_x, obs.end_y, obs.speed));
+            } else if (obs.type == "circular") {
+                obstacles_.push_back(std::make_unique<CircularObstacle>(state, obs.center_x, obs.center_y, obs.speed, obs.clockwise));
             } else if (obs.type == "adversarial") {
                 obstacles_.push_back(std::make_unique<AdversarialObstacle>(state, obs.speed));
             } else {
@@ -175,8 +205,11 @@ public:
     }
 
 
-    void updateAll(double dt, double t, double robot_x, double robot_y){
-        for (const auto& obs : obstacles_) obs->update(dt, t, robot_x, robot_y);
+    // robot_walking false: the obstacles that chase the robot (adversarial) stand still, the others keep moving
+    void updateAll(double dt, double t, double robot_x, double robot_y, bool robot_walking = true){
+        for (const auto& obs : obstacles_) {
+            obs->update((robot_walking || !obs->chasesRobot()) ? dt : 0.0, t, robot_x, robot_y);
+        }
     }
 
 

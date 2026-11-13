@@ -71,7 +71,7 @@ def create_lipm_ocp(
     uh_obs = uh_obs_single * cfg.obstacles.N_OBS_MAX
 
     # (v_loc_x, v_loc_y) limits local velocities
-    lh_vel = [-cfg.limits.v_max_x, -cfg.limits.v_max_y] 
+    lh_vel = [-cfg.limits.v_min_x, -cfg.limits.v_max_y] 
     uh_vel = [cfg.limits.v_max_x, cfg.limits.v_max_y] 
 
     # ---- Constraints on state ----

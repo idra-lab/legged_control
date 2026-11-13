@@ -42,6 +42,7 @@ LipmConfig LipmConfig::fromYaml(const std::string& path){
     cfg.dt_min = readKey<double>(root, "limits", "dt_min");
     cfg.dt_max = readKey<double>(root, "limits", "dt_max");
     cfg.v_max_x = readKey<double>(root, "limits", "v_max_x");
+    cfg.v_min_x = readKey<double>(root, "limits", "v_min_x");
     cfg.v_max_y = readKey<double>(root, "limits", "v_max_y");
     cfg.theta_dot_max = readKey<double>(root, "limits", "theta_dot_max");
     cfg.tau_max_hip = readKey<double>(root, "limits", "tau_max_hip");
@@ -70,6 +71,7 @@ LipmConfig LipmConfig::fromYaml(const std::string& path){
     cfg.heading_d_near = blend_dist[0];
     cfg.heading_d_far = blend_dist[1];
     cfg.yaw_tolerance = readKey<double>(root, "heading", "yaw_tolerance");
+    cfg.heading_path_weight = readKey<double>(root, "heading", "path_weight");
 
 
     cfg.N_OBS_MAX = readKey<int>(root, "obstacles", "N_OBS_MAX");
@@ -88,6 +90,15 @@ LipmConfig LipmConfig::fromYaml(const std::string& path){
         obstacle.end_x = pos_end[0];
         obstacle.end_y = pos_end[1];
         obstacle.speed = obs["speed"].as<double>(0.0);
+        if (obstacle.type == "circular") {
+            const auto center = obs["center"].as<std::vector<double>>(std::vector<double>{});
+            if (center.size() != 2) {
+                throw std::runtime_error("[LipmConfig]: circular obstacle needs center: [x, y]!!");
+            }
+            obstacle.center_x = center[0];
+            obstacle.center_y = center[1];
+            obstacle.clockwise = obs["clockwise"].as<bool>(false);
+        }
         obstacle.obstacle_class = obs["class"].as<std::string>("human");
         if (obstacle.obstacle_class != "human" && obstacle.obstacle_class != "car"){
             throw std::runtime_error("[LipmConfig]: obstacle class '" + obstacle.obstacle_class + "' unknown (human, car)!");

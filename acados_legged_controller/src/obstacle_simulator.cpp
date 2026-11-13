@@ -9,6 +9,7 @@
 #include <legged_controllers/msg/obstacle_array.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <sensor_msgs/msg/joint_state.hpp>
 #include <std_srvs/srv/set_bool.hpp>
 #include <std_srvs/srv/trigger.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
@@ -52,6 +53,19 @@ public:
             [this](const nav_msgs::msg::Odometry::SharedPtr msg) {
                 robot_x_ = msg->pose.pose.position.x;
                 robot_y_ = msg->pose.pose.position.y;
+            });
+
+        // Phase of the controller (0 STAND_UP, 1 STANCE, 2 WALK) from /monitor: adversarial obstacles stand still
+        // while the robot is not walking. No /monitor (controller not running): they move as before
+        monitor_sub_ = create_subscription<sensor_msgs::msg::JointState>("/monitor", 10,
+            [this](const sensor_msgs::msg::JointState::SharedPtr msg) {
+                for (size_t i = 0; i < msg->name.size() && i < msg->position.size(); ++i) {
+                    if (msg->name[i] == "phase") {
+                        robot_walking_ = (static_cast<int>(msg->position[i]) == 2);
+                        last_phase_time_ = now();
+                        return;
+                    }
+                }
             });
 
         // REPEATABLE TESTS: ~/reset puts the obstacles back at their start and pauses them. The first obstacle of
@@ -111,7 +125,8 @@ private:
 
         if (moving_) {
             t_moving_ += dt;    // time of the motion only: dynamic ones restart when paused
-            manager_->updateAll(dt, t_moving_, robot_x_, robot_y_);
+            const bool phase_known = last_phase_time_.nanoseconds() > 0 && (time - last_phase_time_).seconds() < 1.0;
+            manager_->updateAll(dt, t_moving_, robot_x_, robot_y_, !phase_known || robot_walking_);
         }
         const std::vector<ObstacleState> states = manager_->active();
 
@@ -168,11 +183,14 @@ private:
     double t_moving_ = 0.0;
     double robot_x_ = 0.0;
     double robot_y_ = 0.0;
+    bool robot_walking_ = false;
+    rclcpp::Time last_phase_time_{0, 0, RCL_ROS_TIME};
     rclcpp::Time last_time_;
 
     rclcpp::Publisher<ObstacleArrayMsg>::SharedPtr obstacles_pub_;
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr markers_pub_;
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
+    rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr monitor_sub_;
     rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr moving_srv_;
     rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr reset_srv_;
     rclcpp::TimerBase::SharedPtr timer_;

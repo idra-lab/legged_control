@@ -13,6 +13,9 @@ struct ObstacleConfig {
     double end_x = 0.0;     // m
     double end_y = 0.0;     // m
     double speed = 0.0;     // m/s
+    double center_x = 0.0;  // m, circular: centre of the circle
+    double center_y = 0.0;  // m
+    bool clockwise = false; // circular: direction of rotation
     std::string obstacle_class = "human";   // class in legged_controllers/msg/Obstacle: "human" or "car"
 };
 
@@ -48,7 +51,7 @@ struct LipmConfig {
     // limits
     double dt_min;                      // sec
     double dt_max;                      // sec
-    double v_max_x, v_max_y;            // m/s
+    double v_max_x, v_min_x, v_max_y;            // m/s
     double theta_dot_max;               // rad/s
     double tau_max_hip, tau_max_knee;   // Nm 
 
@@ -67,6 +70,7 @@ struct LipmConfig {
     double heading_d_near;  // m, only goal yaw below this distance
     double heading_d_far;   // m, only velocity alignment above this distance
     double yaw_tolerance;   // rad, WALK -> STANCE only if the yaw error is below this
+    double heading_path_weight; // 0..1 far from the goal: weight of the yaw towards the goal direction (s_align = 1 - this)
 
     // obstacles
     int N_OBS_MAX;

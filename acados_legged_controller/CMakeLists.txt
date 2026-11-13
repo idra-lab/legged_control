@@ -220,6 +220,7 @@ target_link_libraries(obstacle_simulator
 ament_target_dependencies(obstacle_simulator
   rclcpp
   nav_msgs
+  sensor_msgs
   std_srvs
   visualization_msgs
   ament_index_cpp

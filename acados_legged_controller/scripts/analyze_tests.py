@@ -13,6 +13,10 @@ Writes in the campaign folder:
                   4_speed.png          mean and maximum speed, maximum frontal |v_x| and lateral |v_y| speed
                   5_time_to_goal.png   time to reach the goal (successful tests)
                   6_paths.png          paths, one panel per obstacle speed
+                  7_solver_failures.png mean number of failed solves per test, per obstacle speed
+                  8_torques.png        knee torques (peak, time near the limit, measured / commanded), joint speeds
+                  9_straightness.png   distance from the straight line start - goal, yaw drift
+                  (8 and 9 group the tests by --note when the tests have one, else by obstacle speed)
   plots/tests/<test>.png   time series of one test: roll, pitch, local v_x, v_y, controls alpha, beta, gamma, dt
 
 Window of the metrics: from the goal of the test (t_goal) to its end (t_end), as detected by record_test.py.
@@ -32,7 +36,8 @@ import yaml
 from rclpy.serialization import deserialize_message
 from rosidl_runtime_py.utilities import get_message
 
-TOPICS = ['/monitor', '/mpc_stats', '/odom', '/opti_pessi/obstacles']
+TOPICS = ['/monitor', '/mpc_stats', '/odom', '/opti_pessi/obstacles', '/joint_states']
+LEGS = ['LF', 'RF', 'LH', 'RH']
 TRUNK = {'trunk_length': 0.647, 'trunk_width': 0.150}   # body of the robot (URDF trunk), if meta.yaml has none
 
 # Colours: status good / critical for the outcome (always with a marker shape too), categorical blue / orange
@@ -171,6 +176,56 @@ def analyze_test(test_dir):
     row['min_dist_body_m'] = r3(np.nanmin(dist)) if np.isfinite(dist).any() else math.nan
     row['collision'] = bool(np.nanmin(dist) < 0.0) if np.isfinite(dist).any() else ''
 
+    # Joints, while the robot moves (|v| > 0.15 m/s): commanded torque = tau_* of /monitor (feedforward + PD),
+    # measured torque = effort of /joint_states (tauEst of the motors, estimated from the current)
+    js = [(t, m) for t, m in data.get('/joint_states', []) if t0 <= t <= t1]
+    if mon['t'].size and js and 'v_x' in mon:
+        names = list(js[0][1].name)
+        tj = np.array([t for t, _ in js])
+        eff = np.array([m.effort for _, m in js])
+        vel = np.array([m.velocity for _, m in js])
+        idx = np.minimum(np.searchsorted(tj, mon['t']), len(tj) - 1)
+        moving = np.hypot(mon['v_x'], mon['v_y']) > 0.15
+        tau_lim = config.get('limits', {}).get('tau_max_knee', 44.4)
+        if moving.sum() > 10 and eff.shape[1] == len(names):
+            for leg in LEGS:
+                n = f'{leg}_KFE'
+                if f'tau_{n}' not in mon or n not in names:
+                    continue
+                cmd = np.abs(mon[f'tau_{n}'][moving])
+                meas = np.abs(eff[idx, names.index(n)][moving])
+                row[f'knee_p95_{leg}_Nm'] = r3(np.percentile(cmd, 95))
+                row[f'knee_sat_{leg}_pct'] = r3(100.0 * np.mean(cmd > 0.95 * tau_lim))
+                high = cmd > 15.0
+                row[f'knee_ratio_{leg}'] = r3(np.mean(meas[high] / cmd[high])) if high.sum() > 5 else math.nan
+            for joint, key in (('HFE', 'hip_speed_rads'), ('KFE', 'knee_speed_rads')):
+                cols = [names.index(f'{leg}_{joint}') for leg in LEGS if f'{leg}_{joint}' in names]
+                if cols:
+                    row[key] = r3(np.mean(np.abs(vel[idx][moving][:, cols])))
+            front = [row.get(f'knee_p95_{l}_Nm', math.nan) for l in ('LF', 'RF')]
+            rear = [row.get(f'knee_p95_{l}_Nm', math.nan) for l in ('LH', 'RH')]
+            row['knee_p95_front_Nm'] = r3(np.nanmax(front)) if np.isfinite(front).any() else math.nan
+            row['knee_p95_rear_Nm'] = r3(np.nanmax(rear)) if np.isfinite(rear).any() else math.nan
+            sat = [row.get(f'knee_sat_{l}_pct', math.nan) for l in ('LH', 'RH')]
+            row['knee_sat_rear_pct'] = r3(np.nanmax(sat)) if np.isfinite(sat).any() else math.nan
+            ratio = [row.get(f'knee_ratio_{l}', math.nan) for l in ('LH', 'RH')]
+            row['knee_ratio_rear'] = r3(np.nanmin(ratio)) if np.isfinite(ratio).any() else math.nan
+
+    # Straightness: distance from the straight line start - goal, yaw drift from the yaw at the goal while the robot
+    # is farther from the goal than heading.blend_dist[1] (there the goal yaw does not count yet)
+    if odom['t'].size > 1 and all(math.isfinite(v) for v in (*start, *goal[:2])):
+        sx, sy = start
+        lx, ly = goal[0] - sx, goal[1] - sy
+        length = math.hypot(lx, ly)
+        if length > 0.1:
+            row['cross_track_max_m'] = r3(np.max(np.abs((odom['x'] - sx) * ly - (odom['y'] - sy) * lx) / length))
+            d_far = (config.get('heading', {}).get('blend_dist') or [0.4, 1.2])[1]
+            far = np.hypot(odom['x'] - goal[0], odom['y'] - goal[1]) > d_far
+            yaw0 = before['yaw'][-1] if before['t'].size else odom['yaw'][0]
+            if far.any():
+                drift = np.angle(np.exp(1j * (odom['yaw'][far] - yaw0)))
+                row['yaw_drift_max_deg'] = r3(np.degrees(np.max(np.abs(drift))))
+
     # Computation: one /mpc_stats message per solve
     stats = named_series(data['/mpc_stats'], t0, t1)
     solve = stats['solve_time_ms'] if stats['t'].size else np.array([])
@@ -249,7 +304,13 @@ def summarize(rows, solves_by_speed):
              'solve_std_ms': r3(np.std(solve)) if solve.size else math.nan,
              'solve_p95_ms': r3(np.percentile(solve, 95)) if solve.size else math.nan,
              'solve_max_ms': r3(np.max(solve)) if solve.size else math.nan,
-             'solver_failures': int(sum(r.get('solver_failures') or 0 for r in g))}
+             'solver_failures': int(sum(r.get('solver_failures') or 0 for r in g)),
+             'knee_p95_rear_mean_Nm': stat([r.get('knee_p95_rear_Nm') for r in g], np.mean),
+             'knee_sat_rear_mean_pct': stat([r.get('knee_sat_rear_pct') for r in g], np.mean),
+             'knee_ratio_rear_mean': stat([r.get('knee_ratio_rear') for r in g], np.mean),
+             'hip_speed_mean_rads': stat([r.get('hip_speed_rads') for r in g], np.mean),
+             'cross_track_max_mean_m': stat([r.get('cross_track_max_m') for r in g], np.mean),
+             'yaw_drift_max_mean_deg': stat([r.get('yaw_drift_max_deg') for r in g], np.mean)}
         summary.append(s)
     return summary
 
@@ -460,6 +521,74 @@ def plot_solver_failures(path, rows):
     save(fig, path)
 
 
+def group_label(r, by_note):
+    return (r.get('note') or '(no note)') if by_note else f"{r['speed']:.2f} m/s"
+
+
+def scatter_by_group(ax, rows, key, ylabel, title, labels, by_note):
+    """Categorical version of scatter_by_speed: one marker per test, black bar = mean of the group."""
+    for gx, label in enumerate(labels):
+        g = [r for r in rows if group_label(r, by_note) == label]
+        vals = []
+        for i, r in enumerate(g):
+            v = r.get(key)
+            if isinstance(v, (int, float)) and math.isfinite(v):
+                c, m = OUTCOME_STYLE[r['outcome']]
+                ax.plot(jitter(gx, i, len(g), width=0.3), v, marker=m, color=c, ls='', markersize=8,
+                        markeredgecolor='white', markeredgewidth=0.8, alpha=0.9)
+                vals.append(v)
+        if vals:
+            ax.plot([gx - 0.25, gx + 0.25], [np.mean(vals)] * 2, color=INK, lw=2)
+    ax.set_xticks(range(len(labels)))
+    ax.set_xticklabels(labels)
+    ax.set_xlim(-0.6, len(labels) - 0.4)
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+
+
+def plot_joints(out_dir, rows, config):
+    plt = _plt()
+    rows = [r for r in rows if 'knee_p95_rear_Nm' in r or 'cross_track_max_m' in r]
+    if not rows:
+        return
+    by_note = any(r.get('note') for r in rows)
+    labels = []
+    for r in rows:
+        if group_label(r, by_note) not in labels:
+            labels.append(group_label(r, by_note))
+    xlabel = 'note of the test (--note)' if by_note else 'obstacle speed'
+    tau_lim = config.get('limits', {}).get('tau_max_knee', 44.4) if config else 44.4
+
+    fig, axes = plt.subplots(2, 3, figsize=(16, 9))
+    panels = [
+        (axes[0, 0], 'knee_p95_front_Nm', 'torque [Nm]', 'Front knees: peak commanded torque (p95, worst leg)'),
+        (axes[0, 1], 'knee_p95_rear_Nm', 'torque [Nm]', 'Rear knees: peak commanded torque (p95, worst leg)'),
+        (axes[0, 2], 'knee_sat_rear_pct', 'time [%]', f'Rear knees: time above 95% of the limit ({tau_lim:g} Nm)'),
+        (axes[1, 0], 'knee_ratio_rear', 'measured / commanded', 'Rear knees: measured / commanded torque (worst leg)'),
+        (axes[1, 1], 'hip_speed_rads', 'speed [rad/s]', 'Hips (HFE): mean |joint speed|'),
+        (axes[1, 2], 'knee_speed_rads', 'speed [rad/s]', 'Knees (KFE): mean |joint speed|'),
+    ]
+    for ax, key, ylabel, title in panels:
+        scatter_by_group(ax, rows, key, ylabel, title, labels, by_note)
+        ax.set_xlabel(xlabel)
+    for ax in (axes[0, 0], axes[0, 1]):
+        ax.axhline(tau_lim, color=GRAY, lw=1, ls='--')
+    axes[1, 0].axhline(1.0, color=GRAY, lw=1, ls='--')
+    outcome_legend(axes[0, 0])
+    fig.suptitle('Joints while the robot moves (|v| > 0.15 m/s), bar: mean of the group, dashed: limit / ideal')
+    save(fig, os.path.join(out_dir, '8_torques.png'))
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4.5))
+    scatter_by_group(axes[0], rows, 'cross_track_max_m', 'distance [m]',
+                     'Max distance from the straight line start - goal', labels, by_note)
+    scatter_by_group(axes[1], rows, 'yaw_drift_max_deg', 'yaw [deg]',
+                     'Max yaw drift from the start, far from the goal', labels, by_note)
+    for ax in axes:
+        ax.set_xlabel(xlabel)
+    outcome_legend(axes[0])
+    save(fig, os.path.join(out_dir, '9_straightness.png'))
+
+
 def plot_test(path, s):
     plt = _plt()
     t0, t1 = s['t0'], s['t1']
@@ -549,6 +678,7 @@ def main():
     os.makedirs(plots, exist_ok=True)
     plot_campaign(plots, rows, summary, solves_by_speed, series_list)
     plot_solver_failures(os.path.join(plots, '7_solver_failures.png'), rows)
+    plot_joints(plots, rows, series_list[0]['config'] if series_list else None)
     if not args.no_test_plots:
         os.makedirs(os.path.join(plots, 'tests'), exist_ok=True)
         for s in series_list:

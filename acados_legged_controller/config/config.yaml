@@ -5,7 +5,7 @@ robot:
   Iz: 1.048                     # kg/m^2
   off_x: 0.2407                 # m
   off_y: 0.134                  # m
-  mu: 0.6                       #
+  mu: 0.8                       #
   max_ext_sq: 0.0625              # 0.25 * 0.25
   x_init: [-0.8, -0.5]          # m
   theta_init: 0.0               # rad
@@ -17,8 +17,9 @@ robot:
 limits:
   dt_min: 0.2                   # sec
   dt_max: 0.3                   # sec
-  theta_dot_max: 0.6            # rad/sec
+  theta_dot_max: 0.8            # rad/sec
   v_max_x: 1.5                  # m/s
+  v_min_x: 1.5                  # m/s
   v_max_y: 0.45                 # m/s
   alpha_min: 0.1                #
   alpha_max: 0.9                #
@@ -54,6 +55,7 @@ simulation:
 heading:
   blend_dist: [0.4, 1.2]        # m, [d_near, d_far]: only goal yaw below d_near, only velocity above d_far
   yaw_tolerance: 0.10           # rad, WALK -> STANCE only if also the yaw error is below this
+  path_weight: 0.4              # 0...1, far from the goal: share of the heading cost that holds the yaw on the direction to the goal
 
 
 
@@ -76,11 +78,13 @@ obstacles:
   obs_type: "random"            # static, dynamic, adversarial, circular, random
   obs_center: [1.0, 0.2]        # m
   instances: 
-    - {type: "dynamic", class: "human", pos: [2.0, 0.5], pos_end: [2.0, -0.5], r_obs: 0.15, speed: 0.5, y_dot_max: 1.0}                
+    - {type: "adversarial", pos: [0.3, 0.8], r_obs: 0.2, speed: 0.2, y_dot_max: 1.0}
+    # circular: starts at pos, turns around center (radius = |pos - center|), speed in m/s along the circle,
+    # clockwise optional (default false = counter-clockwise)
+    # - {type: "circular", class: "human", pos: [2.0, 0.8], center: [2.0, 0.0], r_obs: 0.3, speed: 0.4, clockwise: false, y_dot_max: 1.0}
+    # - {type: "dynamic", class: "human", pos: [2.0, 0.5], pos_end: [2.0, -0.5], r_obs: 0.15, speed: 0.5, y_dot_max: 1.0}                
     # - {type: "adversarial", pos: [2.0, 1.0], r_obs: 0.3, speed: 0.5, y_dot_max: 1.0}
-  # {type: "static", pos: [1.5, 0.1], r_obs: 0.3, y_dot_max: 0.1}
-  # {type: "dynamic", pos: [5.0, 5.0], pos_end: [5.0, -5.0], r_obs: 0.3, speed: 0.5, y_dot_max: 1.0}
-  # {type: "adversarial", pos: [2.0, 1.0], r_obs: 0.3, speed: 0.5, y_dot_max: 1.0}
+    # - {type: "static", pos: [2.0, 0], r_obs: 0.3, y_dot_max: 1.0}
   random:
     count: 0                    # 0 = 0ff
     seed: 42
@@ -98,4 +102,4 @@ controller:
   kd_wbc: 3.0                   # joint damping with the WBC torques, all joints (OptiPessiController)
   stance_blend: 1.0             # sec
   swing_height: 0.080            # m
-  com_height: 0.37              # m, whole-body CoM height tracked by the WBC (h_com stays the one of the acados model). The CoM is ~1.1 cm below the base: 0.37 = base at ~0.38
+  com_height: 0.39              # m, whole-body CoM height of STAND_UP (q_stand), STANCE and WALK (h_com stays the one of the acados model). The CoM is ~1.6 cm below the base: 0.37 = base at ~0.386

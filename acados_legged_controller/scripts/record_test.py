@@ -408,6 +408,9 @@ def main():
             'obstacle_start': obstacle_start if obstacle_used else None,
             'obstacle_end': [float(v) for v in obs_cfg['pos_end']]
                             if obstacle_used and obs_cfg.get('pos_end') else None,
+            'obstacle_type': obs_cfg.get('type') if obstacle_used else None,
+            'obstacle_center': [float(v) for v in obs_cfg['center']]
+                               if obstacle_used and obs_cfg.get('center') else None,
             'final_pose': list(snap['pose']) if snap['pose'] else None,
             'phase_events': [[round(t, 3), p] for t, p in snap['events']],
             'body': BODY, 'config': 'config.yaml',
