@@ -3,7 +3,7 @@
        opti_pessi_interface opti_pessi_scenario.py, run with its person flag, puts its obstacle.
        The robot spawns at the world origin, with no argument to move it: the script gives the person world
        positions, and takes for the world frame the lio_map of FAST-LIO started with the robot standing at the spawn
-       (odom, until lio_odom_alignment.py runs). -->
+       (odom, until FAST-LIO publishes odom -> lio_map). -->
   <set_env
     name="GZ_SIM_RESOURCE_PATH"
     value="$(find-pkg-share legged_gazebo)/models"/>

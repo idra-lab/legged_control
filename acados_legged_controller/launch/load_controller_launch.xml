@@ -2,7 +2,7 @@
 <!-- AcadosLeggedController in a world launched with our controllers file, in place of load_optipessicontroller_launch.xml:
        ros2 launch legged_unitree_description empty_room_launch.xml controllers_yaml:=<acados_legged_controller share>/config/ros2_controllers.yaml
      (example_warehouse_launch.xml takes the same argument; ros2_controllers.yaml sets the 500 Hz update rate). The robot stands up and walks on the first goal: the planner
-     bridges (tare_planner explore_warehouse_launch.xml, far_planner) send /opti_pessi/goal, relayed here to /goal_pose. -->
+     bridges (ranav_mission, started by ranav_bringup) send /opti_pessi/goal, relayed here to /goal_pose. -->
 <launch>
   <arg name="use_sim_time" default="true"/>
   <arg name="rviz" default="true" description="Launch RViz2: robot, MPC CoM and feet trajectories, footholds, goals"/>

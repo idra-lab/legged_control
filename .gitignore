@@ -56,3 +56,5 @@ CATKIN_IGNORE
 plots/
 
 opti_pessi_acados_solver/
+
+.venv/
