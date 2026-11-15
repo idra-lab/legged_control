@@ -11,8 +11,7 @@
 
 namespace legged {
 
-HoQp::HoQp(Task task, HoQp::HoQpPtr higherProblem)
-    : task_(std::move(task)), higherProblem_(std::move(higherProblem)) {
+HoQp::HoQp(Task task, HoQp::HoQpPtr higherProblem) : task_(std::move(task)), higherProblem_(std::move(higherProblem)) {
   initVars();
   formulateProblem();
   solveProblem();
@@ -64,21 +63,17 @@ void HoQp::buildHMatrix() {
   matrix_t zTaTaz(numDecisionVars_, numDecisionVars_);
 
   if (hasEqConstraints_) {
-    // Make sure that all eigenvalues of A_t_A are non-negative, which could
-    // arise due to numerical issues
+    // Make sure that all eigenvalues of A_t_A are non-negative, which could arise due to numerical issues
     matrix_t aCurrZPrev = task_.a_ * stackedZPrev_;
-    zTaTaz = aCurrZPrev.transpose() * aCurrZPrev +
-             1e-12 * matrix_t::Identity(numDecisionVars_, numDecisionVars_);
-    // This way of splitting up the multiplication is about twice as fast as
-    // multiplying 4 matrices
+    zTaTaz = aCurrZPrev.transpose() * aCurrZPrev + 1e-12 * matrix_t::Identity(numDecisionVars_, numDecisionVars_);
+    // This way of splitting up the multiplication is about twice as fast as multiplying 4 matrices
   } else {
     zTaTaz.setZero();
   }
 
-  h_ = (matrix_t(numDecisionVars_ + numSlackVars_,
-                 numDecisionVars_ + numSlackVars_) // clang-format off
+  h_ = (matrix_t(numDecisionVars_ + numSlackVars_, numDecisionVars_ + numSlackVars_)  // clang-format off
             << zTaTaz, zeroNvNx_.transpose(),
-                zeroNvNx_, eyeNvNv_) // clang-format on
+                zeroNvNx_, eyeNvNv_)  // clang-format on
            .finished();
 }
 
@@ -88,8 +83,7 @@ void HoQp::buildCVector() {
 
   vector_t temp(numDecisionVars_);
   if (hasEqConstraints_) {
-    temp =
-        (task_.a_ * stackedZPrev_).transpose() * (task_.a_ * xPrev_ - task_.b_);
+    temp = (task_.a_ * stackedZPrev_).transpose() * (task_.a_ * xPrev_ - task_.b_);
   } else {
     temp.setZero();
   }
@@ -109,11 +103,10 @@ void HoQp::buildDMatrix() {
 
   // NOTE: This is upside down compared to the paper,
   // but more consistent with the rest of the algorithm
-  d_ = (matrix_t(2 * numSlackVars_ + numPrevSlackVars_,
-                 numDecisionVars_ + numSlackVars_) // clang-format off
+  d_ = (matrix_t(2 * numSlackVars_ + numPrevSlackVars_, numDecisionVars_ + numSlackVars_)  // clang-format off
             << zeroNvNx_, -eyeNvNv_,
                 stackedTasksPrev_.d_ * stackedZPrev_, stackedZero,
-                dCurrZ, -eyeNvNv_) // clang-format on
+                dCurrZ, -eyeNvNv_)  // clang-format on
            .finished();
 }
 
@@ -128,9 +121,7 @@ void HoQp::buildFVector() {
   }
 
   f_ = (vector_t(2 * numSlackVars_ + numPrevSlackVars_) << zeroVec,
-        stackedTasksPrev_.f_ - stackedTasksPrev_.d_ * xPrev_ +
-            stackedSlackSolutionsPrev_,
-        fMinusDXPrev)
+        stackedTasksPrev_.f_ - stackedTasksPrev_.d_ * xPrev_ + stackedSlackSolutionsPrev_, fMinusDXPrev)
            .finished();
 }
 
@@ -144,16 +135,14 @@ void HoQp::buildZMatrix() {
 }
 
 void HoQp::solveProblem() {
-  auto qpProblem =
-      qpOASES::QProblem(numDecisionVars_ + numSlackVars_, f_.size());
+  auto qpProblem = qpOASES::QProblem(numDecisionVars_ + numSlackVars_, f_.size());
   qpOASES::Options options;
   options.setToMPC();
   options.printLevel = qpOASES::PL_LOW;
   qpProblem.setOptions(options);
   int nWsr = 20;
 
-  qpProblem.init(h_.data(), c_.data(), d_.data(), nullptr, nullptr, nullptr,
-                 f_.data(), nWsr);
+  qpProblem.init(h_.data(), c_.data(), d_.data(), nullptr, nullptr, nullptr, f_.data(), nWsr);
   vector_t qpSol(numDecisionVars_ + numSlackVars_);
 
   qpProblem.getPrimalSolution(qpSol.data());
@@ -164,11 +153,10 @@ void HoQp::solveProblem() {
 
 void HoQp::stackSlackSolutions() {
   if (higherProblem_ != nullptr) {
-    stackedSlackVars_ = Task::concatenateVectors(
-        higherProblem_->getStackedSlackSolutions(), slackVarsSolutions_);
+    stackedSlackVars_ = Task::concatenateVectors(higherProblem_->getStackedSlackSolutions(), slackVarsSolutions_);
   } else {
     stackedSlackVars_ = slackVarsSolutions_;
   }
 }
 
-} // namespace legged
+}  // namespace legged

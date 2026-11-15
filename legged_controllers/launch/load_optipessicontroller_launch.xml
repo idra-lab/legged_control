@@ -18,7 +18,6 @@
   <let name="urdfFile" value="/tmp/legged_control/$(var robot_type).urdf"/>
   <let name="taskFile" value="$(find-pkg-share legged_controllers)/config/$(var robot_type)/task.info"/>
   <let name="referenceFile" value="$(find-pkg-share legged_controllers)/config/$(var robot_type)/reference.info"/>
-  <let name="gaitCommandFile" value="$(find-pkg-share legged_controllers)/config/$(var robot_type)/gait.info"/>
   <!-- Opti-Pessi robot model: go2 has its own, the other robots use the Aliengo one -->
   <let name="optipessiFile" value="$(find-pkg-share opti_pessi_interface)/config/task.info"/>
   <let if="$(eval '\'$(var robot_type)\' == \'go2\'')" name="optipessiFile" value="$(find-pkg-share legged_controllers)/config/go2/opti_pessi_task.info"/>
@@ -37,7 +36,6 @@
     <param name="urdfFile" value="$(var urdfFile)"/>
     <param name="taskFile" value="$(var taskFile)"/>
     <param name="referenceFile" value="$(var referenceFile)"/>
-    <param name="gaitCommandFile" value="$(var gaitCommandFile)"/>
     <param name="optipessiFile" value="$(var optipessiFile)"/>
     <param name="scenarioFile" value="$(var scenarioFile)"/>
     <param name="libraryFolder" value="$(var libraryFolder)"/>
@@ -46,21 +44,8 @@
     <param name="fallRecoveryFile" value="$(var fallRecoveryFile)"/>
   </node>
 
-  <!-- If not using the joypad, keep using the old keyboard based program to select the gaits -->
-  <node unless="$(var joy)" pkg="ocs2_legged_robot_ros" exec="legged_robot_gait_command" name="legged_robot_gait_command" output="screen">
-    <param name="gaitCommandFile" value="$(var gaitCommandFile)"/>
-  </node>
-
-  <!-- If using the joypad, run a command that accepts joystick commands to switch between stance and trot gaits with a button press -->
-  <node if="$(var joy)" pkg="ocs2_legged_robot_ros" exec="legged_robot_gait_joy_command" name="legged_robot_gait_joy_command" output="screen">
-    <param name="gaitCommandFile" value="$(var gaitCommandFile)"/>
-  </node>
-
-  <node pkg="legged_controllers" exec="legged_target_trajectories_publisher" name="legged_robot_target" output="screen">
-    <param name="taskFile" value="$(var taskFile)"/>
-    <param name="referenceFile" value="$(var referenceFile)"/>
-  </node>
-
+  <!-- The goal comes on /opti_pessi/goal: no OCS2 gait command or target trajectories publisher (their legged_robot_*
+       topics are not those of the controller). Of the joypad only the shutdown button (joy.yaml) acts here -->
   <node if="$(var joy)" pkg="legged_controllers" exec="kill_node_sigint_service.py" name="kill_node_sigint" output="screen">
     <param name="allow_kill" value="true"/>
   </node>

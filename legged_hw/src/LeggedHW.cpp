@@ -5,7 +5,6 @@
 
 #include "legged_hw/LeggedHW.h"
 #include <hardware_interface/types/hardware_interface_type_values.hpp>
-#include <pluginlib/class_list_macros.hpp>
 
 namespace legged {
 
@@ -98,6 +97,3 @@ hardware_interface::return_type LeggedHW::write(const rclcpp::Time & /*time*/, c
 }
 
 }  // namespace legged
-
-// Export macro so pluginlib can recognize this package target as a viable ros2_control backend
-PLUGINLIB_EXPORT_CLASS(legged::LeggedHW, hardware_interface::SystemInterface)

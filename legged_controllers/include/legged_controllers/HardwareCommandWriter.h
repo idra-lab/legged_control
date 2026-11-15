@@ -35,10 +35,7 @@ namespace legged {
  * returned so the caller can abort its update() cycle (LeggedController returns
  * controller_interface::return_type::ERROR in that case; callers should do the same).
  *
- * Templated on the joint-handle type so both LeggedController's and OptiPessiController's
- * HybridJointHandle (two structurally-identical, independently-defined structs -- see the RULING in
- * task-12-brief.md, which forbids modifying LeggedController.h to share the type) satisfy it via
- * duck typing: any type exposing setCommand(pos, vel, kp, kd, effort) works.
+ * Templated on the joint-handle type: any type exposing setCommand(pos, vel, kp, kd, effort) works.
  */
 template <typename JointHandleT>
 bool writeHardwareCommand(std::vector<JointHandleT>& hybridJointHandles, const ocs2::CentroidalModelInfo& info,

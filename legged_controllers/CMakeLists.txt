@@ -60,13 +60,6 @@ target_include_directories(${PROJECT_NAME}_lib PUBLIC
         )
 
 # Use ROS 2 recommended macro to link and include ament dependencies
-#
-# NOTE: as with pinocchio (see target_link_libraries below), opti_pessi_wbc_bridge is passed
-# through ament_target_dependencies() -- unlike pinocchio it has no legacy *_LIBRARIES fallback
-# issue of its own, but it links pinocchio::pinocchio (the modern imported target) internally and
-# exports that transitively, so consuming it here does not reintroduce the dual-pinocchio conflict
-# documented in opti_pessi_wbc_bridge/CMakeLists.txt -- only calling ament_target_dependencies()
-# with "pinocchio" itself (which this file deliberately never does) would do that.
 ament_target_dependencies(${PROJECT_NAME}_lib
         rclcpp
         legged_common

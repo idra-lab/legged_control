@@ -18,8 +18,8 @@
 #include <rclcpp/rclcpp.hpp>
 
 // Hardware handlers and WBC
-// FIX: HardwareCommandWriter.h does not exist. LeggedController.h defines HybridJointHandle, ImuSensorHandle,
-// ContactSensorHandle and the 'using namespace ocs2 / legged_robot'
+// LeggedController.h defines HybridJointHandle, ImuSensorHandle, ContactSensorHandle and the
+// 'using namespace ocs2 / legged_robot'
 #include "legged_controllers/LeggedController.h"
 #include "legged_controllers/SafetyChecker.h"
 #include <ocs2_centroidal_model/CentroidalModelRbdConversions.h>

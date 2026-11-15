@@ -11,14 +11,13 @@ find_package(rclcpp REQUIRED)
 find_package(legged_common REQUIRED)
 find_package(controller_manager REQUIRED)
 find_package(hardware_interface REQUIRED)
-find_package(pluginlib REQUIRED)
 find_package(urdf REQUIRED)
 
 ###########
 ## Build ##
 ###########
 
-# Only build LeggedHW.cpp as a shared plugin library
+# LeggedHW: base class of the hardware plugins (legged_unitree_hw), not a plugin itself
 add_library(${PROJECT_NAME} SHARED
         src/LeggedHW.cpp
         )
@@ -35,12 +34,8 @@ ament_target_dependencies(${PROJECT_NAME} PUBLIC
         legged_common
         controller_manager
         hardware_interface
-        pluginlib
         urdf
         )
-
-# Register the plugin configuration file for ros2_control resource manager
-pluginlib_export_plugin_description_file(hardware_interface legged_hw_plugins.xml)
 
 #############
 ## Install ##
@@ -65,6 +60,6 @@ install(DIRECTORY include/
 ament_export_include_directories(include)
 ament_export_libraries(${PROJECT_NAME})
 ament_export_targets(${PROJECT_NAME})
-ament_export_dependencies(rclcpp legged_common controller_manager hardware_interface pluginlib urdf)
+ament_export_dependencies(rclcpp legged_common controller_manager hardware_interface urdf)
 
 ament_package()
