@@ -4,7 +4,7 @@ urdf/common/slam_box.xacro.
 
 Needs OpenCascade, which is not a ROS dependency: install it in a throwaway venv and run the script with it
     python3 -m venv /tmp/occ && /tmp/occ/bin/pip install cadquery-ocp
-    /tmp/occ/bin/python payload_inertia.py ~/RaNAV/src/legged_control/Nuc.step ~/RaNAV/src/legged_control/NewSlamBox.step
+    /tmp/occ/bin/python payload_inertia.py ~/ranav_ws/src/legged_control/Nuc.step ~/ranav_ws/src/legged_control/NewSlamBox.step
 
 The STEP files carry no materials, so every solid gets a density from the first rule of RULES whose pattern is in its
 assembly path (part names), and parts of known mass (the Airy, the IMU) get that mass spread over their volume. The
