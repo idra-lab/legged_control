@@ -30,9 +30,9 @@
     <xacro:property name="camera_mount_z" default="0"/>
     <xacro:property name="lidar_mount_x" default="${trunk_length/2 - 0.04}"/>
     <xacro:property name="lidar_mount_z" default="${trunk_height/2 + 0.01}"/>
-    <!-- Payload mounts: where the frame of the payload (center of its bottom face) sits on the trunk. Defaults: on the top
-         face of the trunk box, the NUC flush with its front edge, the slam box flush with its back edge, both on the
-         center line. MEASURE them on the robot and set them in const.xacro: the mass is what moves the CoM -->
+    <!-- Payload mounts: where the frame of the payload (center of its bottom face) sits on the trunk. The const.xacro of
+         the robot sets them (Aliengo: between the hip modules). Defaults otherwise, on the top face of the trunk box,
+         the NUC flush with its front edge, the slam box flush with its back edge, both on the center line -->
     <xacro:property name="nuc_mount_x" default="${trunk_length/2 - nuc_length/2}"/>
     <xacro:property name="nuc_mount_z" default="${trunk_height/2}"/>
     <xacro:property name="slam_box_mount_x" default="${-trunk_length/2 + slam_box_length/2}"/>
@@ -89,7 +89,7 @@
         </xacro:unless>
     </xacro:if>
 
-    <!-- NUC (urdf/common/nuc.xacro) on the front of the trunk. Where the front Airy above stands: not both -->
+    <!-- NUC (urdf/common/nuc.xacro) on the front of the trunk -->
     <xacro:if value="$(arg nuc)">
         <xacro:Nuc name="nuc" parent="base" xyz="${nuc_mount_x} 0 ${nuc_mount_z}"/>
     </xacro:if>

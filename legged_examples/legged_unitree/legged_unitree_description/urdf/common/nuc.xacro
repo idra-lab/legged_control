@@ -9,6 +9,8 @@
          nuc_mass, so only the mass needs a scale. A few mm of CoM or 20 % of the inertia about the CoM change the whole
          robot by little: what counts is the mass and where it sits (mount in robot.xacro).
          No collision geometry, so contacts are unchanged.
+         Comments inside the macro go into robot_description, which launch parses with yaml rules (param value), so
+         none of them may hold a colon followed by a space.
          nuc_mass: WEIGH the whole assembly (NUC, bracket, cover, plate, screws); 0.95 kg is the CAD estimate with a
          0.55 kg NUC. -->
     <xacro:property name="nuc_mass" value="0.95"/>

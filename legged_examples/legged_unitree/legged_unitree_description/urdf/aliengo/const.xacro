@@ -34,6 +34,13 @@
     <xacro:property name="trunk_offset_z" value="0.01675"/>
     <xacro:property name="hip_offset" value="0.083"/>
 
+    <!-- Payloads (robot.xacro nuc:=true, slam_box:=true) on the top of the trunk between the hip modules, not over the
+         hips. trunk.dae is full width (0.209 m) only for |x| < 0.164, the hip motors are past it. The NUC (long side
+         along x) touches the front end of that part, the slam box its back end, 9 mm apart. Top face z = trunk_height/2 -->
+    <xacro:property name="trunk_body_half_length" value="0.164"/>
+    <xacro:property name="nuc_mount_x" value="${trunk_body_half_length - nuc_length/2}"/>
+    <xacro:property name="slam_box_mount_x" value="${-trunk_body_half_length + slam_box_length/2}"/>
+
     <!-- joint limits -->
     <xacro:property name="damping" value="0.05"/>
     <xacro:property name="friction" value="0.01"/>

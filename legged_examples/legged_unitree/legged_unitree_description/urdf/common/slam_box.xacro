@@ -8,14 +8,17 @@
          The Airy sits on the top plate pitched 5 deg forward (about y, dome leaning to +x, as the Airy of robot.xacro);
          the center of its base, the origin of the rslidar frame, is at slam_box_airy_x/z. With lidar:=true the macro
          mounts the Airy frames and Gazebo sensors there (robosense_airy.xacro, without mass); with lidar:=false only a
-         visual. Mount-dependent elsewhere: frames.body_in_base and imu_R/extrinsic_R of ranav_bringup
-         config/fast_lio_airy*.yaml, which hold the pose of rslidar in base.
+         visual. Mount-dependent elsewhere (ranav_bringup config, used with slam_box:=true of its launches): the pose of
+         rslidar in base in fast_lio_airy_slam_box.yaml and fast_lio_airy_real_slam_box.yaml (body_in_base,
+         imu_R/extrinsic_R), its height in terrain_airy_slam_box.yaml.
          Inertial: the whole box, Airy included (one weighing). The CoM and the inertia per kg come from the CAD
          (scripts/payload_inertia.py): Airy 230 g, CX5 8 g, screws in steel, the printed parts in solid plastic. The tensor
          is multiplied by slam_box_mass, so only the mass needs a scale.
          The cage is within the 0.1 m blind zone of the Airy (closest point to the optical center 7 cm, farthest roof
          corner 9.3 cm): the simulated Airy does not see it either.
          No collision geometry, so contacts are unchanged.
+         Comments inside the macro go into robot_description, which launch parses with yaml rules (param value), so
+         none of them may hold a colon followed by a space.
          slam_box_mass: WEIGH the whole box with the Airy, the IMU and the screws; 0.74 kg is the CAD estimate with solid
          printed parts. -->
     <xacro:property name="slam_box_mass" value="0.74"/>
@@ -67,7 +70,7 @@
                     <color rgba="0.35 0.35 0.38 1"/>
                 </material>
             </visual>
-            <!-- roll cage: roof parallel to the base of the Airy, four pillars -->
+            <!-- roll cage, a roof parallel to the base of the Airy on four pillars -->
             <visual>
                 <origin rpy="0 ${slam_box_airy_pitch} 0" xyz="0.0105 0 0.1758"/>
                 <geometry>
@@ -79,7 +82,7 @@
             <xacro:slam_box_pillar x="-0.0437" y="0.0512" z="0.1439"/>
             <xacro:slam_box_pillar x="0.0584" y="-0.0512" z="0.1350"/>
             <xacro:slam_box_pillar x="0.0584" y="0.0512" z="0.1350"/>
-            <!-- without the Airy frames, the Airy is only drawn: robosense_airy.xacro draws it otherwise -->
+            <!-- without the Airy frames the Airy is only drawn here (robosense_airy.xacro draws it otherwise) -->
             <xacro:unless value="${lidar}">
                 <visual>
                     <origin rpy="0 ${slam_box_airy_pitch} 0"
