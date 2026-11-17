@@ -19,11 +19,11 @@
          The 900 x 96 grid at 10 Hz gives 864000 points/s; with the gap every 10th frame, ~856000 as in the datasheet.
          Not modeled: the 100 ms sweep (the gz scan is instantaneous), the real IMU mounting rotation/offset and its
          g units, the reflectivity scale (intensity is the gz retro value).
-         No collision geometry, so contacts are unchanged. -->
+         No collision geometry, so contacts are unchanged.
+         mass: 0 leaves the inertial out, for an Airy whose mass is already in its mount (slam_box.xacro). -->
     <xacro:macro name="RobosenseAiry" params="name:=rslidar parent xyz:='0 0 0' rpy:='0 0 0'
                                               update_rate:=10 samples_h:=900 imu:=true imu_rate:=200
-                                              optical_z:=0.04">
-        <xacro:property name="airy_mass" value="0.230"/>
+                                              optical_z:=0.04 mass:=0.230">
         <xacro:property name="airy_radius" value="0.030"/>
         <xacro:property name="airy_height" value="0.063"/>
 
@@ -33,13 +33,15 @@
             <child link="${name}"/>
         </joint>
         <link name="${name}">
-            <inertial>
-                <mass value="${airy_mass}"/>
-                <origin rpy="0 0 0" xyz="0 0 ${airy_height/2}"/>
-                <inertia ixx="${airy_mass/12*(3*airy_radius**2 + airy_height**2)}" ixy="0" ixz="0"
-                         iyy="${airy_mass/12*(3*airy_radius**2 + airy_height**2)}" iyz="0"
-                         izz="${airy_mass/2*airy_radius**2}"/>
-            </inertial>
+            <xacro:if value="${mass > 0}">
+                <inertial>
+                    <mass value="${mass}"/>
+                    <origin rpy="0 0 0" xyz="0 0 ${airy_height/2}"/>
+                    <inertia ixx="${mass/12*(3*airy_radius**2 + airy_height**2)}" ixy="0" ixz="0"
+                             iyy="${mass/12*(3*airy_radius**2 + airy_height**2)}" iyz="0"
+                             izz="${mass/2*airy_radius**2}"/>
+                </inertial>
+            </xacro:if>
             <visual>
                 <origin rpy="0 0 0" xyz="0 0 ${airy_height/2}"/>
                 <geometry>

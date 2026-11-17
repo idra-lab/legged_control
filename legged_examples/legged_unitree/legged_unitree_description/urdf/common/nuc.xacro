@@ -1,0 +1,47 @@
+<?xml version="1.0"?>
+
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="nuc">
+    <!-- NUC computer on its VESA bracket, inside its cover, on its base plate (CAD: legged_control/Nuc.step).
+         Frame ${name}: center of the bottom face of the bounding box of the assembly, x along its long side (forward),
+         z up. Mounted on the front of the trunk by robot.xacro (nuc:=true).
+         Inertial: the CoM and the inertia per kg come from the CAD (scripts/payload_inertia.py): bracket in steel, cover and
+         plate in solid plastic, the NUC a uniform box of its chassis (its STEP has no board). The tensor is multiplied by
+         nuc_mass, so only the mass needs a scale. A few mm of CoM or 20 % of the inertia about the CoM change the whole
+         robot by little: what counts is the mass and where it sits (mount in robot.xacro).
+         No collision geometry, so contacts are unchanged.
+         nuc_mass: WEIGH the whole assembly (NUC, bracket, cover, plate, screws); 0.95 kg is the CAD estimate with a
+         0.55 kg NUC. -->
+    <xacro:property name="nuc_mass" value="0.95"/>
+
+    <!-- Bounding box of the assembly [m] -->
+    <xacro:property name="nuc_length" value="0.1725"/>
+    <xacro:property name="nuc_width" value="0.1184"/>
+    <xacro:property name="nuc_height" value="0.0621"/>
+
+    <xacro:macro name="Nuc" params="name:=nuc parent xyz:='0 0 0' rpy:='0 0 0' mass:=${nuc_mass}">
+        <joint name="${name}_joint" type="fixed">
+            <origin xyz="${xyz}" rpy="${rpy}"/>
+            <parent link="${parent}"/>
+            <child link="${name}"/>
+        </joint>
+        <link name="${name}">
+            <inertial>
+                <mass value="${mass}"/>
+                <origin rpy="0 0 0" xyz="0.0003 0 0.0296"/>
+                <!-- inertia about the CoM [kg m^2] = mass * CAD inertia per kg [m^2] -->
+                <inertia ixx="${mass*0.001540}" ixy="0" ixz="${mass*-0.000002}"
+                         iyy="${mass*0.002354}" iyz="0"
+                         izz="${mass*0.003316}"/>
+            </inertial>
+            <visual>
+                <origin rpy="0 0 0" xyz="0 0 ${nuc_height/2}"/>
+                <geometry>
+                    <box size="${nuc_length} ${nuc_width} ${nuc_height}"/>
+                </geometry>
+                <material name="nuc_black">
+                    <color rgba="0.1 0.1 0.1 1"/>
+                </material>
+            </visual>
+        </link>
+    </xacro:macro>
+</robot>

@@ -11,11 +11,19 @@
   <!-- obstacles.numSlots of this file is the number of obstacles the OCP keeps out at once -->
   <arg name="scenarioFile"        default="$(find-pkg-share opti_pessi_interface)/config/scenario_live.info" description="Opti-Pessi scenario file: obstacle slot count and goal tolerance"/>
 
+  <!-- Model of the controller: the URDF of pinocchio (whole-body control, state estimator, and the LIP mass and yaw
+       inertia of Opti-Pessi), generated here from these four, apart from the URDF of the world/hw launch. Pass that
+       launch the same values for a model that matches the robot; different ones test a model error -->
+  <arg name="camera"   default="true"  description="D435i (72 g) in the controller model"/>
+  <arg name="lidar"    default="true"  description="RoboSense Airy (230 g) in the controller model; with slam_box:=true its mass is the box's"/>
+  <arg name="nuc"      default="false" description="NUC on the front of the trunk in the controller model (legged_unitree_description urdf/common/nuc.xacro)"/>
+  <arg name="slam_box" default="false" description="Slam box with the Airy on the back of the trunk in the controller model (urdf/common/slam_box.xacro)"/>
+
   <arg name="joy_dev" default="/dev/input/js0"/>
   <arg name="teleop_config" default="$(find-pkg-share legged_controllers)/config/joy.yaml"/>
 
-  <!-- make the files into global parameters -->
-  <let name="urdfFile" value="/tmp/legged_control/$(var robot_type).urdf"/>
+  <!-- make the files into global parameters. The URDF is written before the spawners start (command substitution) -->
+  <let name="urdfFile" value="$(command '$(find-pkg-prefix legged_common)/lib/legged_common/generate_urdf.sh $(find-pkg-share legged_unitree_description)/urdf/robot.xacro $(var robot_type) $(var camera) $(var lidar) $(var nuc) $(var slam_box) /tmp/legged_control/$(var robot_type)_controller.urdf' warn)"/>
   <let name="taskFile" value="$(find-pkg-share legged_controllers)/config/$(var robot_type)/task.info"/>
   <let name="referenceFile" value="$(find-pkg-share legged_controllers)/config/$(var robot_type)/reference.info"/>
   <!-- Opti-Pessi robot model: go2 has its own, the other robots use the Aliengo one -->

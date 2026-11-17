@@ -1,0 +1,102 @@
+<?xml version="1.0"?>
+
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="slam_box">
+    <!-- Slam box (CAD: legged_control/NewSlamBox.step): housing with a MicroStrain 3DM-CX5 IMU, top plate carrying the
+         RoboSense Airy, roll cage (4 pillars and a roof) over it.
+         Frame ${name}: center of the bottom face of the bounding box of the assembly, x forward, z up. Mounted on the back
+         of the trunk by robot.xacro (slam_box:=true).
+         The Airy sits on the top plate pitched 5 deg forward (about y, dome leaning to +x, as the Airy of robot.xacro);
+         the center of its base, the origin of the rslidar frame, is at slam_box_airy_x/z. With lidar:=true the macro
+         mounts the Airy frames and Gazebo sensors there (robosense_airy.xacro, without mass); with lidar:=false only a
+         visual. Mount-dependent elsewhere: frames.body_in_base and imu_R/extrinsic_R of ranav_bringup
+         config/fast_lio_airy*.yaml, which hold the pose of rslidar in base.
+         Inertial: the whole box, Airy included (one weighing). The CoM and the inertia per kg come from the CAD
+         (scripts/payload_inertia.py): Airy 230 g, CX5 8 g, screws in steel, the printed parts in solid plastic. The tensor
+         is multiplied by slam_box_mass, so only the mass needs a scale.
+         The cage is within the 0.1 m blind zone of the Airy (closest point to the optical center 7 cm, farthest roof
+         corner 9.3 cm): the simulated Airy does not see it either.
+         No collision geometry, so contacts are unchanged.
+         slam_box_mass: WEIGH the whole box with the Airy, the IMU and the screws; 0.74 kg is the CAD estimate with solid
+         printed parts. -->
+    <xacro:property name="slam_box_mass" value="0.74"/>
+
+    <!-- Bounding box of the assembly [m] -->
+    <xacro:property name="slam_box_length" value="0.1461"/>
+    <xacro:property name="slam_box_width" value="0.1461"/>
+    <xacro:property name="slam_box_height" value="0.1827"/>
+    <!-- Airy: center of its base (y = 0) and pitch in the slam_box frame -->
+    <xacro:property name="slam_box_airy_x" value="0.0037"/>
+    <xacro:property name="slam_box_airy_z" value="0.1016"/>
+    <xacro:property name="slam_box_airy_pitch" value="${5*pi/180}"/>
+
+    <!-- pillar of the roll cage, parallel to the dome axis of the Airy -->
+    <xacro:macro name="slam_box_pillar" params="x y z">
+        <visual>
+            <origin rpy="0 ${slam_box_airy_pitch} 0" xyz="${x} ${y} ${z}"/>
+            <geometry>
+                <box size="0.012 0.012 0.077"/>
+            </geometry>
+            <material name="slam_box_grey"/>
+        </visual>
+    </xacro:macro>
+
+    <xacro:macro name="SlamBox" params="name:=slam_box parent xyz:='0 0 0' rpy:='0 0 0' mass:=${slam_box_mass}
+                                        lidar:=true lidar_name:=rslidar">
+        <xacro:property name="housing_height" value="${slam_box_airy_z}"/>  <!-- up to the base of the Airy -->
+
+        <joint name="${name}_joint" type="fixed">
+            <origin xyz="${xyz}" rpy="${rpy}"/>
+            <parent link="${parent}"/>
+            <child link="${name}"/>
+        </joint>
+        <link name="${name}">
+            <inertial>
+                <mass value="${mass}"/>
+                <origin rpy="0 0 0" xyz="0.0032 -0.0001 0.0939"/>
+                <!-- inertia about the CoM [kg m^2] = mass * CAD inertia per kg [m^2] -->
+                <inertia ixx="${mass*0.003435}" ixy="${mass*0.000002}" ixz="${mass*-0.000070}"
+                         iyy="${mass*0.003424}" iyz="${mass*0.000004}"
+                         izz="${mass*0.002656}"/>
+            </inertial>
+            <visual>
+                <origin rpy="0 0 0" xyz="0 0 ${housing_height/2}"/>
+                <geometry>
+                    <box size="${slam_box_length} ${slam_box_width} ${housing_height}"/>
+                </geometry>
+                <material name="slam_box_grey">
+                    <color rgba="0.35 0.35 0.38 1"/>
+                </material>
+            </visual>
+            <!-- roll cage: roof parallel to the base of the Airy, four pillars -->
+            <visual>
+                <origin rpy="0 ${slam_box_airy_pitch} 0" xyz="0.0105 0 0.1758"/>
+                <geometry>
+                    <box size="0.122 0.122 0.003"/>
+                </geometry>
+                <material name="slam_box_grey"/>
+            </visual>
+            <xacro:slam_box_pillar x="-0.0437" y="-0.0512" z="0.1439"/>
+            <xacro:slam_box_pillar x="-0.0437" y="0.0512" z="0.1439"/>
+            <xacro:slam_box_pillar x="0.0584" y="-0.0512" z="0.1350"/>
+            <xacro:slam_box_pillar x="0.0584" y="0.0512" z="0.1350"/>
+            <!-- without the Airy frames, the Airy is only drawn: robosense_airy.xacro draws it otherwise -->
+            <xacro:unless value="${lidar}">
+                <visual>
+                    <origin rpy="0 ${slam_box_airy_pitch} 0"
+                            xyz="${slam_box_airy_x + 0.0315*sin(slam_box_airy_pitch)} 0 ${slam_box_airy_z + 0.0315*cos(slam_box_airy_pitch)}"/>
+                    <geometry>
+                        <cylinder radius="0.030" length="0.063"/>
+                    </geometry>
+                    <material name="airy_grey">
+                        <color rgba="0.2 0.2 0.2 1"/>
+                    </material>
+                </visual>
+            </xacro:unless>
+        </link>
+
+        <xacro:if value="${lidar}">
+            <xacro:RobosenseAiry name="${lidar_name}" parent="${name}" xyz="${slam_box_airy_x} 0 ${slam_box_airy_z}"
+                                 rpy="0 ${slam_box_airy_pitch} 0" mass="0"/>
+        </xacro:if>
+    </xacro:macro>
+</robot>

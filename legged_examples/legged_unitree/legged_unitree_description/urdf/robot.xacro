@@ -5,6 +5,9 @@
     <xacro:arg name="robot_type" default="a1"/>
     <xacro:arg name="camera" default="true"/>
     <xacro:arg name="lidar" default="true"/>
+    <!-- Payloads of the Aliengo, each on or off: NUC on the front of the trunk, slam box (with the Airy) on the back -->
+    <xacro:arg name="nuc" default="false"/>
+    <xacro:arg name="slam_box" default="false"/>
 
     <xacro:include filename="$(find legged_unitree_description)/urdf/common/materials.xacro"/>
     <xacro:include filename="$(find legged_unitree_description)/urdf/common/leg.xacro"/>
@@ -12,6 +15,8 @@
     <xacro:include filename="$(find legged_unitree_description)/urdf/common/imu.xacro"/>
     <xacro:include filename="$(find legged_unitree_description)/urdf/common/d435i.xacro"/>
     <xacro:include filename="$(find legged_unitree_description)/urdf/common/robosense_airy.xacro"/>
+    <xacro:include filename="$(find legged_unitree_description)/urdf/common/nuc.xacro"/>
+    <xacro:include filename="$(find legged_unitree_description)/urdf/common/slam_box.xacro"/>
 
     <xacro:include filename="$(find legged_unitree_description)/urdf/$(arg robot_type)/const.xacro"/>
 
@@ -25,6 +30,13 @@
     <xacro:property name="camera_mount_z" default="0"/>
     <xacro:property name="lidar_mount_x" default="${trunk_length/2 - 0.04}"/>
     <xacro:property name="lidar_mount_z" default="${trunk_height/2 + 0.01}"/>
+    <!-- Payload mounts: where the frame of the payload (center of its bottom face) sits on the trunk. Defaults: on the top
+         face of the trunk box, the NUC flush with its front edge, the slam box flush with its back edge, both on the
+         center line. MEASURE them on the robot and set them in const.xacro: the mass is what moves the CoM -->
+    <xacro:property name="nuc_mount_x" default="${trunk_length/2 - nuc_length/2}"/>
+    <xacro:property name="nuc_mount_z" default="${trunk_height/2}"/>
+    <xacro:property name="slam_box_mount_x" default="${-trunk_length/2 + slam_box_length/2}"/>
+    <xacro:property name="slam_box_mount_z" default="${trunk_height/2}"/>
 
     <link name="base"/>
     <joint name="base_inertia_joint" type="fixed">
@@ -69,9 +81,23 @@
          beside the robot it starts at the horizon. Near the robot it sees nothing lower than itself.
          History: 15 deg until 2026-10-13 (floor from ~1.9 m ahead, nothing behind below 15 deg), then upright for a
          few hours (no floor at all), then 5 deg.
-         Mount-dependent: FAST-LIO imu_R/extrinsic_R and the static TFs of fast_lio_slam_launch.xml. -->
+         Mount-dependent: FAST-LIO imu_R/extrinsic_R and the static TFs of fast_lio_slam_launch.xml.
+         With slam_box:=true the Airy is the one in the slam box (below), not this one. -->
     <xacro:if value="$(arg lidar)">
-        <xacro:RobosenseAiry name="rslidar" parent="base" xyz="${lidar_mount_x} 0 ${lidar_mount_z}" rpy="0 ${5*pi/180} 0"/>
+        <xacro:unless value="$(arg slam_box)">
+            <xacro:RobosenseAiry name="rslidar" parent="base" xyz="${lidar_mount_x} 0 ${lidar_mount_z}" rpy="0 ${5*pi/180} 0"/>
+        </xacro:unless>
+    </xacro:if>
+
+    <!-- NUC (urdf/common/nuc.xacro) on the front of the trunk. Where the front Airy above stands: not both -->
+    <xacro:if value="$(arg nuc)">
+        <xacro:Nuc name="nuc" parent="base" xyz="${nuc_mount_x} 0 ${nuc_mount_z}"/>
+    </xacro:if>
+
+    <!-- Slam box (urdf/common/slam_box.xacro) on the back of the trunk. Its mass includes the Airy; with lidar:=true it
+         also carries the rslidar frames and the simulated Airy, at the pose of the Airy in the box -->
+    <xacro:if value="$(arg slam_box)">
+        <xacro:SlamBox name="slam_box" parent="base" xyz="${slam_box_mount_x} 0 ${slam_box_mount_z}" lidar="$(arg lidar)"/>
     </xacro:if>
 
 

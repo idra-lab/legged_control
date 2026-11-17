@@ -9,12 +9,26 @@
   <arg name="params_file" default="$(find-pkg-share acados_legged_controller)/config/explore.yaml"
     description="Extra controller parameters (explore.yaml: simulated obstacles of config.yaml off)"/>
 
+  <!-- Model of the controller: the URDF of pinocchio (whole-body control, state estimator, stand posture), generated
+       here from these four, apart from the URDF of the world/hw launch. Pass that launch the same values for a model
+       that matches the robot. The LIPM of the MPC keeps robot.m and robot.Iz of config.yaml, compiled into the solver -->
+  <arg name="robot_type" default="aliengo" description="Robot of the model"/>
+  <arg name="camera"   default="true"  description="D435i (72 g) in the controller model"/>
+  <arg name="lidar"    default="true"  description="RoboSense Airy (230 g) in the controller model; with slam_box:=true its mass is the box's"/>
+  <arg name="nuc"      default="false" description="NUC on the front of the trunk in the controller model (legged_unitree_description urdf/common/nuc.xacro)"/>
+  <arg name="slam_box" default="false" description="Slam box with the Airy on the back of the trunk in the controller model (urdf/common/slam_box.xacro)"/>
+  <!-- written before the spawners start (command substitution) -->
+  <let name="urdfFile" value="$(command '$(find-pkg-prefix legged_common)/lib/legged_common/generate_urdf.sh $(find-pkg-share legged_unitree_description)/urdf/robot.xacro $(var robot_type) $(var camera) $(var lidar) $(var nuc) $(var slam_box) /tmp/legged_control/$(var robot_type)_controller.urdf' warn)"/>
+
   <node pkg="controller_manager" exec="spawner" name="broadcasters_spawner" output="screen"
     args="joint_state_broadcaster imu_sensor_broadcaster --controller-manager /controller_manager --controller-manager-timeout 120"/>
 
-  <!-- on_init takes about a minute: long service timeout -->
+  <!-- on_init takes about a minute: long service timeout. The spawner passes its parameters to the controller, after
+       the controllers yaml of the world launch: urdfFile here overrides the one of ros2_controllers.yaml -->
   <node pkg="controller_manager" exec="spawner" name="acados_legged_controller_spawner" output="screen"
-    args="acados_legged_controller --controller-manager /controller_manager --param-file $(var params_file) --service-call-timeout 300.0"/>
+    args="acados_legged_controller --controller-manager /controller_manager --param-file $(var params_file) --service-call-timeout 300.0">
+    <param name="urdfFile" value="$(var urdfFile)"/>
+  </node>
 
   <!-- The estimator publishes /odom but not the TF odom -> base -->
   <node pkg="acados_legged_controller" exec="odom_to_tf.py" name="odom_to_tf" output="screen">

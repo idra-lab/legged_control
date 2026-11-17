@@ -7,15 +7,17 @@
   <arg name="use_sim_time" default="true"/>
   <arg name="camera" default="true" description="Mount the Intel RealSense D435i and bridge its rgb/depth images"/>
   <arg name="lidar" default="true" description="Mount the RoboSense Airy and publish its point cloud/IMU on the rslidar_sdk topics"/>
+  <arg name="nuc" default="false" description="Mount the NUC on the front of the trunk (legged_unitree_description urdf/common/nuc.xacro)"/>
+  <arg name="slam_box" default="false" description="Mount the slam box on the back of the trunk, with the Airy in it (urdf/common/slam_box.xacro)"/>
   <arg name="server" default="true" description="If true, run Gazebo headless (server only). If false, include GUI."/>
   <arg name="x" default="-5.0" description="Robot spawn x in the world frame [m]"/>
   <arg name="y" default="-3.0" description="Robot spawn y in the world frame [m]"/>
   <arg name="controllers_yaml" default="$(find-pkg-share legged_controllers)/config/controllers.yaml"
     description="ros2_control controllers file of Gazebo (acados_legged_controller/config/ros2_controllers.yaml for AcadosLeggedController)"/>
 
-  <let name="legged_robot_description" value="$(command 'xacro $(find-pkg-share legged_unitree_description)/urdf/robot.xacro robot_type:=$(var robot_type) camera:=$(var camera) lidar:=$(var lidar) controllers_yaml:=$(var controllers_yaml)')"/>
+  <let name="legged_robot_description" value="$(command 'xacro $(find-pkg-share legged_unitree_description)/urdf/robot.xacro robot_type:=$(var robot_type) camera:=$(var camera) lidar:=$(var lidar) nuc:=$(var nuc) slam_box:=$(var slam_box) controllers_yaml:=$(var controllers_yaml)')"/>
 
-  <node pkg="legged_common" exec="generate_urdf.sh" output="screen" name="generate_urdf" args="$(find-pkg-share legged_unitree_description)/urdf/robot.xacro $(var robot_type) $(var camera) $(var lidar)"/>
+  <node pkg="legged_common" exec="generate_urdf.sh" output="screen" name="generate_urdf" args="$(find-pkg-share legged_unitree_description)/urdf/robot.xacro $(var robot_type) $(var camera) $(var lidar) $(var nuc) $(var slam_box)"/>
 
   <node pkg="robot_state_publisher" exec="robot_state_publisher" name="robot_state_publisher" output="screen">
     <param name="robot_description" value="$(var legged_robot_description)"/>
