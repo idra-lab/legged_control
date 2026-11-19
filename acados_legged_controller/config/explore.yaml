@@ -1,7 +1,0 @@
-# Extra parameters of acados_legged_controller for load_controller_launch.xml (spawner --param-file)
-acados_legged_controller:
-  ros__parameters:
-    simulatedObstacles: false
-    # Goals of TARE/FAR carry a yaw (ranav_mission opti_pessi_goal_bridge: the path direction at the goal; a stop keeps the
-    # robot's yaw): face the velocity far from the goal, turn to its yaw near it (heading.blend_dist)
-    useGoalYaw: true

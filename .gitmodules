@@ -4,3 +4,7 @@
 [submodule "opti_pessi_perception"]
 	path = opti_pessi_perception
 	url = git@github.com:AlexBarbi/opti_pessi_perception.git
+[submodule "acados_legged_controller"]
+	path = acados_legged_controller
+	url = git@github.com:EliaSantuari/opti-pessi-controller.git
+	branch = main
