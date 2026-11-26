@@ -1,9 +1,16 @@
 ; Opti-Pessi MPC -- robot model, cost, limits, horizon and solver settings.
 ; Unitree Go2: opti_pessi_interface/config/task.info (Aliengo) with the Go2 geometry. Pass it to
 ; load_optipessicontroller_launch.xml as optipessiFile.
-; Not tuned in simulation yet. Lengths follow the Go2 URDF; times and speeds are the Aliengo values times
+; Lengths follow the Go2 URDF; times and speeds are the Aliengo values times
 ; sqrt(h_go2 / h_aliengo) = sqrt(0.30 / 0.38) = 0.889 (omega 5.08 -> 5.72), so dt * omega and the Froude number stay as on
-; the Aliengo. Cost weights are the Aliengo ones.
+; the Aliengo. Cost weights are the Aliengo ones, except wdt; dtMin is not scaled (see limits).
+; Tuned 2026-11-26 in Gazebo (headless, camera/lidar off, opti_pessi_scenario.py 1-4): with dtMin 0.09 / wdt 1e-2 the
+; planner sat on dtMin near obstacles and Go2 fell in S3 and S4 (S4 after 6 s); with dtMin 0.12 / wdt 1.0 it reaches the
+; goal in S1-S3 and lasts 70 s in S4. The remaining S4 fall is an IPM solve that stops on step size with its constraints
+; violated (dynamicsViolationSSE > 1) and is applied anyway: OptiPessiMpc does not check the solution, not a tuning issue.
+; Rejecting solves whose applied step fails evaluateSolve(), with fallbackInput() once the plan is stale, was tried and
+; made Go2 worse (falls in S1/S2 at 1-1.4 m/s): the measured lateral speed (0.8-0.9 m/s) is already past dcyMax there, so
+; the best solve is rejected, and the capture step asked for (up to 0.25 m in dtMin) is past footHipMax.
 ; Every value here except obstacleTypes is compiled into the CppAD libraries, whose folder name only changes with
 ; mass/inertia: launch with recompile:=true after editing.
 ; Scenario-specific data (goal, obstacles, simulation) lives in opti_pessi_interface/config/scenario_S*.info.
@@ -37,7 +44,7 @@ cost
   wdc       2.0     ; CoM velocity magnitude (regularization toward standstill)
   wp        0.5     ; foothold distance to the nominal hip
   wa        0.5     ; CoP centering, (alpha - 1/2)^2
-  wdt       1e-2    ; contact-phase duration, (dt - dtCost0)^2
+  wdt       1.0     ; contact-phase duration, (dt - dtCost0)^2 (Aliengo 1e-2, which leaves dt on dtMin; 10 stalls the IPM)
   wtheta    5.0    ; heading alignment
   wdtheta   2.0     ; yaw rate
 }
@@ -45,7 +52,7 @@ cost
 limits
 {
   alphaReduction  0.1    ; CoP margin: alpha in [eps, 1-eps], keeps both feet loaded
-  dtMin           0.09   ; [s] (Aliengo 0.1; stays above OptiPessiController's 0.08 s least landing time)
+  dtMin           0.12   ; [s] (Aliengo 0.1; 0.09, the Froude-scaled value, saturated the WBC friction pyramid in Gazebo)
   dtMax           0.22   ; [s] (Aliengo 0.25)
   dtCost0         0.22   ; preferred contact-phase duration [s] (Aliengo 0.25)
   footHipMax      0.13   ; foot-to-hip reachability radius [m] (Aliengo 0.15, scaled by leg length 0.426/0.5)
@@ -74,7 +81,7 @@ obstacleTypes
 
 horizon
 {
-  N  6   ; contact phases; with dt in [0.09, 0.22] s this is a 0.54-1.32 s lookahead
+  N  6   ; contact phases; with dt in [0.12, 0.22] s this is a 0.72-1.32 s lookahead
 }
 
 ; Measured 10-dof robot state the simulation starts from:
