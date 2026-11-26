@@ -48,6 +48,14 @@
     <xacro:property name="lidar_mount_x" value="0.15"/>
     <xacro:property name="lidar_mount_z" value="0.10"/>
 
+    <!-- Slam box (robot.xacro slam_box:=true, Airy included), in the middle of the trunk. The back there is flat at
+         z = 0.057, with two side rails rising towards the head; the box rests on the highest point under its footprint,
+         z = 0.064 (meshes/go2/trunk.dae). The head (top z = 0.089) stays well below the rays of the Airy. Mount-dependent
+         elsewhere (ranav_bringup config used with robot_type:=go2 slam_box:=true), body_in_base and the lidar height of
+         the terrain nodes. Estimated on the mesh, measure it on the real robot. -->
+    <xacro:property name="slam_box_mount_x" value="0.0"/>
+    <xacro:property name="slam_box_mount_z" value="0.064"/>
+
     <!-- joint limits -->
     <xacro:property name="damping" value="0.05"/>
     <xacro:property name="friction" value="0.01"/>
